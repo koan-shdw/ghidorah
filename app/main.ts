@@ -3309,6 +3309,7 @@ function openJob(id:string,saved?:SavedJobWindow,hidden=false){
 function window(){
   win=new BrowserWindow({show:!process.argv.includes('--hidden'),icon:nativeImage.createFromPath(path.join(app.getAppPath(),'assets/icon.png')),width:1280,height:850,minWidth:650,minHeight:500,title:appName,backgroundColor:'#141413',titleBarStyle:'hidden',titleBarOverlay:{color:'#141413',symbolColor:'#e8e6dc',height:36},webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false}});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+  if(dev)win.on('page-title-updated',event=>event.preventDefault());
   win.webContents.once('did-finish-load',()=>markOpened(updateWatchFile,app.getVersion()));
   win.webContents.on('will-navigate',event=>event.preventDefault());
   win.on('close',e=>{if(!quitting){e.preventDefault();win.hide();}});
