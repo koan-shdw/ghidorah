@@ -1,0 +1,39 @@
+.chat-files-dialog{width:min(1020px,calc(100vw - 32px));height:min(760px,calc(100vh - 64px))}
+.chat-files-dialog h3{margin:0;font-size:var(--fs-title)}
+.chat-files-dialog p{font-size:var(--fs-ui);line-height:1.5;margin:6px 0;color:var(--muted)}
+.chat-files-body{display:grid;grid-template-columns:260px minmax(0,1fr);flex:1;min-height:0}
+.chat-files-body>aside{border-right:1px solid var(--line);padding:14px;display:flex;flex-direction:column;gap:12px;min-height:0}
+.chat-files-body>aside>input{width:100%;min-width:0;padding:9px 10px;border-radius:var(--r);border:1px solid var(--line);background:var(--surface);color:inherit}
+.chat-files-filters{display:flex;gap:5px}
+.chat-files-filters button{border:1px solid transparent;border-radius:var(--r-xl);padding:6px 11px}
+.chat-files-filters button[aria-pressed=true]{border-color:var(--line);background:var(--surface)}
+.chat-files-list{overflow:auto;scrollbar-gutter:stable;flex:1;min-height:0}
+.chat-files-list>button{display:flex;flex-direction:column;align-items:flex-start;text-align:left;width:100%;padding:12px;border-radius:var(--r-lg);margin-bottom:4px;border:1px solid transparent;gap:4px;overflow-wrap:anywhere}
+.chat-files-list>button.selected{background:var(--surface);border-color:var(--line)}
+.chat-files-list strong{font-weight:600;font-size:var(--fs-list)}
+.chat-files-list span,.chat-files-list small{font-size:var(--fs-meta);color:var(--muted)}
+.chat-files-refresh{align-self:flex-start}
+.chat-file-detail{display:flex;flex-direction:column;min-width:0;min-height:0;padding:20px;gap:12px}
+.chat-file-heading{display:flex;gap:12px;justify-content:space-between;align-items:flex-start}
+.chat-file-heading>div{min-width:0}
+.chat-file-heading h3{overflow-wrap:anywhere}
+.chat-file-heading button{white-space:nowrap;border:1px solid var(--line);border-radius:var(--r-xl);padding:8px 14px}
+.chat-file-source{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:var(--fs-meta);color:var(--muted)}
+.chat-file-source button{font-size:var(--fs-meta)}
+.chat-file-preview{overflow:auto;scrollbar-gutter:stable;min-height:0;flex:1;border-top:1px solid var(--line);padding-top:16px}
+.chat-file-preview img{max-width:100%;height:auto;display:block}
+.chat-file-preview figure{margin:0 0 18px}
+.chat-file-preview figcaption{font-size:var(--fs-ui);margin-bottom:8px;color:var(--muted)}
+.chat-file-preview pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font:var(--fs-ui)/1.65 var(--font-mono)}
+.chat-files-dialog button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+@media(max-width:650px){.chat-files-dialog{width:calc(100vw - 16px);height:calc(100vh - 32px)}.chat-files-body{grid-template-columns:minmax(0,1fr);grid-template-rows:180px minmax(0,1fr)}.chat-files-body>aside{border-right:0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.chat-files-list{grid-column:1/-1;display:flex;gap:8px}.chat-files-list>button{min-width:190px;max-width:240px}.chat-files-refresh{display:none}.chat-file-detail{padding:14px}}
+.chat-file-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}
+.artifact-source,.artifact-copy{padding:12px 16px;border-bottom:1px solid var(--line);font-size:var(--fs-ui)}
+.artifact-source label,.artifact-copy label{display:grid;gap:7px}
+.artifact-source select,.artifact-copy input{max-width:100%;width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:var(--r);padding:8px;background:var(--bg);color:var(--text);font:inherit}
+.artifact-source>span,.artifact-copy p{display:block;margin-top:8px;color:var(--muted);font-size:var(--fs-meta)}
+.artifact-copy button{border:1px solid var(--line);border-radius:var(--r);padding:7px 10px;margin-right:8px}
+.chat-files-dialog .kit-dialog-body{display:flex;flex-direction:column;padding:0}
+.chat-files-dialog .kit-dialog-lead{padding:0 var(--space-9) var(--space-6);border-bottom:1px solid var(--line)}
+.chat-files-dialog .chat-files-body{flex:1}
+.chat-files-count{color:var(--muted);font-size:var(--fs-list)}

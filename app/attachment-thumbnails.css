@@ -1,0 +1,16 @@
+.composer>.attachments{gap:14px;padding:14px 6px 12px;align-items:center}
+.attachment-image{position:relative;flex:0 0 112px;width:112px;height:94px;transform:rotate(-2deg);animation:attachment-float 6s ease-in-out infinite;--attachment-tilt:-2deg}
+.attachment-image:nth-child(even){--attachment-tilt:2deg;animation-delay:-3s}
+.attachment-image:nth-child(3n){--attachment-tilt:-1deg;animation-delay:-1.5s}
+.attachment-image-preview{display:flex;align-items:center;justify-content:center;width:100%;height:100%;padding:5px;background:var(--raised);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-card);overflow:hidden}
+.attachment-image-preview img{display:block;width:100%;height:100%;object-fit:contain;border-radius:var(--r)}
+.attachment-image-preview>span{font-size:var(--fs-meta);color:var(--muted)}
+.attachment-image-remove{position:absolute;right:-7px;top:-7px;display:grid;place-items:center;width:25px;height:25px;border-radius:var(--r-round);padding:0;background:var(--raised);border:1px solid var(--line);box-shadow:var(--shadow-card);line-height:1}
+.attachment-image:focus-within,.attachment-image:hover{animation-play-state:paused;z-index:var(--z-raise)}
+.attachment-image button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+@keyframes attachment-float{0%,100%{transform:translateY(0) rotate(var(--attachment-tilt))}50%{transform:translateY(-3px) rotate(var(--attachment-tilt))}}
+@media(prefers-reduced-motion:reduce){.attachment-image{animation:none;transform:rotate(var(--attachment-tilt))}}
+.attachments.sent-attachments{gap:14px;padding:14px 4px 8px;align-items:center}
+.sent-attachments .attachment-image{width:160px;height:128px;flex-basis:160px;animation:none;transform:rotate(var(--attachment-tilt));transition:transform .15s ease}
+.sent-attachments .attachment-image:hover{transform:translateY(-3px) rotate(var(--attachment-tilt))}
+@media(prefers-reduced-motion:reduce){.sent-attachments .attachment-image{transition:none}.sent-attachments .attachment-image:hover{transform:rotate(var(--attachment-tilt))}}

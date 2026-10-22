@@ -1,0 +1,71 @@
+/* The kit's look (app/kit.tsx), drawn only from tokens.css and themes.css. Screens add placement, never new looks. */
+.kit-button{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-3);min-height:var(--h);padding:0 var(--space-5);border:1px solid transparent;border-radius:var(--r);background:transparent;color:inherit;font-size:var(--fs-ui);line-height:1.3;white-space:nowrap}
+.kit-button:hover:not(:disabled){background:var(--raised)}
+.kit-button .sidebar-icon{width:var(--icon);height:var(--icon);flex:0 0 var(--icon)}
+.kit-outline{border-color:var(--line)}
+.kit-outline:hover:not(:disabled){border-color:var(--muted)}
+.kit-primary{background:var(--text);color:var(--bg);font-weight:var(--fw-medium)}
+.kit-primary:hover:not(:disabled){background:var(--text);filter:brightness(.92)}
+.kit-danger{color:var(--danger)}
+.kit-icon-only{width:var(--h);padding:0;color:var(--muted)}
+.kit-icon-only:hover:not(:disabled){color:var(--text)}
+.kit-switch{display:inline-flex;align-items:center;gap:var(--space-3);min-height:var(--h);padding:0 var(--space-4);border:1px solid transparent;border-radius:var(--r);background:transparent;color:var(--muted);font-size:var(--fs-ui);white-space:nowrap}
+.kit-switch:hover:not(:disabled){background:var(--raised)}
+.kit-switch:is([aria-checked=true],[aria-pressed=true]){color:var(--text)}
+.kit-switch-track{position:relative;width:24px;height:14px;flex:0 0 24px;border-radius:var(--r-pill);background:var(--line);transition:background-color .15s}
+.kit-switch-track::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:var(--r-round);background:var(--muted);transition:left .15s}
+.kit-switch:is([aria-checked=true],[aria-pressed=true]) .kit-switch-track{background:color-mix(in srgb,var(--green) 55%,transparent)}
+.kit-switch:is([aria-checked=true],[aria-pressed=true]) .kit-switch-track::after{left:12px;background:var(--text)}
+.kit-dot{display:inline-block;width:7px;height:7px;flex:0 0 7px;border-radius:var(--r-round);background:var(--muted);vertical-align:middle}
+.kit-dot.kit-tone-ok,.kit-dot.kit-tone-live{background:var(--green)}
+.kit-dot.kit-tone-warning{background:var(--warning)}
+.kit-dot.kit-tone-danger{background:var(--danger)}
+.kit-dot.kit-tone-info{background:var(--info)}
+.kit-dot.kit-tone-unread{background:var(--unread)}
+.kit-dot.kit-tone-accent{background:var(--accent)}
+.kit-chip{display:inline-flex;align-items:center;gap:var(--space-2);min-height:var(--h-sm);padding:0 var(--space-4);border:1px solid var(--line);border-radius:var(--r-pill);color:var(--muted);font-size:var(--fs-meta);line-height:1.3;white-space:nowrap}
+.kit-chip.kit-tone-ok,.kit-chip.kit-tone-live{color:var(--green);border-color:color-mix(in srgb,var(--green) 40%,var(--line))}
+.kit-chip.kit-tone-warning{color:var(--warning);border-color:color-mix(in srgb,var(--warning) 40%,var(--line))}
+.kit-chip.kit-tone-danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
+.kit-chip.kit-tone-accent{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}
+.kit-spinner{display:inline-block;width:10px;height:10px;flex:0 0 10px;border:1.5px solid var(--green);border-right-color:transparent;border-radius:var(--r-round);animation:kit-spin 1s linear infinite}
+@keyframes kit-spin{to{transform:rotate(1turn)}}
+.kit-card{min-width:0;padding:var(--space-7) var(--space-8);border:1px solid var(--line);border-radius:var(--r-lg);background:color-mix(in srgb,var(--surface) 55%,var(--bg))}
+.kit-card>h3{margin:0 0 var(--space-6);font-size:var(--fs-body);font-weight:var(--fw-strong)}
+.kit-card>:last-child{margin-bottom:0}
+.kit-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,42%);align-items:center;gap:var(--space-7);padding:var(--space-4) 0;border-top:1px solid var(--line)}
+.kit-row:first-child,h3+.kit-row{border-top:0}
+.kit-row-text{min-width:0}
+.kit-row-name{display:block;font-size:var(--fs-list)}
+.kit-row-text>small{display:block;margin-top:var(--space-1);color:var(--muted);font-size:var(--fs-meta);line-height:1.5}
+.kit-row-control{display:flex;align-items:center;justify-content:flex-end;gap:var(--space-4);min-width:0}
+.kit-row-control>select,.kit-row-control>input:not([type=checkbox]):not([type=radio]),.kit-row-control>.choice-menu{width:100%;min-width:0}
+.kit-notice{display:flex;align-items:center;gap:var(--space-5);padding:var(--space-5) var(--space-6);border:1px solid var(--line);border-radius:var(--r);background:var(--surface);color:var(--muted);font-size:var(--fs-ui);line-height:1.5;overflow-wrap:anywhere}
+.kit-notice-text{flex:1;min-width:0}
+.kit-notice.kit-tone-warning{border-color:color-mix(in srgb,var(--warning) 45%,var(--line));background:color-mix(in srgb,var(--warning) 8%,var(--bg));color:var(--text)}
+.kit-notice.kit-tone-danger{border-color:color-mix(in srgb,var(--danger) 45%,var(--line));background:color-mix(in srgb,var(--danger) 8%,var(--bg));color:var(--text)}
+.kit-tabs{display:flex;align-items:center;gap:var(--space-1);min-width:0}
+.kit-tabs>button{display:inline-flex;align-items:center;gap:var(--space-3);min-height:var(--h);padding:0 var(--space-4);border-radius:var(--r);color:var(--muted);font-size:var(--fs-ui);white-space:nowrap}
+.kit-tabs>button[aria-pressed=true]{background:var(--raised);color:var(--text)}
+.kit-tabs .sidebar-icon{width:var(--icon-sm);height:var(--icon-sm);flex:0 0 var(--icon-sm)}
+.kit-dialog{width:min(480px,calc(100vw - 32px));max-width:none;max-height:calc(100vh - 64px);padding:0;margin:auto;overflow:hidden;border:1px solid var(--line);border-radius:var(--r-xl);background:var(--surface);color:var(--text);box-shadow:var(--shadow-dialog);font-size:var(--fs-list);font-weight:var(--fw-regular);line-height:1.5;text-align:left;text-transform:none;letter-spacing:normal;white-space:normal;-webkit-app-region:no-drag;user-select:text}
+.kit-dialog[open]{display:flex;flex-direction:column}
+.kit-dialog::backdrop{background:var(--overlay)}
+.kit-dialog-sm{width:min(400px,calc(100vw - 32px))}
+.kit-dialog-lg{width:min(860px,calc(100vw - 48px));height:min(680px,calc(100vh - 64px))}
+.kit-dialog-head{display:flex;align-items:center;gap:var(--space-6);flex:none;padding:var(--space-7) var(--space-6) var(--space-4) var(--space-9)}
+.kit-dialog-head>h2{flex:1;min-width:0;margin:0;font-size:var(--fs-title);font-weight:var(--fw-strong);overflow-wrap:anywhere}
+.kit-dialog-head>.kit-icon-only{margin-left:auto}
+.kit-dialog-body{flex:1;min-height:0;overflow:auto;padding:var(--space-2) var(--space-9) var(--space-6)}
+.kit-dialog-body p{line-height:1.6}
+.kit-dialog-foot{display:flex;align-items:center;justify-content:flex-end;gap:var(--space-4);flex:none;padding:var(--space-6) var(--space-9) var(--space-8)}
+.kit-dialog-foot>.kit-spacer{margin-right:auto}
+@media(prefers-reduced-motion:reduce){.kit-spinner{animation:none}.kit-switch-track,.kit-switch-track::after{transition:none}}
+/* What every dialog's content shares; a dialog's own rules (zero specificity here) win over these. */
+.kit-dialog-lead{margin:0 0 var(--space-6);color:var(--muted)}
+.kit-dialog-body :where(label){display:grid;gap:var(--space-4);font-size:var(--fs-ui)}
+.kit-dialog-body :where(input:not([type=checkbox]):not([type=radio]),select,textarea){width:100%;min-width:0;padding:var(--space-4) var(--space-5);border:1px solid var(--line);border-radius:var(--r);background:var(--bg);color:var(--text);font:inherit}
+.kit-dialog-body :where(.actions){display:flex;flex-wrap:wrap;justify-content:flex-end;gap:var(--space-4);margin-top:var(--space-7)}
+.kit-dialog-body :where(ul){max-height:180px;overflow:auto}
+.kit-dialog-body>.kit-notice{margin:var(--space-4) 0}
+:focus:not(:focus-visible){outline:none}

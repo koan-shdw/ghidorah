@@ -1,0 +1,39 @@
+import {_electron as electron,type Page} from 'playwright';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {mainWindow,pollState} from './fixtures/poll-state';
+
+const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work','app-folders-'));
+const launch=async()=>{const app=await electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,args:process.env.TRISMEGISTUS_EXE?['--hidden']:[root,'--hidden'],env:{...process.env,TRISMEGISTUS_TEST_DATA:data}});await app.evaluate(({BrowserWindow})=>{for(const w of BrowserWindow.getAllWindows())w.webContents.setBackgroundThrottling(false);BrowserWindow.prototype.show=function(){};BrowserWindow.prototype.showInactive=function(){};BrowserWindow.prototype.focus=function(){};});return app;};
+let app=await launch(),page:Page;const errors:string[]=[];
+const call=(method:string,args:any={})=>page.evaluate(({method,args})=>window.desktop.invoke(method,args),{method,args});
+async function capture(name:string){const png=await app.evaluate(async({BrowserWindow})=>(await BrowserWindow.getAllWindows().find(w=>/index\.html$/.test(w.webContents.getURL()))!.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG().toString('base64'));await fs.writeFile(path.join(data,name+'.png'),Buffer.from(png,'base64'));}
+try{
+ page=await mainWindow(app);page.setDefaultTimeout(12000);page.on('pageerror',e=>errors.push(e.message));await page.emulateMedia({reducedMotion:'reduce'});await pollState(page,s=>s.backend==='ready');await call('wizardFinish');if(await page.getByLabel('Close settings',{exact:true}).isVisible())await page.getByLabel('Close settings',{exact:true}).click();
+ await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>/index\.html$/.test(w.webContents.getURL()))!.setSize(1100,820));
+ const main=await call('savedAppSave',{name:'Video Dancer'}),other=await call('savedAppSave',{name:'Sprite Dancer'}),extra=await call('savedAppSave',{name:'Vid Drop',ideas:'Keep this idea'});
+ const chat=await call('newChat');await call('savedAppTodo',{app:extra.id,title:'Keep this task'});
+ const tile=(id:string)=>page.locator('[data-saved-app-id="'+id+'"]');
+ await page.getByRole('button',{name:'New app folder',exact:true}).click();let dialog=page.getByRole('dialog',{name:'New app folder',exact:true});await dialog.getByLabel('Folder name').fill('Experiments');await dialog.getByRole('button',{name:'Create folder',exact:true}).click();
+ let state=await pollState(page,s=>s.savedAppGroups?.length===1),group=state.savedAppGroups![0];
+ await tile(extra.id).click({button:'right'});await page.getByRole('menuitem',{name:'Move to folder',exact:true}).click();await page.getByRole('menuitem',{name:'Experiments',exact:true}).click();await pollState(page,s=>s.savedApps?.find(a=>a.id===extra.id)?.groupId===group.id);
+ const groupBox=()=>page.locator('[data-app-folder="'+group.id+'"]'),toggle=()=>page.getByRole('button',{name:'App folder Experiments',exact:true});
+ await groupBox().locator('[data-saved-app-id="'+extra.id+'"]').waitFor();assert.equal(await page.locator('.saved-app-ungrouped [data-saved-app-id]').count(),2);
+ await toggle().click();await tile(extra.id).waitFor({state:'detached'});assert.equal(await toggle().getAttribute('aria-expanded'),'false');
+ await tile(other.id).dragTo(toggle());await pollState(page,s=>s.savedApps?.find(a=>a.id===other.id)?.groupId===group.id);assert.equal(await toggle().getAttribute('aria-expanded'),'false','Dropping into a collapsed folder keeps it collapsed');
+ await tile(main.id).dragTo(toggle());await pollState(page,s=>s.savedApps?.every(a=>a.groupId===group.id)===true);await page.locator('.saved-app-ungrouped .saved-app-drop-hint').waitFor({state:'visible'});
+ await toggle().click();await tile(extra.id).waitFor();await tile(other.id).dragTo(page.locator('.saved-app-ungrouped'));await pollState(page,s=>s.savedApps?.find(a=>a.id===other.id)?.groupId===null);
+ await tile(main.id).click({button:'right'});await page.getByRole('menuitem',{name:'Move to folder',exact:true}).click();await page.getByRole('menuitem',{name:'No folder · keep at top',exact:true}).click();await pollState(page,s=>s.savedApps?.find(a=>a.id===main.id)?.groupId===null);
+ // Chat drag-to-app still links the chat; it does not move the app's folder.
+ if(await page.getByRole('button',{name:'Show all chats',exact:true}).isVisible())await page.getByRole('button',{name:'Show all chats',exact:true}).click();
+ await page.locator('[data-chat-id="'+chat+'"]').dragTo(tile(extra.id));await pollState(page,s=>s.savedApps?.find(a=>a.id===extra.id)?.chatIds.includes(chat)===true);assert.equal((await call('state')).savedApps.find((a:any)=>a.id===extra.id).groupId,group.id);
+ await page.getByRole('button',{name:'Actions for app folder Experiments',exact:true}).click();await page.getByRole('menuitem',{name:'Rename folder',exact:true}).click();dialog=page.getByRole('dialog',{name:'Rename app folder',exact:true});await dialog.getByLabel('Folder name').fill('Later');await dialog.getByRole('button',{name:'Save',exact:true}).click();
+ const later=()=>page.getByRole('button',{name:'App folder Later',exact:true});await later().waitFor();await capture('folder-expanded');await later().click();await pollState(page,s=>s.savedAppGroups?.[0].collapsed===true);
+ await page.getByLabel('Show chats for Video Dancer',{exact:true}).click();
+ for(const width of [1100,740]){await app.evaluate(({BrowserWindow},width)=>BrowserWindow.getAllWindows().find(w=>/index\.html$/.test(w.webContents.getURL()))!.setSize(width,820),width);await page.waitForTimeout(150);const top=await tile(main.id).boundingBox(),folder=await later().boundingBox();assert.ok(top&&folder&&top.y+top.height<folder.y,'Ungrouped apps stay above folders');assert.equal(await page.locator('.saved-app-sections').evaluate(el=>el.scrollWidth<=el.clientWidth),true);await capture('folders-'+width);}
+ await app.evaluate(({app})=>app.quit());await app.close();app=await launch();page=await mainWindow(app);page.setDefaultTimeout(12000);page.on('pageerror',e=>errors.push(e.message));await pollState(page,s=>s.backend==='ready');await page.getByLabel('Close settings',{exact:true}).click();assert.equal(await later().getAttribute('aria-expanded'),'false');assert.equal(await tile(extra.id).count(),0);
+ await later().focus();assert.equal(await later().evaluate(el=>document.activeElement===el),true);await page.keyboard.press('Shift+F10');await page.getByRole('menuitem',{name:'Remove folder…',exact:true}).click();dialog=page.getByRole('dialog',{name:'Remove Later?',exact:true});assert.match(await dialog.innerText(),/Apps in this folder will move to the top/);await dialog.getByRole('button',{name:'Remove folder',exact:true}).click();state=await pollState(page,s=>s.savedAppGroups?.length===0);assert.equal(state.savedApps!.length,3);assert.equal(state.savedApps!.find(a=>a.id===extra.id)!.groupId,null);assert.equal(state.savedApps!.find(a=>a.id===extra.id)!.ideas,'Keep this idea');assert.equal(state.savedApps!.find(a=>a.id===extra.id)!.todos!.length,1);
+ await page.locator('.saved-app-ungrouped [data-saved-app-id]').nth(2).waitFor();assert.equal(await page.locator('.saved-app-ungrouped [data-saved-app-id]').count(),3);assert.deepEqual(errors,[]);assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().some(w=>w.isVisible())),false);
+ await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({create:true,moveMenu:true,dragToCollapsed:true,dragBackToTop:true,emptyTopDrop:true,chatDropPreserved:true,rename:true,collapseSurvivesRestart:true,ungroupedFirst:true,responsive:true,removeKeepsApps:true,noVisibleWindows:true},null,2));console.log('PASS app folders, drag/drop, persistence, ordering and preserved data. '+data);
+}finally{await app.evaluate(({app})=>app.quit()).catch(()=>{});await app.close().catch(()=>{});}

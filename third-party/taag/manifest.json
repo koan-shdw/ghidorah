@@ -1,0 +1,151 @@
+{
+  "source": "https://patorjk.com/software/taag/",
+  "retrieved": "2026-09-29",
+  "bundle": "index-BJbq3q41.js",
+  "source_sha256": "f173e6ce7a47212ad903f102d514cd15b448858253cd7c5290539c737b15b273",
+  "assets": {
+    "tdf-bleach.tdf": {
+      "bytes": 7117,
+      "sha256": "caf957154024a6dd7cb9de6e62e6fed8a669d68e390f2349147df0dcc8017fc6"
+    },
+    "tdf-chunk-00a.tdf": {
+      "bytes": 613038,
+      "sha256": "5c3739ad091e5cdf497269de6b12288a2910d8b482a8c9541df4bc51d97d0bb6"
+    },
+    "tdf-chunk-01a.tdf": {
+      "bytes": 613272,
+      "sha256": "6ba5ab3bf006be99c8096d572b89d1c9c648d0aa8ea43834515db33332b77337"
+    },
+    "tdf-chunk-02.tdf": {
+      "bytes": 600687,
+      "sha256": "4e239562c2b65e2a875311587eb54921701e64d268767e4b16f5a6a3527742d2"
+    },
+    "tdf-chunk-03a.tdf": {
+      "bytes": 603276,
+      "sha256": "0b872990dd8082479b3b7d5f5f53748b1929c16837b61c04756fa33ddc356a50"
+    },
+    "tdf-chunk-04.tdf": {
+      "bytes": 614376,
+      "sha256": "665ac80f8b29481d211ab21574420c19e9f3c75b17e048fa62695ab5d06bdd6f"
+    },
+    "tdf-chunk-05a.tdf": {
+      "bytes": 609356,
+      "sha256": "59b0517398d82fcfad595980e7be8390d37c12b6bfa6601f80e5aeb73de45d11"
+    },
+    "tdf-chunk-06a.tdf": {
+      "bytes": 608487,
+      "sha256": "7ab0dbd3334361265b1fd210699eb92828ed1f91d1ecd92d44c8413be1800386"
+    },
+    "tdf-chunk-07.tdf": {
+      "bytes": 614399,
+      "sha256": "d2fffed4000519b1221f92014b2697bb93c29e31c77f8bfeb6c59134b68a4475"
+    },
+    "tdf-chunk-08.tdf": {
+      "bytes": 612806,
+      "sha256": "8aeda76531bf3925d573b560621ad061ea7eb8ef059211601e1d596cc6f8ba0b"
+    },
+    "tdf-chunk-09.tdf": {
+      "bytes": 608945,
+      "sha256": "2400c0c975c867f830b90b76f3ddbe8523f81e34ceb879a1066ceee19e120a91"
+    },
+    "tdf-chunk-10.tdf": {
+      "bytes": 611566,
+      "sha256": "6199976a39c682ab7241142d1a6a7e66fdc5df4cb7695b5ae658925bf4d5e31f"
+    },
+    "tdf-chunk-11.tdf": {
+      "bytes": 607054,
+      "sha256": "4fb03ffffe157e7676dc2fe85b0ff8e3d7100fefbd4cecfeae5764a3f8591551"
+    },
+    "tdf-chunk-12a.tdf": {
+      "bytes": 612304,
+      "sha256": "62d24000ffebcd51dfc62e07d8243bd20d3d95aca14ec22078882b9d91572d02"
+    },
+    "tdf-chunk-13a.tdf": {
+      "bytes": 554566,
+      "sha256": "7daa90867be22f9644a0bfca064a0138b292d892ee336f956596091ef594681c"
+    },
+    "tdf-chunk-14.tdf": {
+      "bytes": 612555,
+      "sha256": "2f557106a124e04522b5899281b095fee660bdebbc35ebb224d680cb5190bdd6"
+    },
+    "tdf-chunk-15.tdf": {
+      "bytes": 611586,
+      "sha256": "4380ecd08d283754f8ea6992bd242a6467f499a6df01e18140f5afd3e7932089"
+    },
+    "tdf-chunk-16a.tdf": {
+      "bytes": 613363,
+      "sha256": "1b3b28dd2ab45a9f04c0ea929e112125dad00007702aac0fab6a96309b9bc269"
+    },
+    "tdf-chunk-17.tdf": {
+      "bytes": 611790,
+      "sha256": "26e618d7172c19eb5195941bb2a3e21134229d20fb78fe00425c86f20ec7351e"
+    },
+    "tdf-chunk-18.tdf": {
+      "bytes": 607614,
+      "sha256": "e092376967ba84196e63344ded3c03cbad5d5b5fce96573aa05e084553ceae85"
+    },
+    "tdf-chunk-19.tdf": {
+      "bytes": 611250,
+      "sha256": "f5c38c680e6d85d94443c1c6517a85a61460315263ca0ff10695273f122392a8"
+    },
+    "tdf-chunk-20.tdf": {
+      "bytes": 609594,
+      "sha256": "d2cf71ddb41351e6fd5b96577563976316b317c09c7131d366a6766356f1361b"
+    },
+    "tdf-chunk-21a.tdf": {
+      "bytes": 612580,
+      "sha256": "80fdea6967539cb35eeef1deca149ca7f27b8f45adb7c2767719a26e5d44720f"
+    },
+    "tdf-chunk-22.tdf": {
+      "bytes": 609299,
+      "sha256": "ccc7a730ddefc34279f045aa99d89d1e2cbe7acfcc504d5088f613f0725fc2b4"
+    },
+    "tdf-chunk-23.tdf": {
+      "bytes": 613577,
+      "sha256": "e3b2ed4637501ed618eb3b27595672cb5ac26a03f2571e495304ce13fe596835"
+    },
+    "tdf-chunk-24.tdf": {
+      "bytes": 613157,
+      "sha256": "9fb75f51a4ac13a6e17a3f66056f200f2ebe8aaf13d36b419357926211f7d960"
+    },
+    "tdf-chunk-25.tdf": {
+      "error": "HTTP Error 406: Not Acceptable"
+    },
+    "tdf-chunk-26.tdf": {
+      "bytes": 611986,
+      "sha256": "d9cd2d47db55c7528590b97c6b3a2942f59ba743ee20a837951394722927f608"
+    },
+    "tdf-chunk-27a.tdf": {
+      "bytes": 612836,
+      "sha256": "a7fe5b7220ed6e296527247576c6ad7c2da56e06d4d3d86d90fb34989fcfcf64"
+    },
+    "tdf-chunk-28.tdf": {
+      "bytes": 610971,
+      "sha256": "ceeb38c96fb8dcf5f99fbb4e4938e6b713a4d938e42ba928bc5196a92040be09"
+    },
+    "tdf-chunk-29a.tdf": {
+      "bytes": 614409,
+      "sha256": "b4fe7a2b87137d07843cd581de219404846fd3084a49af747b4a0d98011040b8"
+    },
+    "tdf-chunk-30a.tdf": {
+      "bytes": 613069,
+      "sha256": "d085c9cf442576f8a30e56148d01fb17d3842dd0537b24e3e7c90c9f5570fadb"
+    },
+    "tdf-chunk-31.tdf": {
+      "bytes": 614163,
+      "sha256": "db5e89fb6e6968611d56ee1cce03171cc5f49c59fd5be04593f31cbe7008a8e8"
+    },
+    "tdf-chunk-32.tdf": {
+      "bytes": 613618,
+      "sha256": "75733710bca9f8a4332b348853a8bb22888088f8d134fc1049167a14465afe29"
+    },
+    "tdf-chunk-33a.tdf": {
+      "bytes": 423357,
+      "sha256": "25fa35824a129d5f50881efde4260d273c4632820a65abfb58ed0f341f251b23"
+    },
+    "tdf-fategate.tdf": {
+      "bytes": 58465,
+      "sha256": "4f05ea9c61b06d83e6bfa2ff651ca27605de6b4ee29c5f5245feff070cb5e752"
+    }
+  }
+}

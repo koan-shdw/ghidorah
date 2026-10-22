@@ -1,0 +1,45 @@
+import {_electron as electron} from 'playwright';
+import {spawn} from 'node:child_process';
+import {createInterface} from 'node:readline';
+import {once} from 'node:events';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {Backend,PYTHON} from '../app/backend';
+import {mainWindow,pollState} from './fixtures/poll-state';
+
+const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/compact-rlm-')),folder=await fs.mkdtemp(path.join(root,'work/compact-rlm-files-'));
+const host=new Backend(root,data,'Trismegistus/Test/'+path.basename(data),()=>{});await host.host('initialize');await host.host('save_key',{key:'synthetic-deepseek-regression-credential'});
+const fake=spawn(PYTHON,['tests/fake_provider.py'],{cwd:root,windowsHide:true,stdio:['pipe','pipe','inherit']}),lines=createInterface({input:fake.stdout}),[line]=await once(lines,'line');
+const env={...process.env,TRISMEGISTUS_TEST_DATA:data,TRISMEGISTUS_TEST_PROVIDER_URL:JSON.parse(line).url,TRISMEGISTUS_TEST_CLAUDE:path.join(root,'tests/fixtures/claude-cli.mjs'),TRISMEGISTUS_TEST_CLAUDE_NODE:process.execPath};
+const launch=async()=>{const app=await electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,args:process.env.TRISMEGISTUS_EXE?['--hidden']:[root,'--hidden'],env});await app.evaluate(({BrowserWindow})=>{BrowserWindow.prototype.show=function(){};BrowserWindow.prototype.showInactive=function(){};BrowserWindow.prototype.focus=function(){};});return app;};let app=await launch();
+try{
+ let page=await mainWindow(app);page.setDefaultTimeout(20000);const call=(method:string,args:any={})=>page.evaluate(({method,args})=>window.desktop.invoke(method,args),{method,args});
+ await pollState(page,s=>s.backend==='ready'&&s.claude?.models?.some(m=>m.id==='claude-code:haiku')===true);await call('wizardFinish');await call('workingFolder',{folder});
+ const chatId=await call('newChat');await call('addModel',{chatId,model:'claude-code:haiku'});await call('mode',{projectId:(await call('state')).chats.find((c:any)=>c.id===chatId).projectId,mode:'bypass'});
+ const send=async(text:string,model='claude-code:haiku',owner=chatId)=>{const id=crypto.randomUUID();await call('submit',{chatId:owner,id,text,models:[model]});const state=await pollState(page,s=>s.turns.some(t=>t.id===id&&['completed','failed','interrupted','stopped'].includes(t.status)));assert.equal(state.turns.find(t=>t.id===id)!.status,'completed',state.turns.find(t=>t.id===id)!.error||'');return id;};
+ await call('openMainChat',{chatId});const toggle=page.getByRole('button',{name:'RLM history',exact:true});await toggle.waitFor();assert.equal(await toggle.getAttribute('aria-pressed'),'true');
+ const first=await send('ANCHOR_KEEP is the approved decision.');await send('Newest task: ANCHOR_LATEST.');const before=(await call('state')).turns;
+ // Real slash-menu/composer path, with a focus appended by the user.
+ const composer=page.locator('textarea[placeholder="Message"]');await composer.fill('/compact preserve ANCHOR_KEEP');await composer.press('Enter');
+ let state:any=await pollState(page,s=>s.turns.some(t=>t.contextCommand&&t.status==='completed'));let context=state.chats.find((c:any)=>c.id===chatId).context;assert.equal(context.origin,'command');assert.match(context.summary,/ANCHOR_KEEP/);assert.deepEqual(state.turns.filter((t:any)=>before.some((b:any)=>b.id===t.id)),before);assert.equal(state.tools.filter((t:any)=>t.turnId===state.turns.at(-1).id).length,0);
+ await send('Continue from the saved decision.');let requests=(await fs.readFile(path.join(data,'claude-requests.jsonl'),'utf8')).trim().split('\n').map(row=>JSON.parse(row));assert.match(requests.at(-1).prompt,/ANCHOR_KEEP/);assert.equal(requests.at(-1).args.includes('--resume'),false);assert.match(JSON.stringify(requests.at(-1).content),/RLM history assistance is on/);
+ const query={question:'What decision was approved?',query:'ANCHOR_KEEP is the approved'};
+ const lookup=await send('RLM_HISTORY_FIXTURE '+JSON.stringify(query),'deepseek-flash');state=await call('state');let result=JSON.stringify(state.tools.find((t:any)=>t.turnId===lookup&&t.name==='query_chat_history')?.result);assert.match(result,/Saved decision retrieved/);assert.match(result,new RegExp(first));
+ const nativeLookup=await send(JSON.stringify({action:'mcp',server:'ghidorah',tool:'query_chat_history',arguments:query,requiredTools:['query_chat_history']}));state=await call('state');assert.match(state.turns.find((t:any)=>t.id===nativeLookup).text,/Saved decision retrieved/);
+ const usageBefore=state.chats.find((c:any)=>c.id===chatId).summarizationUsage.length;await toggle.click();await page.waitForFunction(()=>document.querySelector('[aria-label="RLM history"]')?.getAttribute('aria-pressed')==='false');assert.equal(await toggle.getAttribute('aria-pressed'),'false');
+ const off=await send('RLM_HISTORY_FIXTURE '+JSON.stringify(query),'deepseek-flash');state=await call('state');result=JSON.stringify(state.tools.find((t:any)=>t.turnId===off&&t.name==='query_chat_history')?.result);assert.match(result,/off/);assert.equal(state.chats.find((c:any)=>c.id===chatId).summarizationUsage.length,usageBefore);
+ await send('Confirm the current history mode.');requests=(await fs.readFile(path.join(data,'claude-requests.jsonl'),'utf8')).trim().split('\n').map(row=>JSON.parse(row));assert.match(JSON.stringify(requests.at(-1).content),/RLM history assistance is off/);
+ // Koan's rule (2026-10-08, Phase 1 54a03a9): Claude shrinks its own live session; Tris adds no automatic summary.
+ const automatic=await call('newChat');await call('addModel',{chatId:automatic,model:'claude-code:haiku'});await send('ANCHOR_AUTO '+('earlier context '.repeat(12000)),'claude-code:haiku',automatic);await send('Latest correction stays exact. HIGH_CONTEXT_FIXTURE','claude-code:haiku',automatic);await send('Continue','claude-code:haiku',automatic);state=await call('state');assert.equal(state.chats.find((c:any)=>c.id===automatic).context,undefined,'no Tris summary for a live Claude session');requests=(await fs.readFile(path.join(data,'claude-requests.jsonl'),'utf8')).trim().split('\n').map(row=>JSON.parse(row));assert.ok(requests.at(-1).prompt.length<60000);
+ const slow=await call('newChat');await call('addModel',{chatId:slow,model:'claude-code:haiku'});await send('SLOW_CONTEXT_FIXTURE ANCHOR_CANCEL','claude-code:haiku',slow);await send('Latest','claude-code:haiku',slow);
+ const cancelId=crypto.randomUUID();await call('submit',{chatId:slow,id:cancelId,text:'/compact'});await pollState(page,s=>!!s.chats.find(c=>c.id===slow)?.compacting);
+ const correction=crypto.randomUUID();await call('correctGroup',{chatId:slow,id:correction,text:'Continue after stopping the summary.'});state=await pollState(page,s=>s.turns.some(t=>t.id===correction&&t.status==='completed'));assert.equal(state.turns.find((t:any)=>t.id===cancelId).status,'stopped');assert.equal(state.chats.find((c:any)=>c.id===slow).context,undefined);
+ await call('openMainChat',{chatId});
+ const capture=await app.evaluate(async({BrowserWindow})=>{const w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('index.html'))!;await w.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true});await new Promise(r=>setTimeout(r,100));return (await w.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG().toString('base64');});await fs.writeFile(path.join(data,'footer.png'),Buffer.from(capture,'base64'));
+ // The setting belongs to this chat and survives restart and a detached window.
+ await app.evaluate(({app})=>app.quit());await app.close();app=await launch();page=await mainWindow(app);await pollState(page,s=>s.backend==='ready');await call('openMainChat',{chatId});assert.equal(await page.getByRole('button',{name:'RLM history',exact:true}).getAttribute('aria-pressed'),'false');
+ await call('openChatWindow',{chatId});let detached;for(let n=0;n<100&&!detached;n++){detached=app.windows().find(p=>p.url().endsWith('#chat='+chatId));if(!detached)await page.waitForTimeout(100);}assert.ok(detached);assert.equal(await detached.getByRole('button',{name:'RLM history',exact:true}).getAttribute('aria-pressed'),'false');await detached.getByRole('button',{name:'RLM history',exact:true}).click();assert.equal((await call('state')).chats.find((c:any)=>c.id===chatId).rlm,true);
+ assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().some(w=>w.isVisible())),false);
+ await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({slashCommand:true,originalsRetained:true,autoCompact:true,boundedContinuation:true,rlmBothEngines:true,defaultOn:true,offNoCalls:true,usage:true,cancellationContinues:true,restart:true,detachedToggle:true,hidden:true},null,2));console.log('PASS /compact, auto compaction and RLM history on both engines; '+data);
+}finally{await app.evaluate(({app})=>app.quit()).catch(()=>{});await app.close().catch(()=>{});fake.stdin.end('\n');lines.close();await host.host('delete_key');}

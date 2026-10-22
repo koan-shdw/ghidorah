@@ -1,0 +1,42 @@
+import {_electron as electron} from 'playwright';
+import {spawn,execFileSync} from 'node:child_process';
+import {once} from 'node:events';
+import {createInterface} from 'node:readline';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import assert from 'node:assert/strict';
+import {Backend,PYTHON} from '../app/backend';
+
+const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/goals-')),namespace='Trismegistus/Test/'+path.basename(data),host=new Backend(root,data,namespace,()=>{});
+await host.host('initialize');await host.host('save_key',{key:'synthetic-deepseek-regression-credential'});
+const fake=spawn(PYTHON,['tests/fake_provider.py'],{windowsHide:true,stdio:'pipe'}),lines=createInterface({input:fake.stdout});const [line]=await once(lines,'line');
+const env={...process.env,TRISMEGISTUS_TEST_DATA:data,TRISMEGISTUS_TEST_PROVIDER_URL:JSON.parse(line).url,TRISMEGISTUS_TEST_CLAUDE:path.join(root,'tests/fixtures/claude-cli.mjs'),TRISMEGISTUS_TEST_CLAUDE_NODE:process.execPath};
+const launch=()=>electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,args:process.env.TRISMEGISTUS_EXE?[]:[root],env,timeout:30000});let app=await launch();
+try{
+ let page=await app.firstWindow();page.setDefaultTimeout(15000);
+ const call=(method:string,args:any={})=>page.evaluate(({method,args})=>window.desktop.invoke(method,args),{method,args});
+ const until=async(predicate:(state:any)=>boolean,label:string,timeout=90000)=>{const end=Date.now()+timeout;while(Date.now()<end){const state=await call('state');if(predicate(state))return state;await page.waitForTimeout(100);}throw Error(label+': '+JSON.stringify((await call('state')).goals));};
+ const ready=()=>until(s=>s.backend==='ready'&&s.claude?.models?.length,'ready');await ready();
+ if(await page.getByLabel('Close settings',{exact:true}).count())await page.getByLabel('Close settings',{exact:true}).click();const chatId=await call('newChat');await page.locator('.chat-link').last().click();
+ await call('modelSelection',{chatId,model:'deepseek-flash',selected:true});
+ await page.getByRole('button',{name:'＋ Set Goal',exact:true}).click();await page.getByLabel('Goal objective').fill('GOAL_FIXTURE {"key":"first","steps":2}');await page.getByRole('button',{name:'Set Goal',exact:true}).click();
+ let state=await until(s=>s.goals?.find((g:any)=>g.id===chatId)?.status==='complete','two-turn complete');assert.equal(state.goals[0].turns,2);assert.ok(state.goals[0].tokens>0);assert.ok(state.goals[0].evidence);assert.equal(state.turns.filter((t:any)=>t.chatId===chatId).length,2);await page.screenshot({path:path.join(data,'goal-window.png')});
+ await page.getByLabel('Close goal').click();const other=await call('newChat');await page.locator('.chat-link').filter({hasText:'New project'}).last().click();await page.getByRole('button',{name:'＋ Set Goal',exact:true}).waitFor();assert.equal(await page.locator('.goal-direction').count(),0);assert.equal(state.goals.some((g:any)=>g.id===other),false);
+ await call('modelSelection',{chatId:other,model:'deepseek-flash',selected:true});await call('goalSet',{chatId:other,objective:'GOAL_FIXTURE {"key":"budget","steps":20}',tokenBudget:1});state=await until(s=>s.goals.find((g:any)=>g.id===other)?.status==='budget-limited','budget stop');assert.equal(state.goals.find((g:any)=>g.id===other).turns,1);
+ const switching=await call('newChat');await call('modelSelection',{chatId:switching,model:'deepseek-flash',selected:true});await call('goalSet',{chatId:switching,objective:'GOAL_FIXTURE {"key":"switch","slow":true,"steps":10}',tokenBudget:null});
+ state=await until(s=>s.turns.some((t:any)=>t.chatId===switching&&t.text.length>10),'stream before pause');await call('goalPause',{chatId:switching});await until(s=>s.turns.filter((t:any)=>t.chatId===switching).every((t:any)=>['stopped','completed','interrupted'].includes(t.status)),'stopped');
+ const count=(await call('state')).turns.length;await page.waitForTimeout(1200);assert.equal((await call('state')).turns.length,count);
+ await call('addModel',{chatId:switching,model:'claude-code:haiku'});await call('modelSelection',{chatId:switching,model:'claude-code:haiku',selected:true});await call('goalResume',{chatId:switching,objective:'GOAL_FIXTURE {"key":"switch-native"}',tokenBudget:null});
+ state=await until(s=>s.goals.find((g:any)=>g.id===switching)?.status==='complete','native completion');assert.equal(state.turns.filter((t:any)=>t.chatId===switching).at(-1).model,'claude-code:haiku');assert.match(state.goals.find((g:any)=>g.id===switching).objective,/switch-native/);
+ const folder=await fs.mkdtemp(path.join(os.tmpdir(),'tris-goal-work-'));await call('workingFolder',{folder});
+ const pausedWrite=await call('newChat');await call('modelSelection',{chatId:pausedWrite,model:'deepseek-flash',selected:true});await call('goalSet',{chatId:pausedWrite,objective:'GOAL_FIXTURE {"key":"denied","steps":1,"write":"must-not-exist.txt"}',tokenBudget:null});
+ await until(s=>s.approvals.some((a:any)=>a.chatId===pausedWrite&&a.status==='pending'),'goal approval');await call('goalPause',{chatId:pausedWrite});await until(s=>s.turns.filter((t:any)=>t.chatId===pausedWrite).every((t:any)=>['stopped','completed','interrupted'].includes(t.status)),'pause releases approval');assert.equal(await fs.stat(path.join(folder,'must-not-exist.txt')).then(()=>true,()=>false),false);
+ const allowedWrite=await call('newChat');await call('modelSelection',{chatId:allowedWrite,model:'deepseek-flash',selected:true});await call('goalSet',{chatId:allowedWrite,objective:'GOAL_FIXTURE {"key":"allowed","steps":1,"write":"goal-result.txt"}',tokenBudget:null});
+ state=await until(s=>s.approvals.some((a:any)=>a.chatId===allowedWrite&&a.status==='pending'),'allowed goal approval');await call('approve',{id:state.approvals.find((a:any)=>a.chatId===allowedWrite&&a.status==='pending').id,choice:'once'});await until(s=>s.goals.find((g:any)=>g.id===allowedWrite)?.status==='complete','write goal complete');assert.match(await fs.readFile(path.join(folder,'goal-result.txt'),'utf8'),/Verified goal fixture/);
+ const parallel=await call('newChat');await call('addModel',{chatId:parallel,model:'claude-code:haiku'});await call('modelSelection',{chatId:parallel,model:'deepseek-flash',selected:true});await call('modelSelection',{chatId:parallel,model:'claude-code:haiku',selected:true});await call('goalSet',{chatId:parallel,objective:'GOAL_FIXTURE {"key":"parallel","steps":1}',tokenBudget:null});
+ state=await until(s=>s.goals.find((g:any)=>g.id===parallel)?.status==='complete','parallel goal');assert.equal(state.turns.find((t:any)=>t.chatId===parallel).jobs.length,2);for(const side of app.windows().filter(window=>window!==page))assert.deepEqual((await side.evaluate(()=>window.desktop.invoke('state'))).goals,[]);
+ const restarting=await call('newChat');await call('modelSelection',{chatId:restarting,model:'deepseek-flash',selected:true});await call('goalSet',{chatId:restarting,objective:'GOAL_FIXTURE {"key":"restart","slow":true,"steps":10}',tokenBudget:null});await until(s=>s.turns.some((t:any)=>t.chatId===restarting&&t.text.length>10),'restart streaming');
+ const actualPid=await app.evaluate(()=>process.pid);process.kill(actualPid,'SIGKILL');await app.close().catch(()=>{});app=await launch();page=await app.firstWindow();await ready();state=await call('state');const restarted=state.goals.find((g:any)=>g.id===restarting);assert.equal(restarted.status,'paused');assert.match(restarted.summary,/restarted/);const before=state.turns.length;await page.waitForTimeout(1200);assert.equal((await call('state')).turns.length,before);
+ await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({twoTurns:true,chatIsolation:true,budget:true,pause:true,modelSwitch:true,editedDirection:true,approvals:true,approvedFile:folder,parallel:true,sideWindowIsolation:true,crashNoReplay:true},null,2));console.log('PASS goal window, continuation, chat isolation, budget, pause, model switch, refined direction, approvals, parallel completion/side-window isolation and crash without replay');console.log(data);
+}finally{await app.evaluate(({app})=>app.quit()).catch(()=>{});await app.close().catch(()=>{});fake.stdin.end('\n');lines.close();await host.host('delete_key');execFileSync(PYTHON,['-c',"import sys;sys.path.insert(0,'backend');import windows_credentials as v;v.delete(sys.argv[1])",namespace+'/encryption'],{windowsHide:true});}

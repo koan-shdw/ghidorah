@@ -1,0 +1,16 @@
+// Layout stress with synthetic connected accounts; no sign-ins or API calls.
+import {_electron as electron} from 'playwright';import {build} from 'esbuild';import fs from 'node:fs/promises';import path from 'node:path';import assert from 'node:assert/strict';
+const root=process.cwd(),folder=await fs.mkdtemp(path.join(root,'work','settings-populated-'));
+const bundle=await build({stdin:{resolveDir:root,loader:'tsx',contents:`
+ import React from 'react';import {createRoot} from 'react-dom/client';import {SettingsDialog} from './app/settings-dialog';import {SecuritySettings} from './app/settings-pages';import {apiSuppliers} from './app/api-catalog';
+ const state={projects:[],chats:[],turns:[],tools:[],approvals:[],backend:'ready',connected:true,providerStatus:'Connected',codex:{connected:true,status:'Connected'},claude:{connected:true,status:'Signed in'},jev:{connected:true,status:'Connected'},apiProviders:Object.keys(apiSuppliers).map((provider,index)=>({provider,connected:true,status:index===6?'Connection check failed. The supplier could not be reached.':'Connected',models:[]})),keyRotation:{openai:Date.now()}};
+ createRoot(document.getElementById('root')).render(<SettingsDialog page="security" select={()=>{}} close={()=>{}}><SecuritySettings state={state} call={async()=>{}} openSupplier={()=>{}}/></SettingsDialog>);
+ `},bundle:true,write:false,format:'iife'});
+await fs.writeFile(path.join(folder,'ui.js'),bundle.outputFiles[0].text);await fs.writeFile(path.join(folder,'ui.css'),(await fs.readFile('app/ui.css','utf8'))+(await fs.readFile('app/settings-dialog.css','utf8')));
+await fs.writeFile(path.join(folder,'index.html'),'<html><head><meta charset="utf-8"><link rel="stylesheet" href="ui.css"></head><body><div id="root"></div><script src="ui.js"></script></body></html>');
+await fs.writeFile(path.join(folder,'main.cjs'),`const {app,BrowserWindow}=require('electron');app.setPath('userData',${JSON.stringify(path.join(folder,'data'))});app.whenReady().then(()=>{const w=new BrowserWindow({width:1280,height:940,show:false});w.loadFile(${JSON.stringify(path.join(folder,'index.html'))});});`);
+const app=await electron.launch({args:[path.join(folder,'main.cjs')],timeout:30000});
+try{const page=await app.firstWindow();await page.getByRole('dialog',{name:'Settings',exact:true}).waitFor();const body=page.locator('.settings-body');assert.equal(await page.locator('.rotation-list>li').count(),18);
+ for(const width of [1280,820]){await app.evaluate(({BrowserWindow},width)=>BrowserWindow.getAllWindows()[0].setSize(width,850),width);for(const theme of ['dark','light']){await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);await body.evaluate(el=>el.scrollTop=0);assert.ok(await body.evaluate(el=>el.scrollWidth<=el.clientWidth));const rect=await page.locator('.settings-dialog').boundingBox();await page.screenshot({path:path.join(folder,width+'-'+theme+'.png')});await body.evaluate(el=>el.scrollTop=el.scrollHeight);assert.deepEqual(await page.locator('.settings-dialog').boundingBox(),rect);await page.getByLabel('Z.ai · GLM rotated',{exact:true}).waitFor();await page.screenshot({path:path.join(folder,width+'-'+theme+'-bottom.png')});}}
+ console.log('PASS 18 account rows: stable frame, light/dark, narrow/wide and long status. '+folder);
+}finally{await app.close();}

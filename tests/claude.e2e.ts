@@ -1,0 +1,53 @@
+// Explicit live subscription check; never part of automatic setup/account checking.
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {findClaude,claudeAccount,runClaude} from '../app/claude';
+import {SecretScrubber} from '../app/redaction';
+import {inspectProjectTrust} from '../app/project-trust';
+
+if(process.env.TRISMEGISTUS_LIVE_CLAUDE!=='1')throw Error('Set TRISMEGISTUS_LIVE_CLAUDE=1 to exercise the signed-in subscription.');
+const root=path.resolve('.'),scratch=await fs.mkdtemp(path.join(root,'work','claude-integration-'));
+const cli=await findClaude();assert.ok(cli);
+assert.deepEqual(await claudeAccount(cli.executable),{loggedIn:true,subscription:true});
+const base={executable:cli.executable,python:path.join(root,'runtime/python/cpython-3.12.10-windows-x86_64-none/python.exe'),worker:path.join(root,'backend/claude_worker.py'),directory:scratch,dataRoot:path.join(scratch,'private'),exchangeRoot:scratch,model:'claude-haiku-4-5',effort:'high',mode:'manual' as const,hasFolder:true,scrubber:new SecretScrubber()};
+let approvals=0,partials=0;
+const run=async(prompt:string,extra:Partial<Parameters<typeof runClaude>[0]>={})=>{
+  const result=await runClaude({...base,prompt,signal:AbortSignal.timeout(90000),event:event=>{if(event.type==='stream_event')partials++;},approve:async()=>{approvals++;return true;},...extra});
+  assert.equal(result.status,'completed',JSON.stringify(result.result));return result;
+};
+const first=await run('Remember this test word: copperfinch. Reply only READY. Do not use tools.');
+assert.ok(first.sessionId);assert.match(first.result.result,/READY/);assert.ok(partials>0);
+assert.ok(first.result.context?.totalTokens>0,JSON.stringify(first.result.context));
+assert.ok(first.result.context?.maxTokens>0);
+console.log('PASS real subscription, stream-json handshake and streaming');
+const resumed=await run('What test word did I ask you to remember? Reply only that word. Do not use tools.',{sessionId:first.sessionId});
+assert.match(resumed.result.result,/copperfinch/i);
+console.log('PASS native Claude session resume');
+await run('Use the Write tool to create approved.txt in the current working directory with exactly: approved through Trismegistus. Do not use Bash.');
+assert.ok(approvals>0);assert.match(await fs.readFile(path.join(scratch,'approved.txt'),'utf8'),/approved through Trismegistus/);
+console.log('PASS real Write permission routed through app callback');
+await run('Try to create denied.txt using the Write tool. If denied, stop. Do not use Bash or another tool.',{approve:async()=>false});
+assert.equal(await fs.access(path.join(scratch,'denied.txt')).then(()=>true,()=>false),false);
+console.log('PASS native permission denial prevents file creation');
+await fs.mkdir(base.dataRoot,{recursive:true});await fs.writeFile(path.join(base.dataRoot,'protected.txt'),'synthetic-private-value');
+let protectedApproval=false;
+await run('Read the file '+path.join(base.dataRoot,'protected.txt')+' with the Read tool. If denied, stop. Do not use Bash or another tool.',{mode:'bypass',approve:async()=>{protectedApproval=true;return true;}});
+assert.equal(protectedApproval,false);
+console.log('PASS fixed credential-directory protection remains active in native Bypass');
+
+const hookPath=path.join(scratch,'hook.cjs'),marker=path.join(scratch,'hook-result.txt');
+await fs.writeFile(hookPath,'require("node:fs").writeFileSync('+JSON.stringify(marker)+',"trusted");');
+await fs.mkdir(path.join(scratch,'.claude'));
+const settings=path.join(scratch,'.claude','settings.json');
+await fs.writeFile(settings,JSON.stringify({hooks:{SessionStart:[{hooks:[{type:'command',command:'"'+process.execPath.replaceAll('\\','/')+'" "'+hookPath.replaceAll('\\','/')+'"'}]}]}}));
+await run('Reply only READY. Do not use tools.');assert.equal(await fs.access(marker).then(()=>true,()=>false),false);
+await run('Reply only READY. Do not use tools.',{trustedProject:true});assert.equal(await fs.readFile(marker,'utf8'),'trusted');
+const reviewed=await inspectProjectTrust(scratch);await fs.writeFile(hookPath,'require("node:fs").writeFileSync('+JSON.stringify(marker)+',"changed");');
+assert.notEqual((await inspectProjectTrust(scratch)).hash,reviewed.hash);
+await run('Reply only READY. Do not use tools.',{trustedProject:false});assert.equal(await fs.readFile(marker,'utf8'),'trusted');
+console.log('PASS native project hooks stay off before trust, execute after trust, and stay off when changed settings are declined');
+const abort=new AbortController();let started=false;
+const stopped=await runClaude({...base,prompt:'Write a long explanation of sorting algorithms. Do not use tools.',signal:abort.signal,event:event=>{if(event.type==='stream_event'){started=true;abort.abort();}},approve:async()=>false});
+assert.ok(started);assert.equal(stopped.status,'stopped');
+console.log('PASS cancellation during the real stream');

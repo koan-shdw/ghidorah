@@ -1,0 +1,24 @@
+/* Ghidorah's design tokens. Every size, corner, layer and shadow in the app comes from here and every colour from
+   themes.css; scripts/style-check.mjs fails a value written anywhere else. Change a value here and every screen follows. */
+:root{
+  /* Text: meta and labels, controls, lists and menus, reading, titles, headings, page titles, display. */
+  --fs-meta:11px;--fs-ui:12px;--fs-list:13px;--fs-body:14px;--fs-title:16px;--fs-heading:18px;--fs-page:22px;--fs-display:26px;--fs-hero:52px;--fs-art:13.333333px;
+  --fw-regular:400;--fw-medium:500;--fw-strong:600;
+  --font-mono:Consolas,ui-monospace,monospace;
+  /* Space, on a 2 px step. */
+  --space-1:2px;--space-2:4px;--space-3:6px;--space-4:8px;--space-5:10px;--space-6:12px;--space-7:16px;--space-8:20px;--space-9:24px;--space-10:32px;
+  /* Corners: inner parts, controls and menu rows, cards and menus, dialogs and the message box, pills and dots. */
+  --r-sm:6px;--r:8px;--r-lg:12px;--r-xl:16px;--r-pill:999px;--r-round:50%;
+  /* Control heights: small, standard (buttons, pills, menu rows), large (fields, send). */
+  --h-sm:24px;--h:28px;--h-lg:32px;
+  /* Icons: inline with small text, standard, rail and title bar. */
+  --icon-sm:14px;--icon:16px;--icon-lg:18px;
+  /* Layers, lowest first. */
+  --z-raise:1;--z-anchor:4;--z-popover:10;--z-panel:15;--z-modal:20;--z-float:25;--z-tooltip:40;--z-menu:60;--z-card:65;--z-menu-top:70;
+  /* Shadows. */
+  --shadow-card:0 5px 10px #0003;--shadow-popover:0 8px 30px #0006;--shadow-menu:0 12px 36px #0006;--shadow-panel:0 10px 45px #0007;--shadow-dialog:0 20px 70px #0008;--shadow-side:-12px 0 24px #0004;
+  /* Scrims behind dialogs and labels laid over images. */
+  --overlay:#0008;--overlay-soft:#0006;--overlay-strong:#000a;--on-overlay:#fff;
+  /* App and skill tiles without their own icon. */
+  --tile-from:#4e536c;--tile-to:#252a3e;--tile-text:#f0edff;--tile-edge:#ffffff18;
+}

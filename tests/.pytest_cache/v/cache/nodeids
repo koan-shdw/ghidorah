@@ -1,0 +1,3 @@
+[
+  "test_parent_lifetime.py::test_lease_does_not_lock_crt_and_ends_child_tree"
+]

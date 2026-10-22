@@ -1,0 +1,26 @@
+{
+  "url": "https://registry.npmjs.org/@lobehub/icons-static-svg/1.95.1",
+  "version": "1.95.1",
+  "license": "MIT",
+  "integrity": "sha512-Hw7EPPgVnC4NZLXBfTNJG6hyQgqECfUPC11VVXodPSr1aebKcFxDZlSpxhWwYNdCc6bhxps/x5TtXoPmfKH2ag==",
+  "tarball": "https://registry.npmjs.org/@lobehub/icons-static-svg/-/icons-static-svg-1.95.1.tgz",
+  "bytes": 776285,
+  "licenseURL": "https://raw.githubusercontent.com/lobehub/lobe-icons/master/LICENSE",
+  "licenseSHA256": "add9d7531d1b21646317a8958e38fc727506fa39d24bdecb44154d943c82753a",
+  "files": {
+    "alibabacloud-color.svg": "73ea97baf919edb3d888a77cd45b21574e190a80124a59e199ea6953a28a959c",
+    "anthropic.svg": "e833fdfa7e7187a86a05b870925067556a506dcd4239089aed73e1e58c9366a3",
+    "deepseek-color.svg": "deba5f98a5c1796e20fcac3149bcd7eb8a32f0bdd04d048819400b1f28bd1439",
+    "gemini-color.svg": "8ab0a9bafec11f7e69bcb9fc4ffd8f1bc927d1ddcbbb6ff36dee5ae8b5a9d602",
+    "grok.svg": "9175fc90c22655160231976c849f25a03b888d7cc0e04c5f1b987b659bb07c95",
+    "kimi-color.svg": "74a7292aeb0220445d14c5d397d75760e2e8c6ed6a9e5fe4f3023471bf62a9ff",
+    "minimax-color.svg": "7f7187fa6d9b341ac5f22f6c5a970523afb439dc45566d64eb4f4b9b604d6b01",
+    "mistral-color.svg": "722f74b289d95486b43662fe24fa883b333701296f618406cd0ed502299170b6",
+    "nousresearch.svg": "4dc3c7cdf13d2f0bdf16b872d76293f048010a00f580df68a85e1f9c4e500e5d",
+    "openai.svg": "a595df6b423920c67a7f8f73c063e4bfb72d415948097b6cac063a2366bb5186",
+    "openrouter.svg": "ae671cc83de9bd45db97a47ed5e38a4e1bd9f93a12be495ba4b4f8b284026bca",
+    "vertexai-color.svg": "40f8bb6f7aca8d80ce2b0bd0d976e8e3ddeada3719758d262ea20075c11ad764",
+    "xai.svg": "89eb7de9f0d02a41cfecd9109e253d7fd3529e27467dee4254faa67f3ac21451",
+    "zai.svg": "e748cb5108ce37b116d7a5ba97d37e0ae97eadf6849b0de11afb248e244a01e1"
+  }
+}

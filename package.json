@@ -1,0 +1,140 @@
+{
+  "name": "trismegistus",
+  "version": "0.1.20",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "test": "node scripts/unit-tests.mjs",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "node --import tsx tests/desktop.e2e.ts",
+    "pack": "node scripts/stage-runtime.mjs && node scripts/stage-poppler.mjs && npm run build && electron-builder --dir --publish never",
+    "release": "node scripts/release.mjs",
+    "harden": "node scripts/harden.mjs",
+    "scan:release": "node scripts/scan-release.mjs",
+    "installer": "node scripts/installer.mjs"
+  },
+  "dependencies": {
+    "@codemirror/commands": "6.10.4",
+    "@codemirror/language": "6.12.4",
+    "@codemirror/language-data": "6.5.2",
+    "@codemirror/state": "6.7.1",
+    "@codemirror/view": "6.43.6",
+    "@lezer/css": "1.3.8",
+    "@lezer/html": "1.3.13",
+    "@lezer/javascript": "1.5.5",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "dompurify": "3.4.13",
+    "electron-updater": "6.8.9",
+    "js-yaml": "4.3.2",
+    "marked": "16.4.2",
+    "node-pty": "1.1.0",
+    "qrcode": "1.5.4",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "semver": "6.3.1",
+    "ws": "8.18.3"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "4.0.9",
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@types/ws": "8.18.1",
+    "electron": "40.10.2",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.25.12",
+    "playwright": "1.62.1",
+    "tsx": "4.20.6",
+    "typescript": "6.0.3"
+  },
+  "build": {
+    "npmRebuild": false,
+    "appId": "app.trismegistus.desktop",
+    "productName": "Ghidorah",
+    "directories": {
+      "output": "updates/build"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "assets/icon.png",
+      "!node_modules/node-pty/**/*.vcxproj"
+    ],
+    "extraResources": [
+      {
+        "from": "dist/repo-map",
+        "to": "repo-map",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "backend",
+        "to": "backend",
+        "filter": [
+          "**/*.py",
+          "non-chat-models.json",
+          "gliner-requirements.txt",
+          "gliner-model.json",
+          "telegram-requirements.txt",
+          "speech-requirements.txt",
+          "whisper-models.json",
+          "wake-model.json",
+          "feature-wheels.json"
+        ]
+      },
+      {
+        "from": "plugins",
+        "to": "plugins",
+        "filter": [
+          "**/*.py",
+          "**/*.yaml",
+          "**/document-tools.json",
+          "**/chat-tools.json",
+          "**/image-tools.json",
+          "**/app-tools.json"
+        ]
+      },
+      {
+        "from": "runtime",
+        "to": "runtime",
+        "filter": [
+          "hermes/**/*",
+          "poppler/**/*",
+          "office/**/*",
+          "office-manifest.json",
+          "hermes-manifest.json",
+          "python/cpython-3.12.10-windows-x86_64-none/**/*",
+          "!**/__pycache__/**/*",
+          "!**/*.pyc",
+          "!hermes/skills/software-development/repo-map/**/*"
+        ]
+      },
+      {
+        "from": "scripts/update-watch.ps1",
+        "to": "scripts/update-watch.ps1"
+      },
+      {
+        "from": "dist/skills/repo-map",
+        "to": "runtime/hermes/skills/software-development/repo-map",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": "dir",
+      "icon": "assets/icon.ico",
+      "signExecutable": false
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "koan-shdw",
+      "repo": "ghidorah"
+    }
+  }
+}

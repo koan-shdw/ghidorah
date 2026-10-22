@@ -1,0 +1,106 @@
+[
+  {
+    "name": "document_tools",
+    "description": "Discover the bundled Python libraries and Hermes helper scripts for creating, editing and inspecting Word DOCX, Excel XLSX, PowerPoint PPTX and PDFs. Start here for document tasks. Returns exact executable and helper paths, plus render/recalculate/save guidance.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_chat_files",
+    "description": "List this chat’s original uploads and saved output versions, including file IDs for copy_chat_file. Does not expose files from other chats.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "copy_chat_file",
+    "description": "Copy an original upload or saved output from this chat into the working folder for inspection or editing. Obtain its ID from list_chat_files. Requires a new destination file in an existing directory; never overwrites. The archived original remains intact.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "destination": {
+          "type": "string",
+          "description": "New file path inside this task’s working folder; include the original extension."
+        }
+      },
+      "required": [
+        "id",
+        "destination"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "copy_chat_artifact",
+    "description": "Create an editable working-folder copy of a saved interactive artifact, including its HTML, scripts, styles and assets. Get its output ID from list_chat_files. Requires a new destination directory in an existing working-folder directory; never overwrites. The saved version remains intact. After editing, use save_chat_output on the new folder to save another version.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "destination": {
+          "type": "string",
+          "description": "New directory inside this task’s working folder."
+        }
+      },
+      "required": [
+        "id",
+        "destination"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "render_document",
+    "description": "Render a working-folder DOCX, XLSX, PPTX or PDF to a PDF and page PNGs using the bundled headless renderer. Requires a new output directory under an existing working-folder directory. Source is unchanged. Returns file paths for visual inspection, not a claim of visual correctness. Up to 25 MB and 20 pages; active content and external data excluded. Save deliverables with save_chat_output.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Existing input document path."
+        },
+        "destination": {
+          "type": "string",
+          "description": "New output directory, relative to the working folder or absolute inside it."
+        }
+      },
+      "required": [
+        "path",
+        "destination"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "recalculate_spreadsheet",
+    "description": "Recalculate an XLSX workbook in headless LibreOffice and save a new recalculated.xlsx with cached formula results. Requires a new destination directory; leaves the source intact. Returns formula errors for inspection. Check results with openpyxl data_only=True; LibreOffice may not support every Excel function. Save the recalculated file as the final deliverable.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Existing XLSX input path."
+        },
+        "destination": {
+          "type": "string",
+          "description": "New output directory inside the working folder."
+        }
+      },
+      "required": [
+        "path",
+        "destination"
+      ],
+      "additionalProperties": false
+    }
+  }
+]

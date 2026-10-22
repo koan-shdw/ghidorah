@@ -1,0 +1,23 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import path from 'node:path';import {execFileSync} from 'node:child_process';
+import {claudeDirectory,protectedClaudeTool} from '../app/claude';
+test('native worktree paths require Git membership and still protect credentials, aliases and traversal',async()=>{
+ const scratch=await fs.mkdtemp(path.resolve('work','worktree-paths-')),repo=path.join(scratch,'repo'),privateData=path.join(scratch,'private');await fs.mkdir(repo);await fs.mkdir(privateData);
+ const git=(cwd:string,args:string[])=>execFileSync('git',['-C',cwd,...args],{windowsHide:true,stdio:'ignore'});
+ await fs.writeFile(path.join(repo,'source.txt'),'original');git(repo,['init','-q']);git(repo,['add','source.txt']);git(repo,['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','Fixture']);
+ const tree=path.join(repo,'.claude/worktrees/one');git(repo,['worktree','add','-q','--detach',tree,'HEAD']);
+ const verified=await claudeDirectory(tree,repo,privateData);assert.equal(verified.worktree,await fs.realpath(tree));
+ assert.equal(await protectedClaudeTool({file_path:path.join(tree,'source.txt')},privateData,tree,verified.worktree),false);
+ assert.equal(await protectedClaudeTool({file_path:'source.txt'},privateData,tree,verified.worktree),false);
+ assert.equal(await protectedClaudeTool({file_path:path.join(tree,'source.txt')},privateData,repo),false);
+ assert.equal(await protectedClaudeTool({file_path:path.join(tree,'new/nested/output.txt')},privateData,repo),false);
+ assert.equal(await protectedClaudeTool({file_path:path.join(tree,'auth.json')},privateData,repo),true);
+ assert.equal(await protectedClaudeTool({file_path:'auth.json'},privateData,tree,verified.worktree),true);
+ await fs.writeFile(path.join(privateData,'account.txt'),'PRIVATE');await fs.symlink(privateData,path.join(tree,'linked'),process.platform==='win32'?'junction':'dir');
+ assert.equal(await protectedClaudeTool({file_path:'linked/account.txt'},privateData,tree,verified.worktree),true);
+ assert.equal(await protectedClaudeTool({file_path:path.relative(tree,path.join(privateData,'account.txt'))},privateData,tree,verified.worktree),true);
+ assert.equal(await protectedClaudeTool({command:'cmdkey /list'},privateData,tree,verified.worktree),true);
+ const fake=path.join(repo,'.claude/worktrees/fake');await fs.mkdir(fake);await assert.rejects(claudeDirectory(fake,repo,privateData),/verified repository worktree/);
+ assert.equal(await protectedClaudeTool({file_path:path.join(fake,'source.txt')},privateData,repo),true);
+ await assert.rejects(claudeDirectory(tree,privateData,privateData));await assert.rejects(claudeDirectory(privateData,repo,privateData),/Protected/);
+ assert.equal((await claudeDirectory(repo,repo,privateData)).worktree,undefined);
+});

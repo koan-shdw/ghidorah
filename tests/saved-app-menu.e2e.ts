@@ -1,0 +1,63 @@
+import {_electron as electron} from 'playwright';
+import fs from 'node:fs/promises';import path from 'node:path';import os from 'node:os';import assert from 'node:assert/strict';import {execFileSync} from 'node:child_process';
+import {Backend,PYTHON} from '../app/backend';import {mainWindow,pollState} from './fixtures/poll-state';
+
+const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work','saved-app-menu-')),folder=await fs.mkdtemp(path.join(os.tmpdir(),'tris-app-menu-')),namespace='Trismegistus/Test/'+path.basename(data);
+await fs.writeFile(path.join(folder,'keep.txt'),'Project files stay here.');
+const host=new Backend(root,data,namespace,()=>{});await host.host('initialize');
+const launch=async()=>{const app=await electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,args:process.env.TRISMEGISTUS_EXE?['--hidden']:[root,'--hidden'],env:{...process.env,TRISMEGISTUS_TEST_DATA:data,TRISMEGISTUS_TEST_CLAUDE:path.join(root,'tests/fixtures/claude-cli.mjs'),TRISMEGISTUS_TEST_CLAUDE_NODE:process.execPath},timeout:30000});await app.evaluate(({BrowserWindow})=>{BrowserWindow.prototype.show=function(){};BrowserWindow.prototype.showInactive=function(){};BrowserWindow.prototype.focus=function(){};});return app;};
+let app=await launch();
+const screenshot=async(name:string)=>{const png=await app.evaluate(async({BrowserWindow})=>{const window=BrowserWindow.getAllWindows().find(w=>/index\.html$/.test(w.webContents.getURL()))!;await window.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true});await new Promise(resolve=>setTimeout(resolve,100));return (await window.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG().toString('base64');});await fs.writeFile(path.join(data,name),Buffer.from(png,'base64'));};
+try{
+ let page=await mainWindow(app);page.setDefaultTimeout(15000);const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+ const call=(method:string,args:any={})=>page.evaluate(({method,args})=>window.desktop.invoke(method,args),{method,args});
+ await pollState(page,s=>s.backend==='ready');await call('wizardFinish');await call('workingFolder',{folder});if(await page.getByLabel('Close settings',{exact:true}).isVisible())await page.getByLabel('Close settings',{exact:true}).click();
+ await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>/index\.html$/.test(w.webContents.getURL()))!.setSize(1100,800));
+ const chatId=await call('newChat');await call('draft',{chatId,text:'Keep my draft'});
+ const first=await call('savedAppSave',{name:'Video Dancer',ideas:'Keep these ideas',repositories:[folder],chatIds:[chatId]});await call('savedAppTodo',{app:first.id,title:'Preserve this task'});
+ const second=await call('savedAppSave',{name:'New app',ideas:'Second app only'});await call('savedAppTodo',{app:second.id,title:'Remove this task with the app'});
+ await page.getByLabel('Show chats for Video Dancer',{exact:true}).click();await page.getByLabel('App name',{exact:true}).waitFor();
+ const more=()=>page.getByLabel('Actions for app Video Dancer',{exact:true}),secondTile=()=>page.getByLabel('Show chats for New app',{exact:true});
+ await secondTile().click({button:'right'});let menu=page.getByRole('menu',{name:'New app actions',exact:true});await menu.waitFor();
+ assert.equal(await page.getByLabel('App name',{exact:true}).inputValue(),'Video Dancer','Opening another app menu does not navigate');
+ assert.deepEqual(await menu.getByRole('menuitem').allTextContents(),['Open app page','RenameR','Move to folder','Remove app…D']);assert.equal(await page.getByRole('tooltip').count(),0);
+ await page.keyboard.press('Escape');assert.equal(await menu.count(),0);assert.equal(await secondTile().evaluate(el=>document.activeElement===el),true);
+ await more().click();menu=page.getByRole('menu',{name:'Video Dancer actions',exact:true});await menu.waitFor();await page.keyboard.press('r');
+ const name=()=>page.getByLabel('App name',{exact:true});await name().waitFor();assert.equal(await name().evaluate((el:HTMLInputElement)=>document.activeElement===el&&el.selectionStart===0&&el.selectionEnd===el.value.length),true);
+ await name().fill('Video Dancer Studio');await name().press('Enter');await pollState(page,s=>s.savedApps?.some(a=>a.id===first.id&&a.name==='Video Dancer Studio')===true);
+ await page.getByLabel('Actions for app Video Dancer Studio',{exact:true}).click();await page.getByRole('menuitem',{name:'Rename',exact:true}).click();await name().fill('Cancelled rename');await name().press('Escape');assert.equal((await call('state')).savedApps.find((a:any)=>a.id===first.id).name,'Video Dancer Studio');
+ await secondTile().focus();await page.keyboard.press('Shift+F10');await page.getByRole('menu',{name:'New app actions',exact:true}).waitFor();await page.getByRole('menuitem',{name:'Rename',exact:true}).click();assert.equal(await name().inputValue(),'New app');assert.equal(await name().evaluate(el=>document.activeElement===el),true);
+ await name().fill('Scratch app');await name().press('Enter');await pollState(page,s=>s.savedApps?.some(a=>a.id===second.id&&a.name==='Scratch app')===true);
+ await page.getByLabel('Actions for app Video Dancer Studio',{exact:true}).click();await page.getByRole('menuitem',{name:'Open app page',exact:true}).click();assert.equal(await name().inputValue(),'Video Dancer Studio');
+ await page.getByLabel('Actions for app Scratch app',{exact:true}).click();await page.getByRole('menuitem',{name:'Remove app…',exact:true}).click();let confirmation=page.getByRole('dialog',{name:'Remove Scratch app?',exact:true});await confirmation.waitFor();assert.match(await confirmation.innerText(),/Chats and project files are kept/);await screenshot('remove-app.png');await confirmation.getByRole('button',{name:'Keep app',exact:true}).click();assert.equal((await call('state')).savedApps.length,2);
+ await page.getByLabel('Actions for app Scratch app',{exact:true}).click();await page.getByRole('menuitem',{name:'Remove app…',exact:true}).click();await confirmation.getByRole('button',{name:'Remove app',exact:true}).click();await pollState(page,s=>s.savedApps?.length===1);assert.equal(await name().inputValue(),'Video Dancer Studio','Removing an unselected app preserves the open app');
+ let state=await call('state');assert.equal(state.savedApps[0].ideas,'Keep these ideas');assert.equal(state.savedApps[0].todos.length,1);
+ await page.getByLabel('Actions for app Video Dancer Studio',{exact:true}).click();await page.getByRole('menu',{name:'Video Dancer Studio actions',exact:true}).waitFor();
+ await page.waitForTimeout(350);
+ const menuBox=await page.getByRole('menu',{name:'Video Dancer Studio actions',exact:true}).boundingBox();assert.ok(menuBox&&menuBox.x>=0&&menuBox.y>=0&&menuBox.x+menuBox.width<=1100&&menuBox.y+menuBox.height<=800);
+ await screenshot('app-menu.png');
+ await page.locator('.app-overview-header').click({position:{x:250,y:70}});assert.equal(await page.getByRole('menu').count(),0,'Outside click closes the menu');
+ // Chat context menu links are independent of sidebar folders and can target multiple apps.
+ await page.getByRole('button',{name:'Show all chats'}).click();
+ const extra=await call('savedAppSave',{name:'Sprite Dancer'});
+ const row=()=>page.locator('[data-chat-id="'+chatId+'"]');
+ const menuLink=async(label:string)=>{await row().click({button:'right'});await page.getByRole('menuitem',{name:'Apps',exact:true}).click();await page.getByRole('menuitem',{name:label,exact:true}).click();};
+ await menuLink('Link to Sprite Dancer');await pollState(page,s=>s.savedApps?.find(a=>a.id===extra.id)?.chatIds.includes(chatId)===true);
+ await menuLink('Unlink from Video Dancer Studio');await pollState(page,s=>s.savedApps?.find(a=>a.id===first.id)?.chatIds.includes(chatId)===false);
+ assert.ok((await call('state')).savedApps.find((a:any)=>a.id===extra.id).chatIds.includes(chatId));
+ await menuLink('Link to Video Dancer Studio');await pollState(page,s=>s.savedApps?.find(a=>a.id===first.id)?.chatIds.includes(chatId)===true);
+ const extras=[extra.id];for(let i=0;i<9;i++)extras.push((await call('savedAppSave',{name:'Project '+(i+1)})).id);
+ const grid=page.locator('.saved-app-grid');await page.locator('.saved-app-tile').nth(10).waitFor();
+ const geometry=()=>grid.evaluate(el=>({width:el.clientWidth,scrollWidth:el.scrollWidth,height:el.clientHeight,scrollHeight:el.scrollHeight,rows:[...new Set(Array.from(el.children).map(child=>Math.round(child.getBoundingClientRect().top)))],icon:el.querySelector('.saved-app-icon')!.getBoundingClientRect().width}));
+ for(const width of [1100,700]){await app.evaluate(({BrowserWindow},width)=>BrowserWindow.getAllWindows().find(w=>/index\.html$/.test(w.webContents.getURL()))!.setSize(width,800),width);await page.waitForTimeout(200);const layout=await geometry();assert.equal(layout.scrollWidth,layout.width,'No horizontal app scrolling');assert.equal(layout.icon,40);assert.ok(layout.rows.length>3);assert.equal(layout.height,344);assert.ok(layout.scrollHeight>layout.height);}
+ await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>/index\.html$/.test(w.webContents.getURL()))!.setSize(1100,800));await page.waitForTimeout(250);await screenshot('apps-three-rows.png');
+ await grid.evaluate(el=>el.scrollTop=el.scrollHeight);assert.ok(await grid.evaluate(el=>el.scrollTop)>0);
+ for(const id of extras)await call('savedAppRemove',{id});
+ assert.equal((await call('state')).savedApps[0].chatIds.includes(chatId),true);
+ await app.evaluate(({app})=>app.quit());await app.close();app=await launch();page=await mainWindow(app);await pollState(page,s=>s.backend==='ready');
+ state=await call('state');assert.equal(state.savedApps.length,1);assert.equal(state.savedApps[0].name,'Video Dancer Studio');assert.equal(state.savedApps[0].todos.length,1);assert.ok(state.savedApps[0].chatIds.includes(chatId));assert.equal(state.chats.find((c:any)=>c.id===chatId).draft,'Keep my draft');
+ await page.getByLabel('Show chats for Video Dancer Studio',{exact:true}).click();await page.getByLabel('Actions for app Video Dancer Studio',{exact:true}).click();await page.getByRole('menuitem',{name:'Remove app…',exact:true}).click();confirmation=page.getByRole('dialog',{name:'Remove Video Dancer Studio?',exact:true});await confirmation.getByRole('button',{name:'Remove app',exact:true}).click();
+ state=await pollState(page,s=>s.savedApps?.length===0);assert.ok(state.chats.some((c:any)=>c.id===chatId));assert.equal(state.chats.find((c:any)=>c.id===chatId).draft,'Keep my draft');await page.locator('.app-overview').waitFor({state:'hidden'});await page.getByRole('button',{name:'Show all chats'}).waitFor({state:'hidden'});assert.equal(await fs.readFile(path.join(folder,'keep.txt'),'utf8'),'Project files stay here.');
+ assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().some(w=>w.isVisible())),false);assert.deepEqual(errors,[]);
+ await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({rightClick:true,threeDots:true,noNavigationOnMenu:true,inlineRename:true,keyboard:true,cancel:true,removal:true,restart:true,chatsAndDraftsPreserved:true,filesPreserved:true,noVisibleWindows:true,chatMenuLinks:true,largerIcons:true,wrappedRows:true,scrollAfterThreeRows:true},null,2));console.log('PASS saved app menus, inline rename, removal, keyboard, restart and preserved chats/files. '+data);
+}finally{await app.evaluate(({app})=>app.quit()).catch(()=>{});await app.close().catch(()=>{});execFileSync(PYTHON,['-c',"import sys;sys.path.insert(0,'backend');import windows_credentials as v;v.delete(sys.argv[1])",namespace+'/encryption'],{windowsHide:true,stdio:'ignore'});}

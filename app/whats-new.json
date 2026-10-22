@@ -1,0 +1,97 @@
+[
+  {"version":"0.1.0","date":"2026-10-02","notes":[
+    "Settings: Always on (start with Windows, stay awake), Claude Code, Security (rotate all keys), Publishing, Browser and computer.",
+    "The expanded model bar shows each model's level, sign-in state, health and address.",
+    "Who picks the model: Jev, Kev, Fastino GLiDE, GLiNER2.5-Decide and Not Diamond, and they learn from your changed picks and replies.",
+    "Share a message into another project's memory; publish pages; Chrome and computer use.",
+    "This update window: what's new, app updates, new models and Hermes releases."
+  ]},
+  {"version":"0.1.1","date":"2026-10-08","notes":[
+    "Long chats shrink like Claude Code and Codex and stay alive.",
+    "No checks on read-only commands, so tools run faster."
+  ]},
+  {"version":"0.1.2","date":"2026-10-08","notes":[
+    "Setup wizard: closing it ends it."
+  ]},
+  {"version":"0.1.3","date":"2026-10-08","notes":[
+    "A lost reply is always recovered, and a closed Claude never holds its chat.",
+    "After a restart, waiting messages pause for one click."
+  ]},
+  {"version":"0.1.4","date":"2026-10-08","notes":[
+    "Apps: a background watch suggests updates for each app."
+  ]},
+  {"version":"0.1.5","date":"2026-10-08","notes":[
+    "The update watch follows your brief, reads videos by what is said, and shows its progress live."
+  ]},
+  {"version":"0.1.6","date":"2026-10-08","notes":[
+    "The update watch's model picker sits beside frequency and Check now."
+  ]},
+  {"version":"0.1.7","date":"2026-10-08","notes":[
+    "The update watch uses your connected models, Claude included."
+  ]},
+  {"version":"0.1.8","date":"2026-10-10","notes":[
+    "Every model plans first and waits for GO before building.",
+    "Any file you drop gets into the chat.",
+    "A message sent while models load waits, then goes."
+  ]},
+  {"version":"0.1.9","date":"2026-10-13","notes":[
+    "Faster tools: each window gets only the tools it shows, and lookups read only the rows they need.",
+    "Every model searches with rg."
+  ]},
+  {"version":"0.1.10","date":"2026-10-14","notes":[
+    "A message stuck on Checking plugins ends after 60 s and names the step that stuck."
+  ]},
+  {"version":"0.1.11","date":"2026-10-15","notes":[
+    "A new turn engine: Claude's own events decide when a chat is busy, so chats no longer stall.",
+    "Messages go to the model at once, and Stop stops only the running reply.",
+    "Every wait names its reason."
+  ]},
+  {"version":"0.1.12","date":"2026-10-16","notes":[
+    "Themes: Black, High contrast and Warm paper join Dark and Light.",
+    "Appearance: Text size scales the whole app, and a Font menu lists the fonts Windows has, starting on Helvetica.",
+    "Messages typed while one is being prepared join it as one message.",
+    "A command waiting for Allow no longer holds up other chats.",
+    "While a message is routed, its label names who picks, then the model picked."
+  ]},
+  {"version":"0.1.13","date":"2026-10-17","notes":[
+    "Trismegistus is now Ghidorah. Same chats, keys and settings; the III icon stays."
+  ]},
+  {"version":"0.1.14","date":"2026-10-18","notes":[
+    "A message you add mid-reply shows where the model read it.",
+    "Models can rename apps and change their icons.",
+    "One GO covers every step of the job you approved."
+  ]},
+  {"version":"0.1.15","date":"2026-10-18","notes":[
+    "Preview pages sit in the right place and open inside Ghidorah or in your browser."
+  ]},
+  {"version":"0.1.16","date":"2026-10-20","notes":[
+    "Fork works again: background updates no longer leave rows that block it.",
+    "Only your words go into a running reply, so a question mid-job no longer ends the job.",
+    "Sends never wait for a summary, Hermes keeps its session, and plugins are checked only when they change.",
+    "Claude subscription models can write the routing summary."
+  ]},
+  {"version":"0.1.17","date":"2026-10-20","notes":[
+    "The chat fills the window when the pane beside it is hidden.",
+    "In Bypass, a model starts Claude, Codex or Gemini without asking."
+  ]},
+  {"version":"0.1.18","date":"2026-10-22","notes":[
+    "One look across the whole app: every screen uses the same colours, sizes and parts, in all five themes.",
+    "Title bar: Chat files, Export and Keyboard shortcuts sit in a menu after the chat title; the panels are one row of icons.",
+    "Under the message box: Attach, Voice, Dictate and Skills are icons; one line of controls with real switches and a context ring with its percent; the model pills sit on one line.",
+    "Sidebar: app tiles two to a row, one style for every heading, a dot on the right for unread chats.",
+    "Settings: search the sections; every setting is one row.",
+    "Export and Share no longer scroll sideways; Keyboard shortcuts and the window buttons follow light themes."
+  ]},
+  {"version":"0.1.19","date":"2026-10-22","notes":[
+    "Sign in to Claude Code from Ghidorah: a button in Settings › Connections › Anthropic and on the Claude Code page.",
+    "When Claude Code is signed out, Ghidorah says so."
+  ]},
+  {"version":"0.1.20","date":"2026-10-22","notes":[
+    "Ghidorah updates itself: it checks 4 s after it starts and every 3 hours, and downloads in the background.",
+    "A chip in the title bar shows the download, then restart to update. Click it, or just quit: the update installs then. Ghidorah never restarts by itself.",
+    "This window opens once after each update with what's new, and every version back to 0.1.0 in one scroll.",
+    "Your chats are copied before every install; the newest three copies stay beside your chats.",
+    "If a new version doesn't open, the one before comes back by itself, and this window says so.",
+    "Every version is on the public releases page, with a Download for Windows button. The installer asks where Ghidorah goes, and updates land there."
+  ]}
+]

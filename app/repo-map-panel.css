@@ -1,0 +1,10 @@
+.repo-map-panel{margin:0 auto 28px;max-width:1360px;min-width:0}
+.repo-map-panel>header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px}
+.repo-map-panel>header>div{margin-right:auto}
+.repo-map-panel h2{margin:0;font-size:var(--fs-title)}
+.repo-map-panel p{font-size:var(--fs-ui);color:var(--muted)}
+.repo-map-panel>header p{margin:3px 0}
+.repo-map-panel select{max-width:270px;min-width:100px;border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:var(--r);padding:7px;font:inherit;font-size:var(--fs-ui)}
+.repo-map-panel>header button{border:1px solid var(--line);border-radius:var(--r);padding:7px 10px;background:var(--surface);font-size:var(--fs-ui)}
+.repo-map-panel .repo-map-help{font-size:var(--fs-meta);line-height:1.6}
+.repo-map-panel .error{color:var(--danger)}

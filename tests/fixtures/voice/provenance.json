@@ -1,0 +1,26 @@
+{
+  "source": "Edge TTS en-US-AriaNeural, generated for the approved recorded-audio test on 2026-10-03",
+  "utterances": {
+    "yes": "Yes, send it.",
+    "no": "No, not yet.",
+    "request": "Please ask the AI to explain this project."
+  },
+  "format": "16 kHz mono PCM16 WAV, one second leading and two seconds trailing silence",
+  "files": [
+    {
+      "file": "yes.wav",
+      "sha256": "d1e846ba9c20385f274153fc33cbe98c1062cb9e7c4b70b3e7087360aaf80aaa",
+      "bytes": 166700
+    },
+    {
+      "file": "no.wav",
+      "sha256": "882138418db883bfda84ffb4cb1f110801c344784d45968b3d305b9186f78a32",
+      "bytes": 167468
+    },
+    {
+      "file": "request.wav",
+      "sha256": "434a737355574c0b9538a7617a475c54fcb7a7a4e17fce083e200ba7f1fb4701",
+      "bytes": 215084
+    }
+  ]
+}

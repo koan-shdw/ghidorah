@@ -1,0 +1,76 @@
+{
+ "tiny": {
+  "repository": "Systran/faster-whisper-tiny",
+  "revision": "d90ca5fe260221311c53c58e660288d3deb8d356",
+  "size": "78 MB",
+  "test": true,
+  "files": {
+   "config.json": {
+    "size": 2249,
+    "git": "3baa18e2b321a2f489614607852a729fcd516480"
+   },
+   "model.bin": {
+    "size": 75538270,
+    "sha256": "dcb76c6586fc06cbdac6dd21f14cfd129cc4cdd9dce19bf4ffa62e59cbe6e6d1"
+   },
+   "tokenizer.json": {
+    "size": 2203239,
+    "git": "7818adb6de9fa3064d3ff81226fdd675be1f6344"
+   },
+   "vocabulary.txt": {
+    "size": 459861,
+    "git": "c9074644d9d1205686f16d411564729461324b75"
+   }
+  }
+ },
+ "small": {
+  "repository": "Systran/faster-whisper-small",
+  "revision": "536b0662742c02347bc0e980a01041f333bce120",
+  "size": "0.5 GB",
+  "files": {
+   "config.json": {
+    "size": 2370,
+    "git": "e5047537059bd8f182d9ca64c470201585015187"
+   },
+   "model.bin": {
+    "size": 483546902,
+    "sha256": "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671"
+   },
+   "tokenizer.json": {
+    "size": 2203239,
+    "git": "7818adb6de9fa3064d3ff81226fdd675be1f6344"
+   },
+   "vocabulary.txt": {
+    "size": 459861,
+    "git": "c9074644d9d1205686f16d411564729461324b75"
+   }
+  }
+ },
+ "large-v3": {
+  "repository": "Systran/faster-whisper-large-v3",
+  "revision": "edaa852ec7e145841d8ffdb056a99866b5f0a478",
+  "size": "3.1 GB",
+  "files": {
+   "config.json": {
+    "size": 2394,
+    "git": "75336feae814999bae6ccccdecf177639ffc6f9d"
+   },
+   "model.bin": {
+    "size": 3087284237,
+    "sha256": "69f74147e3334731bc3a76048724833325d2ec74642fb52620eda87352e3d4f1"
+   },
+   "preprocessor_config.json": {
+    "size": 340,
+    "git": "931c77a740890c46365c7ae0c9d350ba3cca908f"
+   },
+   "tokenizer.json": {
+    "size": 2480617,
+    "git": "3a5e2ba63acdcac9a19ba56cf9bd27f185bfff61"
+   },
+   "vocabulary.json": {
+    "size": 1068114,
+    "git": "0adcd01e7c237205d593b707e66dd5d7bc785d2d"
+   }
+  }
+ }
+}

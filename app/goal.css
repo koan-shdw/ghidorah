@@ -1,0 +1,21 @@
+.goal-bar{display:flex;align-items:center;gap:8px;padding:3px 24px 7px;font-size:var(--fs-meta);flex-shrink:0}
+.goal-bar.has-goal{border-bottom:1px solid var(--line);padding-top:6px;padding-bottom:6px}
+.set-goal{color:var(--muted);border:1px solid var(--line);border-radius:var(--r-xl);font-size:var(--fs-meta)}
+.goal-direction{display:flex;align-items:center;gap:8px;min-width:0;text-align:left;flex:1}
+.goal-direction>span:last-child{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.goal-direction strong{color:var(--muted);font-weight:500;margin-right:6px}
+.goal-state{color:var(--muted);white-space:nowrap}
+.goal-dot{width:6px;height:6px;border-radius:var(--r-round);background:var(--muted);flex-shrink:0}
+.goal-dot.active{background:var(--info)}
+.goal-dot.complete{background:var(--green)}
+.goal-dot.blocked,.goal-dot.budget-limited{background:var(--warning)}
+.goal-dialog p{font-size:var(--fs-ui);color:var(--muted);line-height:1.5}
+.goal-dialog label{display:flex;flex-direction:column;gap:8px;font-size:var(--fs-ui);margin:15px 0}
+.goal-dialog textarea{font:inherit;resize:vertical;min-height:120px;padding:12px;line-height:1.5;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:var(--r)}
+.goal-dialog input{padding:8px;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:var(--r);max-width:220px}
+.goal-dialog summary{cursor:pointer;font-size:var(--fs-ui);color:var(--muted)}
+.goal-progress{border-top:1px solid var(--line);margin-top:18px;padding-top:15px;font-size:var(--fs-ui)}
+.goal-progress>div{display:flex;justify-content:space-between;gap:12px}
+.goal-progress>div>span{color:var(--muted)}
+.goal-progress progress{width:100%;height:5px;accent-color:var(--info)}
+.goal-progress pre{white-space:pre-wrap;word-break:break-word;font:var(--fs-ui)/1.6 inherit;max-height:180px;overflow:auto}

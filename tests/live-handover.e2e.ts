@@ -1,0 +1,35 @@
+import {_electron as electron} from 'playwright';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import fs from 'node:fs/promises';
+if(process.env.TRISMEGISTUS_LIVE_HANDOVER!=='1'||!process.env.TRISMEGISTUS_EXE)throw Error('Explicit live packaged handover opt-in required.');
+const root=path.resolve('.'),build=JSON.parse(await fs.readFile(path.join(root,'work','live-build-review.json'),'utf8'));
+const env=Object.fromEntries(Object.entries(process.env).filter((entry):entry is [string,string]=>entry[1]!==undefined));
+const instance=await electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,args:[],env,timeout:30000});
+try{
+  const page=await instance.firstWindow();
+  const call=(method:string,args:any={})=>page.evaluate(({method,args})=>window.desktop.invoke(method,args),{method,args});
+  const wait=async(predicate:(state:any)=>boolean)=>{const deadline=Date.now()+180000;while(Date.now()<deadline){const state=await call('state');if(predicate(state))return state;await page.waitForTimeout(150);}throw Error('Live handover timed out');};
+  let state=await wait(state=>state.backend==='ready'&&state.claude?.models?.length&&state.codex?.models.length);
+  const claude='claude-code:claude-fable-5-1';assert.ok(state.claude.models.some((model:any)=>model.id===claude));
+  const chatId=build.chatId;await call('addModel',{chatId,model:claude});await call('effort',{chatId,model:claude,effort:'low'});
+  const send=async(text:string,model:string)=>{await call('modelSelection',{chatId,model,selected:true});const id=crypto.randomUUID();await call('submit',{id,chatId,text});return id;};
+  const done=async(id:string)=>{const state=await wait(state=>state.turns.some((turn:any)=>turn.id===id&&['completed','failed','interrupted','stopped'].includes(turn.status)));const turn=state.turns.find((turn:any)=>turn.id===id);assert.equal(turn.status,'completed',turn.error);return turn;};
+  const recalled=await send('From the earlier work in this chat, name the two Python files that were created and how many tests passed. Also remember the word amberotter for later. Do not use tools. Reply briefly.',claude);
+  const answer=await done(recalled);assert.match(answer.text,/calc\.py/);assert.match(answer.text,/test_calc\.py/);assert.match(answer.text,/5|five/i);assert.ok(answer.usage.context_used>0);
+  console.log('PASS packaged real GPT → Fable history, build results and native context usage');
+  const target=path.join(build.folder,'claude-check.txt');
+  const write=await send('Use the Write tool to create '+target+' containing exactly claude-live-ok. Do not use Bash or another tool. Reply done.',claude);
+  state=await wait(state=>state.approvals.some((approval:any)=>approval.turnId===write&&approval.status==='pending')||state.turns.some((turn:any)=>turn.id===write&&['failed','interrupted'].includes(turn.status)));
+  const approval=state.approvals.find((approval:any)=>approval.turnId===write&&approval.status==='pending');assert.ok(approval);assert.match(approval.params.description,/Write/);assert.match(approval.params.description,/claude-check\.txt/);
+  await call('approve',{id:approval.id,choice:'once'});await done(write);assert.equal((await fs.readFile(target,'utf8')).trim(),'claude-live-ok');
+  console.log('PASS packaged real Fable native Write approval and persisted tool result');
+  const back=await send('What word did I ask Claude to remember? Reply only that word. Do not use tools.',build.model);assert.match((await done(back)).text,/amberotter/i);
+  await call('addModel',{chatId,model:'deepseek-flash'});await call('effort',{chatId,model:'deepseek-flash',effort:'none'});
+  const deepseek=await send('What word did I ask Claude to remember? Reply only that word. Do not use tools.','deepseek-flash');assert.match((await done(deepseek)).text,/amberotter/i);
+  console.log('PASS real Fable → GPT → DeepSeek history in the same packaged chat');
+  const stop=await send('Write a numbered list of 500 sentences about sorting algorithms. Use no tools.',claude);
+  await wait(state=>(state.turns.find((turn:any)=>turn.id===stop)?.text.length||0)>40);await call('stop',{chatId});state=await wait(state=>state.turns.find((turn:any)=>turn.id===stop)?.status==='stopped');
+  assert.ok(state.turns.find((turn:any)=>turn.id===stop).text.length>40);console.log('PASS packaged native Stop preserves real Fable partial output');
+  await page.screenshot({path:path.join(root,'work','real-three-engine-chat.png')});
+}finally{await instance.evaluate(({app})=>app.quit());await instance.close();}

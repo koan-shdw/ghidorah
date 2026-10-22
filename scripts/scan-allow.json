@@ -1,0 +1,22 @@
+[
+  {
+    "file": "resources/runtime/python/cpython-3.12.10-windows-x86_64-none/Lib/site-packages/google/auth/credentials.py",
+    "sha256": "53a1ff1fdb2877110ea7e7182398d2b63a5151a6c5c3fa489dae2ca385d2ad9f",
+    "reason": "Google authentication library source module. The filename describes credential classes; contents are still scanned for secrets."
+  },
+  {
+    "file": "resources/runtime/python/cpython-3.12.10-windows-x86_64-none/Lib/site-packages/google/auth/aio/credentials.py",
+    "sha256": "957634fd227d737e8cce9e3b7cde1af094f91df373150b48230b19130ce80d1e",
+    "reason": "Google authentication library source module. The filename describes credential classes; contents are still scanned for secrets."
+  },
+  {
+    "file": "resources/runtime/python/cpython-3.12.10-windows-x86_64-none/Lib/site-packages/google/auth/compute_engine/credentials.py",
+    "sha256": "0b7efb91f6731b78080b4c14d7d4433ba423fe356ebcdf24c0106be792318035",
+    "reason": "Google authentication library source module. The filename describes credential classes; contents are still scanned for secrets."
+  },
+  {
+    "file": "resources/runtime/python/cpython-3.12.10-windows-x86_64-none/Lib/site-packages/google/oauth2/credentials.py",
+    "sha256": "2d08c8e5eed77bcadbbcb3086e491e1a2fa2962cb66ee32832d50461c25d8e00",
+    "reason": "Google authentication library source module. The filename describes credential classes; contents are still scanned for secrets."
+  }
+]

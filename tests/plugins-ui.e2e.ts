@@ -1,0 +1,35 @@
+import {_electron as electron} from 'playwright';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const working=await fs.mkdtemp(path.join(process.cwd(),'work','plugins-ui-workspace-'));
+const root=path.resolve('.'),data=await fs.mkdtemp(path.join(root,'work','plugins-ui-')),source=path.join(data,'fixture-claude-home/plugins/cache/example/version');
+await fs.mkdir(path.join(source,'.claude-plugin'),{recursive:true});await fs.mkdir(path.join(source,'skills/hello'),{recursive:true});
+await fs.writeFile(path.join(source,'.claude-plugin/plugin.json'),JSON.stringify({name:'Example',version:'1',description:'Synthetic native plugin'}));
+await fs.writeFile(path.join(source,'skills/hello/SKILL.md'),'Approved plugin contents.');
+await fs.writeFile(path.join(data,'fixture-claude-home/plugins/installed_plugins.json'),JSON.stringify({plugins:{'example@local':[{scope:'user',installPath:source,version:'1',gitCommitSha:'a'.repeat(40)}]}}));
+const env={...process.env,TRISMEGISTUS_TEST_DATA:data,TRISMEGISTUS_TEST_CLAUDE:path.join(root,'tests/fixtures/claude-cli.mjs'),TRISMEGISTUS_TEST_CLAUDE_NODE:process.execPath};
+const launch=()=>electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,args:process.env.TRISMEGISTUS_EXE?[]:[root],env,timeout:30000});
+let instance=await launch();
+try{
+ await instance.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().forEach(window=>window.hide()));let page=await instance.firstWindow();
+ const call=(method:string,args:any={})=>page.evaluate(({method,args})=>window.desktop.invoke(method,args),{method,args});
+ const wait=async(predicate:(state:any)=>boolean)=>{const until=Date.now()+60000;while(Date.now()<until){const state=await call('state');if(predicate(state))return state;await page.waitForTimeout(100);}throw Error('Plugin test timed out');};
+ await wait(state=>state.backend==='ready'&&state.claude?.models?.length);
+ await page.getByRole('button',{name:'Plugins',exact:true}).click();await page.getByText('Installed in Claude Code',{exact:true}).click();await page.getByRole('button',{name:'Review example',exact:true}).click();
+ const review=page.getByRole('region',{name:'Plugin review',exact:true});await review.getByText('This code can use all your keys.',{exact:true}).waitFor();assert.equal((await call('nativePlugins')).installed.length,0);
+ await fs.writeFile(path.join(source,'skills/hello/SKILL.md'),'Changed before approval.');await review.getByRole('button',{name:'Import and enable',exact:true}).click();await page.getByText(/The plugin changed/).first().waitFor();
+ await page.getByRole('button',{name:'Review example',exact:true}).click();await review.getByRole('button',{name:'Import and enable',exact:true}).click();await page.locator('details.supplier-pill').filter({has:page.locator('strong',{hasText:'Example'})}).locator('summary').click();await page.getByRole('switch',{name:'Enable Example',exact:true}).waitFor();
+ const [installed]=(await call('nativePlugins')).installed;await fs.writeFile(path.join(source,'skills/hello/SKILL.md'),'External cache update.');assert.equal(await fs.readFile(path.join(installed.directory,'skills/hello/SKILL.md'),'utf8'),'Changed before approval.');
+ await assert.rejects(call('nativePluginInstall',{token:'not-reviewed'}),/Review this plugin/);
+ await page.screenshot({path:path.join(root,'work/native-plugins.png')});await page.getByRole('button',{name:'Close settings',exact:true}).click();
+ await call('workingFolder',{folder:working});const chatId=await call('addProject');await call('addModel',{chatId,model:'claude-code:haiku'});
+ const send=async()=>{await call('modelSelection',{chatId,model:'claude-code:haiku',selected:true});const id=crypto.randomUUID();await call('submit',{id,chatId,text:'Native plugin fixture'});return id;};
+ const first=await send();await wait(state=>state.turns.find((t:any)=>t.id===first)?.status==='completed');
+ const records=()=>fs.readFile(path.join(data,'claude-requests.jsonl'),'utf8').then(text=>text.trim().split('\n').map(line=>JSON.parse(line)));
+ let args=(await records()).at(-1).args;assert.equal(args[args.indexOf('--plugin-dir')+1],installed.directory);
+ await call('nativePluginToggle',{id:installed.id,enabled:false});const second=await send();await wait(state=>state.turns.find((t:any)=>t.id===second)?.status==='completed');args=(await records()).at(-1).args;assert.ok(!args.includes('--plugin-dir')&&!args.includes('--resume'));
+ await call('nativePluginToggle',{id:installed.id,enabled:true});await instance.evaluate(({app})=>app.quit());await instance.close();instance=await launch();await instance.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().forEach(window=>window.hide()));page=await instance.firstWindow();await wait(state=>state.backend==='ready'&&state.claude?.models?.length);assert.equal((await call('nativePlugins')).installed[0].enabled,true);
+ const before=(await records()).length;await fs.writeFile(path.join(installed.directory,'skills/hello/SKILL.md'),'Tampered snapshot');const third=await send();const failed=await wait(state=>state.turns.find((t:any)=>t.id===third)?.status==='interrupted');assert.match(failed.turns.find((t:any)=>t.id===third).error,/plugin changed/);assert.equal((await records()).length,before);
+ console.log('PASS plugin review/import, source change rejection, fixed snapshot, native dispatch, off/reseed, restart persistence and tamper rejection before launch');
+}finally{await instance.evaluate(({app})=>app.quit()).catch(()=>{});await instance.close();}

@@ -1,0 +1,4 @@
+# Telegram for Remote (6a), installed on the Remote setup click into the runtime folder (FINISH-PLAN rule 12).
+# The complete dependency closure and wheel SHA256 values are in feature-wheels.json.
+python-telegram-bot[webhooks]==22.8
+tornado==6.5.10

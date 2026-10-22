@@ -1,0 +1,10 @@
+// The share site (FEATURE-SPECS 3): shared pages from ./public, clients' notes in D1.
+{
+  "name": "koan-share",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-06-01",
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
+  "d1_databases": [
+    { "binding": "NOTES", "database_name": "koan-share-notes", "database_id": "f1ebd8a9-f1f3-4101-bbd8-e22ec2a9bc38" }
+  ]
+}

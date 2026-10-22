@@ -1,0 +1,41 @@
+.pane-shell,.pane-split,.pane-group,.pane-content{display:flex;min-width:0;min-height:0}
+.pane-shell,.pane-split,.pane-group,.pane-content{flex:1}
+.pane-group,.pane-content{overflow:hidden}
+.pane-content[hidden]{display:none}
+.pane-shell{position:relative}
+.pane-group.workspace-group{flex:0 0 auto;overflow:visible}
+.workspace-group>.pane-content{flex:0 0 auto;overflow:visible}
+.pane-content>.primary-chat-pane,.pane-content>.secondary-chat-pane{flex:1}
+.pane-content>.job-dock-pane{flex:1}
+.pane-split.job-dock{flex:0 1 auto}
+.pane-split.split-column>.chat-split-divider{cursor:row-resize}
+.pane-group{flex-direction:column;position:relative}
+.pane-slot{display:flex;flex:1;min-width:0;min-height:0;overflow:hidden}
+.workspace-group>.pane-slot{flex:1;overflow:visible}
+.workspace-group .pane-content{flex:0 0 auto;overflow:visible}
+.pane-tabs{display:flex;gap:2px;height:24px;flex-shrink:0;background:var(--surface);border-bottom:1px solid var(--line);-webkit-app-region:no-drag}
+.pane-tabs button{font-size:var(--fs-meta);padding:1px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pane-tabs .pane-handle{cursor:grab}
+.pane-tabs .pane-handle:first-child{margin-right:auto}
+.pane-tabs [aria-selected=true]{background:var(--raised)}
+.pane-group[data-drop]::after{content:'';position:absolute;inset:4px;border:2px solid var(--accent);background:color-mix(in srgb,var(--info) 13%,transparent);pointer-events:none;z-index:var(--z-popover)}
+.pane-group[data-drop=left]::after{right:75%}
+.pane-group[data-drop=right]::after{left:75%}
+.pane-group[data-drop=top]::after{bottom:75%}
+.pane-group[data-drop=bottom]::after{top:75%}
+.pane-arrangement label{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+.arranged .workspace-panel{flex:1;width:100%!important;max-width:none;min-width:0;position:relative;inset:auto}
+.arranged .workspace-resizer{display:none}
+.pane-split[data-direction=column]>.chat-split-divider{cursor:row-resize}
+.pane-tabs button{min-width:26px}
+.pane-tabs{cursor:grab}
+.pane-shell{overflow:auto}
+.pane-split:has(.arranged){min-width:min-content}
+.pane-group.arranged{min-width:320px}
+.pane-group.arranged{container-type:inline-size}
+@container(max-width:440px){.composer-box{flex-wrap:wrap}.composer-box textarea{order:-1;flex-basis:100%}.composer-box .send{margin-left:auto}.primary-chat-pane .titlebar{padding-right:12px}.backend-status{display:none}}
+.agent-pane{display:flex;flex:1;min-height:0;min-width:0;flex-direction:column}
+.agent-pane .job-titlebar{-webkit-app-region:no-drag}
+.agent-pane .messages{padding:16px}
+.agent-window{height:100vh}
+.agent-pane .agent-open{display:none}

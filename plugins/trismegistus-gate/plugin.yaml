@@ -1,0 +1,3 @@
+name: trismegistus-gate
+version: 0.1.0
+description: Ghidorah Remote gate. Hands the owner's Telegram messages to the app; nothing else gets through.

@@ -1,0 +1,36 @@
+import {_electron as electron} from 'playwright';
+import {spawn,execFileSync} from 'node:child_process';
+import {once} from 'node:events';
+import {createInterface} from 'node:readline';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {Backend,PYTHON} from '../app/backend';
+const working=await fs.mkdtemp(path.join(process.cwd(),'work','window-goals-workspace-'));
+const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/window-goals-')),namespace='Trismegistus/Test/'+path.basename(data),host=new Backend(root,data,namespace,()=>{});
+await host.host('initialize');await host.host('save_key',{key:'synthetic-deepseek-regression-credential'});
+const fake=spawn(PYTHON,['tests/fake_provider.py'],{windowsHide:true,stdio:'pipe'}),lines=createInterface({input:fake.stdout});const [line]=await once(lines,'line');
+const launch=async()=>{const a=await electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,args:process.env.TRISMEGISTUS_EXE?['--hidden']:[root,'--hidden'],env:{...process.env,TRISMEGISTUS_TEST_DATA:data,TRISMEGISTUS_TEST_PROVIDER_URL:JSON.parse(line).url}});await a.evaluate(({BrowserWindow})=>{BrowserWindow.prototype.show=function(){};BrowserWindow.prototype.showInactive=function(){};BrowserWindow.prototype.focus=function(){};});return a;};let app=await launch();
+try{
+ let main=await app.firstWindow();main.setDefaultTimeout(15000);
+ const invoke=(page:any,method:string,args:any={})=>page.evaluate(({method,args}:any)=>window.desktop.invoke(method,args),{method,args});
+ const call=(method:string,args:any={})=>invoke(main,method,args);
+ const wait=async(check:(s:any)=>boolean)=>{for(let n=0;n<900;n++){const state=await call('state');if(check(state))return state;await main.waitForTimeout(100);}throw Error('Timed out');};
+ await wait(s=>s.backend==='ready');if(await main.getByLabel('Close settings',{exact:true}).count())await main.getByLabel('Close settings',{exact:true}).click();await call('workingFolder',{folder:working});
+ const chatId=await call('newChat'),other=await call('newChat');await call('modelSelection',{chatId,selected:true});
+ let opening=app.waitForEvent('window');await call('openChatWindow',{chatId});let side=await opening;side.setDefaultTimeout(15000);
+ await side.getByRole('button',{name:'＋ Set Goal',exact:true}).click();await side.getByLabel('Goal objective').fill('GOAL_FIXTURE {"key":"window","steps":2}');await side.getByRole('button',{name:'Set Goal',exact:true}).click();
+ await wait(s=>s.goals.find((g:any)=>g.id===chatId)?.status==='complete');let state=await invoke(side,'state');assert.deepEqual(state.goals.map((g:any)=>g.id),[chatId]);assert.equal(state.goals[0].turns,2);assert.ok(state.goals[0].tokens>0);assert.ok(state.goals[0].evidence);await side.getByText('Evidence and progress',{exact:true}).click();await fs.writeFile(path.join(data,'window-goal.png'),Buffer.from(await app.evaluate(async({BrowserWindow},url)=>Array.from((await BrowserWindow.getAllWindows().find(w=>w.webContents.getURL()===url)!.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG()),side.url())));
+ for(const method of ['goalSet','goalPause','goalResume','goalClear'])await assert.rejects(()=>invoke(side,method,{chatId:other,objective:'unrelated'}),/another chat/);
+ await side.getByRole('button',{name:'Clear goal',exact:true}).click();await wait(s=>!s.goals.some((g:any)=>g.id===chatId));
+ await side.getByRole('button',{name:'＋ Set Goal',exact:true}).click();await side.getByLabel('Goal objective').fill('GOAL_FIXTURE {"key":"window-pause","steps":10,"slow":true}');await side.getByRole('button',{name:'Set Goal',exact:true}).click();await wait(s=>s.turns.some((t:any)=>t.chatId===chatId&&t.status==='running'&&t.text.length>10));
+ await side.getByRole('button',{name:'Pause',exact:true}).click();await wait(s=>s.goals.find((g:any)=>g.id===chatId)?.status==='paused'&&s.turns.filter((t:any)=>t.chatId===chatId).every((t:any)=>!['running','stopping','dispatching','queued','waiting'].includes(t.status)));
+ await side.getByLabel('Goal objective').fill('GOAL_FIXTURE {"key":"window-resume","steps":1}');await side.getByRole('button',{name:'Save and resume',exact:true}).click();await wait(s=>s.goals.find((g:any)=>g.id===chatId)?.status==='complete');await side.getByLabel('Close goal',{exact:true}).click();
+ await Promise.all([side.waitForEvent('close'),side.getByLabel('Close chat window',{exact:true}).click({noWaitAfter:true}).catch((error:Error)=>{if(!/closed/i.test(error.message))throw error;})]);await wait(s=>!s.chatWindows.includes(chatId));
+ await main.locator('[data-chat-id="'+other+'"] .chat-link').click();await main.locator('[data-chat-id="'+chatId+'"] .chat-link').click({button:'right'});await main.getByRole('menuitem',{name:'Open in',exact:true}).hover();await main.getByRole('menuitem',{name:'Split view',exact:true}).click();
+ const split=main.getByRole('region',{name:'Split chat',exact:true});await split.getByLabel('Open goal',{exact:true}).click();assert.match(await split.getByLabel('Goal objective').inputValue(),/window-resume/);await split.getByRole('button',{name:'Clear goal',exact:true}).click();await wait(s=>!s.goals.some((g:any)=>g.id===chatId));
+ await split.getByRole('button',{name:'＋ Set Goal',exact:true}).click();await split.getByLabel('Goal objective').fill('GOAL_FIXTURE {"key":"split-budget","steps":20}');await split.getByText('Token budget · optional',{exact:true}).click();await split.getByLabel('Goal token budget',{exact:true}).fill('1');await split.getByRole('button',{name:'Set Goal',exact:true}).click();await wait(s=>s.goals.find((g:any)=>g.id===chatId)?.status==='budget-limited');assert.equal((await call('state')).goals.some((g:any)=>g.id===other),false);await split.getByLabel('Close goal',{exact:true}).click();
+ const ids=await main.locator('[id]').evaluateAll(elements=>elements.map(e=>e.id));assert.equal(ids.length,new Set(ids).size);
+ await app.close();app=await launch();main=await app.firstWindow();await wait(s=>s.backend==='ready');opening=app.waitForEvent('window');await call('openChatWindow',{chatId});side=await opening;await side.getByLabel('Open goal',{exact:true}).click();assert.match(await side.getByLabel('Goal objective').inputValue(),/split-budget/);assert.equal((await invoke(side,'state')).goals[0].status,'budget-limited');
+ await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({windowCreate:true,twoTurnCompletion:true,usageEvidence:true,crossChatActionsDenied:true,clear:true,pauseResume:true,splitControls:true,splitBudget:true,uniqueIds:true,restart:true}));console.log(data);
+}finally{await app.close();fake.kill();execFileSync(PYTHON,['-c',"import sys;sys.path.insert(0,'backend');import windows_credentials as v;[v.delete(sys.argv[1]+'/'+s) for s in ('deepseek','encryption')]",namespace],{windowsHide:true});}

@@ -1,0 +1,144 @@
+[
+  {
+    "name": "create_app",
+    "description": "Add an app to the sidebar and link this chat. For app-list or planning requests, set register_only:true to save the entry immediately without creating or researching folders. Use the returned id for add_app_todo. Supply existing repository folders only when known. For new development, omit register_only and repositories to create a folder inside the working folder. An app with the same name is reused. Icon and stage are optional; do not investigate them just to add an entry.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The app name, as the user calls it"
+        },
+        "register_only": {
+          "type": "boolean",
+          "description": "Save the app entry and chat link without creating folders. Use for adding apps to the list or recording future work."
+        },
+        "description": {
+          "type": "string",
+          "description": "One line about what the app is"
+        },
+        "repositories": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 30,
+          "items": {
+            "type": "string"
+          },
+          "description": "Existing app folders: relative paths inside the working folder, or absolute paths on any drive. Registers them in place without moving files or changing the working folder. The first is the main development folder."
+        },
+        "icon_path": {
+          "type": "string",
+          "description": "Optional existing PNG, JPEG or WebP icon up to 250 KB. Use a path relative to the working folder or an absolute path, including another drive."
+        },
+        "stage": {
+          "type": "string",
+          "description": "Optional development stage or version, up to 40 characters."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_apps",
+    "description": "List saved apps, their known repository folders and to-dos. Use this to find the app before adding a to-do; no source-code inspection is needed to save a task.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "add_app_todo",
+    "description": "Add a to-do to a saved app when the user asks. It appears on that app page with a Start chat button. Use a known app ID/name; list_apps supplies missing IDs and current tasks. This saves the task and links this chat to the app, without starting work or creating files.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "app": {
+          "type": "string",
+          "description": "App ID or exact app name from list_apps"
+        },
+        "title": {
+          "type": "string",
+          "description": "The task to do, preserving the user’s intent"
+        }
+      },
+      "required": [
+        "app",
+        "title"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "link_app_chat",
+    "description": "Link this chat to a saved app when the conversation concerns that app. Use a known app ID/name; list_apps supplies missing details. Chats may link to multiple apps. Set linked:false only when the user asks to unlink this chat.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "app": {
+          "type": "string",
+          "description": "App ID or exact app name from list_apps"
+        },
+        "linked": {
+          "type": "boolean",
+          "description": "True to link; false to unlink"
+        }
+      },
+      "required": [
+        "app",
+        "linked"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "update_app_todo",
+    "description": "Edit, complete, reopen or remove one saved app to-do. Use its id from list_apps or an earlier tool result. A cancelled saved task should be removed. This changes the task record only; it does not stop its linked chat or delete files.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "app": {
+          "type": "string",
+          "description": "Known app ID or exact name"
+        },
+        "id": {
+          "type": "string",
+          "description": "Existing to-do ID"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "done": {
+          "type": "boolean"
+        },
+        "remove": {
+          "type": "boolean",
+          "description": "Remove this task when true"
+        }
+      },
+      "required": [
+        "app",
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "update_app",
+    "description": "Rename a saved app or change its icon by existing app ID, keeping its chats, repositories and tasks. Supply name, icon_path or both. Use the known ID; list_apps supplies missing IDs.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string", "description": "Existing app ID"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 80},
+        "icon_path": {"type": "string", "description": "Existing PNG, JPEG or WebP icon up to 250 KB, relative to the working folder or an absolute path."}
+      },
+      "required": ["id"],
+      "additionalProperties": false
+    }
+  }
+]

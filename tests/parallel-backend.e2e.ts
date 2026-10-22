@@ -1,0 +1,90 @@
+import {mainWindow} from './fixtures/poll-state';
+// Backend prerequisite check. Groups are seeded through Store; this does not
+// exercise (or claim) selected-tab dispatch or the future side-window UI.
+import {_electron as electron} from 'playwright';
+import {spawn,execFileSync} from 'node:child_process';
+import {once} from 'node:events';
+import {createInterface} from 'node:readline';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {Backend,PYTHON} from '../app/backend';
+import {Store} from '../app/store';
+import {createParallel} from '../app/parallel';
+import type {Chat,Turn} from '../app/types';
+
+const root=path.resolve('.'),data=await fs.mkdtemp(path.join(root,'work','parallel-backend-')),folder=await fs.mkdtemp(path.join(root,'work','parallel-backend-workspace-'));
+const namespace='Trismegistus/Test/'+path.basename(data),host=new Backend(root,data,namespace,()=>{});
+await host.host('initialize');await host.host('save_key',{key:'synthetic-deepseek-regression-credential'});
+const models=['deepseek-flash','gpt-6-astra','claude-code:haiku'];
+const db=new Store(path.join(data,'chat.sqlite')),project=db.project(folder),chat=db.chat(project.id);
+db.update<Chat>('chat',chat.id,{pool:models,efforts:Object.fromEntries(models.map(model=>[model,'low']))});
+db.put('settings',{id:'working-folder',folder});
+const seed=(text:string,picks=models)=>{
+ const parent=db.accept(crypto.randomUUID(),chat.id,text),jobs=createParallel(db,parent,picks);
+ for(const job of jobs)db.update<Turn>('turn',job.id,{status:'needs-model'});
+ return {parent:parent.id,jobs};
+};
+const independent=seed('WRITE_FIXTURE WRITE_GPT_FIXTURE WRITE_CLAUDE'),collision=seed('COORDINATION_WRITE_SHARED',models.slice(0,2)),failure=seed('SLOW_FIXTURE SLOW_GPT_FIXTURE SLOW_CLAUDE'),crash=seed('SLOW_FIXTURE SLOW_GPT_FIXTURE SLOW_CLAUDE');
+db.db.close();
+const ds=spawn(PYTHON,['tests/fake_provider.py'],{env:{...process.env,FIXTURE_RECORDS:path.join(data,'deepseek.jsonl')},windowsHide:true,stdio:'pipe'}),dl=createInterface({input:ds.stdout}),[dline]=await once(dl,'line');
+const gpt=spawn(PYTHON,['tests/fake_codex.py',namespace,path.join(data,'gpt.jsonl')],{env:host.environment(),windowsHide:true,stdio:'pipe'}),gl=createInterface({input:gpt.stdout}),[gline]=await once(gl,'line');
+const env={...process.env,TRISMEGISTUS_TEST_DATA:data,TRISMEGISTUS_TEST_PROVIDER_URL:JSON.parse(dline).url,TRISMEGISTUS_TEST_CODEX_URL:JSON.parse(gline).url,TRISMEGISTUS_TEST_CLAUDE:path.join(root,'tests/fixtures/claude-cli.mjs'),TRISMEGISTUS_TEST_CLAUDE_NODE:process.execPath};
+const launch=async()=>{const app=await electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,args:process.env.TRISMEGISTUS_EXE?['--hidden']:[root,'--hidden'],env,timeout:30000});await app.evaluate(({BrowserWindow})=>{BrowserWindow.prototype.show=function(){};BrowserWindow.prototype.showInactive=function(){};BrowserWindow.prototype.focus=function(){};});return app;};let instance=await launch();
+try{
+ await instance.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().forEach(w=>w.hide()));let page=await mainWindow(instance);
+ const call=(method:string,args:any={})=>page.evaluate(({method,args})=>window.desktop.invoke(method,args),{method,args});
+ const wait=async(predicate:(state:any)=>boolean)=>{const end=Date.now()+90000;while(Date.now()<end){const state=await call('state');if(predicate(state))return state;await page.waitForTimeout(100);}throw Error('Timed out: '+JSON.stringify((await call('state')).turns));};
+ const ready=()=>wait(s=>s.backend==='ready'&&s.availableModels?.includes(models[1])&&s.claude?.models?.length);
+ const start=(jobs:Turn[])=>Promise.all(jobs.map(job=>call('chooseTurnModel',{id:job.id,model:job.model})));
+ const result=(state:any,id:string)=>state.turns.find((t:any)=>t.id===id);
+ const done=(id:string,status='completed')=>wait(s=>result(s,id)?.status===status);
+ await ready();await start(independent.jobs);
+ let state=await wait(s=>independent.jobs.every(job=>s.approvals.some((a:any)=>a.turnId===job.id&&a.status==='pending')));
+ assert.equal(state.chats.length,1,'internal chats must not enter the sidebar');
+ const pending=(job:Turn)=>state.approvals.find((a:any)=>a.turnId===job.id&&a.status==='pending');
+ await call('approve',{id:pending(independent.jobs[0]).id,choice:'once'});await done(independent.jobs[0].id);
+ assert.equal((await call('state')).approvals.filter((a:any)=>a.status==='pending').length,2,'one job finishing must not release siblings');
+ await call('approve',{id:pending(independent.jobs[1]).id,choice:'deny'});await done(independent.jobs[1].id);
+ await call('stop',{chatId:independent.jobs[2].chatId});await done(independent.jobs[2].id,'stopped');await done(independent.parent,'partial');
+ assert.equal(await fs.readFile(path.join(folder,'slice-result.txt'),'utf8'),'Written through Hermes tools.');
+ for(const name of ['gpt-result.txt','claude-result.txt'])assert.equal(await fs.access(path.join(folder,name)).then(()=>true,()=>false),false,name+' must not exist');
+ console.log('PASS Hermes and native protocol fixtures: simultaneous independent approvals, distinct results, one denial and one Stop');
+ await start(collision.jobs);
+ state=await wait(s=>s.approvals.some((a:any)=>collision.jobs.some(job=>job.id===a.turnId)&&a.status==='pending'));
+ const first=state.approvals.find((a:any)=>collision.jobs.some(job=>job.id===a.turnId)&&a.status==='pending');
+ await call('approve',{id:first.id,choice:'once'});await done(collision.parent);
+ const expected=first.turnId===collision.jobs[0].id?'DeepSeek shared write.':'GPT shared write.';
+ assert.equal(await fs.readFile(path.join(folder,'shared-result.txt'),'utf8'),expected);
+ state=await call('state');assert.equal(state.approvals.filter((a:any)=>collision.jobs.some(job=>job.id===a.turnId)).length,1);
+ assert.match(JSON.stringify(state.tools.filter((t:any)=>collision.jobs.some(job=>job.id===t.turnId))),/changed or has not been read/);
+ console.log('PASS competing writes: only the first receives approval; the stale sibling must inspect the saved file before editing');
+ await start(failure.jobs);state=await wait(s=>failure.jobs.every(job=>result(s,job.id)?.text.length>12));
+ const nativeBefore=result(state,failure.jobs[2].id).text.length;
+ const backendPid=JSON.parse(await fs.readFile(path.join(data,'locks','host-serve.json'),'utf8')).pid;
+ assert.ok(Number.isInteger(backendPid)&&backendPid>0);
+ const processTree=JSON.parse(execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-Command','Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Compress'],{windowsHide:true,encoding:'utf8'}));
+ const ancestors=new Set<number>();let parentPid=backendPid;
+ while(parentPid&&!ancestors.has(parentPid)){ancestors.add(parentPid);parentPid=processTree.find((p:any)=>p.ProcessId===parentPid)?.ParentProcessId;}
+ assert.ok(ancestors.has(instance.process().pid!),'kill only a verified descendant of this test app');
+ execFileSync('taskkill',['/PID',String(backendPid),'/T','/F'],{windowsHide:true,stdio:'ignore'});
+ state=await wait(s=>s.backend==='failed'&&failure.jobs.slice(0,2).every(job=>result(s,job.id)?.status==='interrupted')&&result(s,failure.jobs[2].id)?.text.length>nativeBefore);
+ assert.equal(result(state,failure.jobs[2].id).status,'running');
+ await done(failure.jobs[2].id);await done(failure.parent,'partial');
+ await call('restart');await ready();
+ console.log('PASS Hermes process failure interrupts only its jobs; native Claude keeps streaming and completes');
+ await start(crash.jobs);await wait(s=>crash.jobs.every(job=>result(s,job.id)?.text.length>12));
+ execFileSync('taskkill',['/PID',String(instance.process().pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});await instance.close().catch(()=>{});
+ const logFiles=['deepseek.jsonl','gpt.jsonl','claude-requests.jsonl'],logs=await Promise.all(logFiles.map(name=>fs.readFile(path.join(data,name),'utf8')));
+ instance=await launch();await instance.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().forEach(w=>w.hide()));page=await mainWindow(instance);await ready();
+ state=await done(crash.parent,'interrupted');for(const job of crash.jobs){assert.equal(result(state,job.id).status,'interrupted');assert.ok(result(state,job.id).text.length>12);}
+ assert.deepEqual(await Promise.all(logFiles.map(name=>fs.readFile(path.join(data,name),'utf8'))),logs,'restart must not resubmit model requests');
+ assert.equal(await instance.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().some(w=>w.isVisible())),false);
+ await instance.evaluate(({app})=>app.quit());await instance.close();
+ const saved=new Store(path.join(data,'chat.sqlite')),a=saved.get<Chat>('chat',independent.jobs[0].chatId),b=saved.get<Chat>('chat',independent.jobs[1].chatId);
+ assert.equal(a.projectId,b.projectId);assert.ok(a.storedId&&b.storedId);assert.notEqual(a.storedId,b.storedId);
+ assert.ok(saved.all<any>('work-action').some(row=>row.group===independent.parent&&row.job===independent.jobs[0].id&&row.status==='completed'));
+ assert.equal(saved.all<any>('work-action').some(row=>row.status==='running'),false);saved.db.close();
+ await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({scope:'seeded backend prerequisite; no multi-selection or side-window claim',checks:['same project separate Hermes sessions','simultaneous approvals','approve/deny/stop isolation','shared-target stale write refusal','backend failure isolation','crash partial output','restart no replay','durable action ledger']},null,2));
+ console.log('PASS concurrent crash/restart preserves partial results and session ownership without replay\nEvidence: '+data);
+}finally{await instance.evaluate(({app})=>app.quit()).catch(()=>{});await instance.close().catch(()=>{});ds.stdin.end();gpt.stdin.end();dl.close();gl.close();await host.host('delete_key');}

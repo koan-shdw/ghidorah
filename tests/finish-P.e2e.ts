@@ -1,0 +1,45 @@
+import {_electron as electron} from 'playwright';
+import {execFileSync} from 'node:child_process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import assert from 'node:assert/strict';
+import {PYTHON} from '../app/backend';
+import {allPaneIds,findGroupOfPane} from '../app/pane-tree';
+
+const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/finish-P-')),folder=await fs.mkdtemp(path.join(os.tmpdir(),'tris-pane-')),namespace='Trismegistus/Test/'+path.basename(data);
+await fs.writeFile(path.join(folder,'draft.txt'),'Original file');
+const launch=()=>electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,args:process.env.TRISMEGISTUS_EXE?[]:[root],env:{...process.env,TRISMEGISTUS_TEST_DATA:data}});let app=await launch();
+const mainWindow=async()=>{for(const end=Date.now()+30000;Date.now()<end;await new Promise(resolve=>setTimeout(resolve,100))){const page=app.windows().find(view=>/index\.html$/.test(view.url()));if(page)return page;}throw Error('The main window did not open.');};
+try{
+ let page=await app.firstWindow();page.setDefaultTimeout(15000);
+ const call=(method:string,args:any={})=>page.evaluate(({method,args})=>window.desktop.invoke(method,args),{method,args});
+ const until=async(check:(s:any)=>boolean)=>{for(const end=Date.now()+40000;Date.now()<end;await page.waitForTimeout(100)){const state=await call('state');if(check(state))return state;}throw Error('Pane state timed out');};
+ const ready=async()=>{await until(s=>s.backend==='ready');await page.getByLabel('Close settings',{exact:true}).click();};
+ await ready();await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(1600,1050));await call('workingFolder',{folder});
+ const first=await call('newChat'),second=await call('newChat');await call('sidebarChat',{action:'rename',chatId:second,name:'Second pane'});
+ await page.locator('[data-chat-id="'+first+'"] .chat-link').click();const main=page.getByRole('region',{name:'Main chat',exact:true});await main.getByLabel('Message',{exact:true}).fill('main draft');
+ await page.locator('[data-chat-id="'+second+'"] .chat-link').click({button:'right'});await page.getByRole('menuitem',{name:'Open in',exact:true}).hover();await page.getByRole('menuitem',{name:'Split view',exact:true}).click();
+ const secondary=page.getByRole('region',{name:'Split chat',exact:true});await secondary.getByLabel('Message',{exact:true}).fill('side draft');
+ await main.getByLabel('Open files',{exact:true}).click();const workspace=page.getByRole('complementary',{name:'Workspace',exact:true});await workspace.locator('.workspace-files button').filter({hasText:'draft.txt'}).click();await workspace.locator('.cm-content').fill('Unsaved through pane moves');
+ const source=page.getByLabel('Move Workspace',{exact:true}),destination=page.locator('[data-group="main-group"]');
+ const a=await source.boundingBox(),b=await destination.boundingBox();assert.ok(a&&b);await page.mouse.move(a.x+a.width/2,a.y+a.height/2);await page.mouse.down();await page.mouse.move(b.x+b.width/2,b.y+b.height-12,{steps:20});await page.mouse.up();
+ const moved=await until(s=>s.paneLayout&&findGroupOfPane(s.paneLayout,'workspace')?.id!=='workspace-group');
+ assert.deepEqual(new Set(allPaneIds(moved.paneLayout)),new Set(['main','chat:'+second,'workspace']));
+ assert.equal(await workspace.locator('.cm-content').innerText(),'Unsaved through pane moves');assert.equal(await main.getByLabel('Message',{exact:true}).inputValue(),'main draft');assert.equal(await secondary.getByLabel('Message',{exact:true}).inputValue(),'side draft');
+ await page.getByLabel('Arrange Main chat',{exact:true}).click();const dialog=page.getByRole('dialog',{name:'Arrange pane',exact:true});await dialog.getByLabel('Target pane',{exact:true}).selectOption('chat:'+second);await dialog.getByLabel('Pane position',{exact:true}).selectOption('center');await dialog.getByRole('button',{name:'Move pane',exact:true}).click();
+ await until(s=>!!findGroupOfPane(s.paneLayout,'main')?.panes.includes('chat:'+second));assert.equal(await main.getByLabel('Message',{exact:true}).inputValue(),'main draft');
+ const tabs=page.getByRole('tablist',{name:'Pane tabs',exact:true});await tabs.getByRole('tab',{name:'Chat · Second pane',exact:true}).click();await secondary.getByLabel('Message',{exact:true}).fill('side draft after tab');
+ await tabs.getByRole('tab',{name:'Main chat',exact:true}).focus();await page.keyboard.press('End');assert.equal(await main.getByLabel('Message',{exact:true}).inputValue(),'main draft');
+ await workspace.getByRole('button',{name:'Save',exact:true}).click();assert.equal(await fs.readFile(path.join(folder,'draft.txt'),'utf8'),'Unsaved through pane moves');
+ await page.screenshot({path:path.join(data,'arranged.png')});
+ const saved=(await call('state')).paneLayout;await app.close();app=await launch();page=await app.firstWindow();await ready();await until(s=>JSON.stringify(s.paneLayout)===JSON.stringify(saved));
+ await page.getByRole('complementary',{name:'Workspace',exact:true}).waitFor();
+ const restoredTabs=page.getByRole('tablist',{name:'Pane tabs',exact:true});await restoredTabs.getByRole('tab',{name:'Chat · Second pane',exact:true}).click();assert.equal(await page.getByRole('region',{name:'Split chat',exact:true}).getByLabel('Message',{exact:true}).inputValue(),'side draft after tab');
+ const opening=app.waitForEvent('window');await page.getByLabel('Pop out pane: Chat · Second pane',{exact:true}).click();let popped=await opening;await popped.getByLabel('Message',{exact:true}).waitFor();assert.equal(await popped.getByLabel('Message',{exact:true}).inputValue(),'side draft after tab');await until(s=>!allPaneIds(s.paneLayout).includes('chat:'+second));
+ await app.close();app=await launch();page=await mainWindow();await ready();await until(s=>s.chatWindows?.includes(second));popped=app.windows().find(view=>view.url().endsWith('#chat='+second))!;await popped.getByLabel('Message',{exact:true}).waitFor();assert.equal(await popped.getByLabel('Message',{exact:true}).inputValue(),'side draft after tab');assert.ok(findGroupOfPane((await call('state')).paneLayout,'workspace'));
+ await assert.rejects(call('paneLayout',{tree:{type:'group',id:'bad',panes:['main','main'],active:'main'}}),/Invalid pane layout/);
+ const closed=popped.waitForEvent('close');void popped.evaluate(()=>window.desktop.invoke('window',{action:'close'})).catch(()=>{});await closed;
+ console.log(data);
+}catch(error){console.error('Profile: '+data,error);const view=app.windows()[0];if(view){await view.screenshot({path:path.join(data,'failure.png')}).catch(()=>{});await fs.writeFile(path.join(data,'failure.html'),await view.content().catch(()=>''));}throw error;
+}finally{await app.evaluate(({dialog})=>{dialog.showMessageBox=async()=>({response:1,checkboxChecked:false});}).catch(()=>{});await app.close();execFileSync(PYTHON,['-c',"import sys;sys.path.insert(0,'backend');import windows_credentials as v;v.delete(sys.argv[1]+'/encryption')",namespace],{windowsHide:true});}

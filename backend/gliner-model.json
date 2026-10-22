@@ -1,0 +1,31 @@
+{
+  "repository": "fastino/GLiNER2.5-Decide",
+  "revision": "5a7adf72a23b4d311abae6ce050d7f0012bb3416",
+  "license": "apache-2.0",
+  "files": {
+    "config.json": {
+      "gitSha1": "b6cb696d01e64a2a1389be0e7eaa03cda538e763",
+      "size": 594
+    },
+    "encoder_config/config.json": {
+      "gitSha1": "63faecad180aed6a59dc33f9bf256e1ad5a8b8ec",
+      "size": 920
+    },
+    "model.safetensors": {
+      "sha256": "40a5a23ff860dc3dff426cecd1048cacdd29c648c96db209dad818e9686dc997",
+      "size": 1945828140
+    },
+    "special_tokens_map.json": {
+      "gitSha1": "4f5d30b2c191a6fe27a92901a543cfad1f9832ab",
+      "size": 2414
+    },
+    "tokenizer.json": {
+      "gitSha1": "846fee96bd81469a49d54a6e37909cf2070a8833",
+      "size": 8333952
+    },
+    "tokenizer_config.json": {
+      "gitSha1": "eaa0e9bae635e8571f2501ade39b3be479d3fa0f",
+      "size": 3356
+    }
+  }
+}

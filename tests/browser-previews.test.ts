@@ -1,0 +1,36 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import http from 'node:http';
+import {Store} from '../app/store';
+import {BrowserPreviews} from '../app/browser-previews';
+import {saveChatOutput} from '../app/chat-files';
+
+test('browser previews serve assets with a private grant, preserve saved copies and reject escapes',async t=>{
+ const base=await fs.mkdtemp(path.join(process.cwd(),'work/browser-preview-')),root=path.join(base,'project'),data=path.join(base,'private');await fs.mkdir(root);await fs.mkdir(data);
+ const store=new Store(':memory:'),chat=store.chat(store.project(root).id),turn=store.accept(crypto.randomUUID(),chat.id,'Preview','deepseek-flash');let opened='',folder:string|null=root;
+ const server=new BrowserPreviews(store,data,()=>folder,async url=>{opened=url;});t.after(()=>{server.closeAll();store.db.close();});
+ await fs.writeFile(path.join(root,'index.html'),'<link rel="stylesheet" href="/style.css"><h1>Preview</h1>');await fs.writeFile(path.join(root,'style.css'),'h1{color:red}');await fs.writeFile(path.join(root,'clip.webm'),'0123456789');await fs.writeFile(path.join(root,'.env.json'),'secret');await fs.writeFile(path.join(data,'private.html'),'private');await fs.symlink(data,path.join(root,'escape'),'junction');
+ await server.open(chat.id,{file:'index.html'});const origin=new URL(opened).origin;
+ const grant=await fetch(opened,{redirect:'manual'}),cookie=grant.headers.get('set-cookie')!.split(';')[0];assert.equal(grant.status,303);assert.equal(grant.headers.get('location'),origin+'/index.html');assert.match(grant.headers.get('set-cookie')!,/HttpOnly; SameSite=Strict/);
+ const get=(file:string,headers:Record<string,string>={},method='GET')=>fetch(origin+'/'+file,{headers:{cookie,...headers},method});
+ assert.equal((await fetch(origin+'/index.html')).status,403);assert.match(await (await get('index.html')).text(),/<h1>Preview/);assert.equal(await (await get('style.css')).text(),'h1{color:red}');
+ assert.equal((await get('index.html',{},'HEAD')).status,200);assert.equal((await get('index.html',{},'POST')).status,403);
+ for(const headers of [{origin:'https://foreign.example'},{'sec-fetch-site':'cross-site'}] as Record<string,string>[])assert.equal((await get('style.css',headers)).status,403,JSON.stringify(headers));
+ assert.equal(await new Promise(resolve=>http.get(origin+'/style.css',{headers:{host:'foreign.example',cookie}},response=>{response.resume();resolve(response.statusCode);})),403);
+ for(const file of ['.env.json','escape/private.html','..%2fprivate%2fprivate.html'])assert.equal((await get(file)).status,403,file);
+ const range=await get('clip.webm',{range:'bytes=2-5'});assert.equal(range.status,206);assert.equal(await range.text(),'2345');
+ await assert.rejects(server.open(chat.id,{url:'file:///C:/private.html'}));await assert.rejects(server.open(chat.id,{url:'https://user:password@example.org'}));await assert.rejects(server.open(chat.id,{file:path.join(data,'private.html')}));
+ await server.open(chat.id,{url:'https://example.org/page#part'});assert.equal(opened,'https://example.org/page#part');await server.open(chat.id,{url:'localhost:3000/page'});assert.equal(opened,'http://localhost:3000/page');
+ store.put('preview',{id:chat.id,chatId:chat.id,file:'index.html',root});folder=data;await assert.rejects(server.open(chat.id),/different working folder/);folder=root;
+ const bundle=path.join(root,'bundle');await fs.mkdir(bundle);await fs.writeFile(path.join(bundle,'index.html'),'<script src="app.js"></script>');await fs.writeFile(path.join(bundle,'app.js'),'document.body.dataset.ready="yes"');
+ const backend:any={dataRoot:data,host:async(_method:string,args:any)=>{const file=path.join(args.staging,'export.zip');await fs.writeFile(file,'test archive');return {file};}};
+ const saved=await saveChatOutput(store,data,turn,root,{path:bundle},()=>{},new AbortController().signal,backend);
+ await server.open(chat.id,{chatFileId:'output:'+saved.id});assert.equal((await get('index.html')).status,200,'earlier browser tabs retain their files');
+ const landing=await fetch(opened,{redirect:'manual'}),savedOrigin=new URL(opened).origin,savedCookie=landing.headers.get('set-cookie')!.split(';')[0];
+ const asset=await fetch(savedOrigin+'/app.js',{headers:{cookie:savedCookie}});assert.equal(await asset.text(),'document.body.dataset.ready="yes"');assert.match(asset.headers.get('content-security-policy')!,/connect-src 'self'/);
+ const other=store.chat(store.get<any>('chat',chat.id).projectId);await assert.rejects(server.open(other.id,{chatFileId:'output:'+saved.id}),/not part/);
+ await fs.writeFile(path.join(data,'outputs',saved.id,'files/app.js'),'tampered');assert.equal((await fetch(savedOrigin+'/app.js',{headers:{cookie:savedCookie}})).status,410);
+ server.close(chat.id);await assert.rejects(fetch(savedOrigin+'/index.html'),/fetch failed/);await assert.rejects(get('index.html'),/fetch failed/);
+});

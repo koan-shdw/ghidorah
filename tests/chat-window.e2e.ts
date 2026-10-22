@@ -1,0 +1,72 @@
+import {_electron as electron} from 'playwright';
+import {spawn,execFileSync} from 'node:child_process';
+import {once} from 'node:events';
+import {createInterface} from 'node:readline';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {Backend,PYTHON} from '../app/backend';
+const working=await fs.mkdtemp(path.join(process.cwd(),'work','chat-window-workspace-'));
+const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/chat-window-')),namespace='Trismegistus/Test/'+path.basename(data),host=new Backend(root,data,namespace,()=>{});
+await host.host('initialize');await host.host('save_key',{key:'synthetic-deepseek-regression-credential'});
+const fake=spawn(PYTHON,['tests/fake_provider.py'],{windowsHide:true,stdio:'pipe'}),lines=createInterface({input:fake.stdout});const [line]=await once(lines,'line');
+const app=await electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,args:process.env.TRISMEGISTUS_EXE?['--hidden']:[root,'--hidden'],env:{...process.env,TRISMEGISTUS_TEST_DATA:data,TRISMEGISTUS_TEST_PROVIDER_URL:JSON.parse(line).url}});
+await app.evaluate(({BrowserWindow})=>{BrowserWindow.prototype.show=function(){};BrowserWindow.prototype.focus=function(){};});
+try{
+ const main=await app.firstWindow();main.setDefaultTimeout(15000);
+ const invoke=(page:any,method:string,args:any={})=>page.evaluate(({method,args}:any)=>window.desktop.invoke(method,args),{method,args});
+ const call=(method:string,args:any={})=>invoke(main,method,args);
+ const wait=async(check:(s:any)=>boolean)=>{for(let n=0;n<900;n++){const s=await call('state');if(check(s))return s;await main.waitForTimeout(100);}throw Error('Timed out');};
+ await wait(s=>s.backend==='ready');if(await main.getByLabel('Close settings',{exact:true}).count())await main.getByLabel('Close settings',{exact:true}).click();
+ await call('workingFolder',{folder:working});
+ const chatId=await call('newChat'),other=await call('newChat');await main.locator('[data-chat-id="'+chatId+'"] .chat-link').click();await call('modelSelection',{chatId,selected:true});
+ await main.getByLabel('Message',{exact:true}).fill('Draft before opening');
+ let opening=app.waitForEvent('window');await call('openChatWindow',{chatId});let side=await opening;side.setDefaultTimeout(15000);await side.waitForLoadState();
+ await side.getByLabel('Message',{exact:true}).waitFor();await side.waitForFunction(()=>!document.querySelector<HTMLTextAreaElement>('[aria-label="Message"]')?.disabled);assert.equal(await side.getByLabel('Message',{exact:true}).inputValue(),'Draft before opening');
+ assert.equal(await main.getByLabel('Message',{exact:true}).isDisabled(),true);
+ assert.deepEqual((await invoke(side,'state')).chats.map((c:any)=>c.id),[chatId]);
+ await assert.rejects(()=>invoke(side,'draft',{chatId:other,text:'bad'}));await assert.rejects(()=>invoke(side,'workingFolder',{folder:working}));await assert.rejects(()=>call('draft',{chatId,text:'stale'}));
+ await assert.rejects(()=>invoke(side,'addModel',{chatId:other,model:'deepseek-flash'}),/another chat/);await assert.rejects(()=>invoke(side,'removeModel',{chatId:other,model:'deepseek-flash'}),/another chat/);
+ await side.getByLabel('Remove DeepSeek from chat',{exact:true}).click();await wait(s=>s.chats.find((c:any)=>c.id===chatId)?.pool.length===0);assert.deepEqual((await call('state')).chats.find((c:any)=>c.id===other).pool,['deepseek-flash']);
+ await side.getByLabel('Add model',{exact:true}).click();const modelPicker=side.getByRole('dialog',{name:'Chat models',exact:true});await modelPicker.getByLabel('Add DeepSeek to this chat',{exact:true}).click();await wait(s=>s.chats.find((c:any)=>c.id===chatId)?.pool.includes('deepseek-flash'));await modelPicker.getByLabel('Favourite DeepSeek',{exact:true}).click();await wait(s=>s.favouriteModels.includes('deepseek-flash'));await side.getByLabel('Close chat models',{exact:true}).click();
+ await side.locator('.model-tab').hover();await side.getByRole('tooltip').filter({hasText:'Tokens unavailable'}).waitFor();await side.getByLabel('Model details',{exact:true}).click();const usage=side.getByRole('dialog',{name:'Context window and usage',exact:true});await usage.waitFor();await side.getByLabel('Model details',{exact:true}).click();await usage.waitFor({state:'hidden'});await side.getByLabel('Model details',{exact:true}).click();await usage.waitFor();await usage.getByRole('button',{name:'Refresh account usage',exact:true}).click();await usage.getByRole('button',{name:'Refresh account usage',exact:true}).waitFor();await fs.writeFile(path.join(data,'window-usage.png'),Buffer.from(await app.evaluate(async({BrowserWindow},url)=>Array.from((await BrowserWindow.getAllWindows().find(w=>w.webContents.getURL()===url)!.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG()),side.url())));await side.keyboard.press('Escape');await usage.waitFor({state:'hidden'});assert.equal(await side.getByLabel('Model details',{exact:true}).evaluate(el=>el===document.activeElement),true);
+ await invoke(side,'openConnections');await main.getByRole('heading',{name:'Connections',exact:true}).waitFor();await main.getByLabel('Close settings',{exact:true}).click();assert.equal((await call('state')).chatWindows.includes(chatId),true);await invoke(side,'modelSelection',{chatId,selected:true});
+ await side.getByLabel('Message',{exact:true}).fill('Remember copperfinch.');await side.getByLabel('Message',{exact:true}).press('Enter');
+ await wait(s=>s.turns.some((t:any)=>t.chatId===chatId&&t.status==='completed'));
+ assert.match(await side.locator('.messages').innerText(),/copperfinch/);
+ await fs.writeFile(path.join(working,'note.txt'),'Window attachment fixture');
+ await side.getByLabel('Choose attachments',{exact:true}).setInputFiles(path.join(working,'note.txt'));
+ await side.getByLabel('Draft attachments',{exact:true}).getByText('note.txt',{exact:true}).waitFor();
+ await side.getByLabel('Remove note.txt',{exact:true}).click();await wait(s=>!s.chats.find((c:any)=>c.id===chatId)?.attachments?.length);
+ await side.getByLabel('Message',{exact:true}).fill('@note');await side.getByLabel('Message',{exact:true}).press('End');await side.getByRole('option',{name:'note.txt',exact:false}).click();assert.equal(await side.getByLabel('Message',{exact:true}).inputValue(),'@"note.txt" ');
+
+ const projectId=(await invoke(side,'state')).chats[0].projectId,otherProject=(await call('state')).chats.find((c:any)=>c.id===other).projectId;
+ await assert.rejects(()=>invoke(side,'mode',{projectId:otherProject,mode:'bypass'}));await assert.rejects(()=>invoke(side,'effort',{chatId:other,effort:'none'}));
+ await side.locator('summary[aria-label="Permission mode"]').click();await side.getByRole('radio',{name:'Plan',exact:true}).click();await wait(s=>s.projects.find((p:any)=>p.id===projectId)?.mode==='plan');
+ await side.locator('summary[aria-label="Permission mode"]').click();await side.getByRole('radio',{name:'Manual',exact:true}).click();await wait(s=>s.projects.find((p:any)=>p.id===projectId)?.mode==='manual');
+ await side.locator('summary[aria-label="Thinking effort"]').click();await side.getByRole('radio',{name:'None',exact:true}).click();await wait(s=>s.chats.find((c:any)=>c.id===chatId)?.efforts?.['deepseek-flash']==='none');
+ for(const [prompt,file,button] of [['WRITE_FIXTURE','slice-result.txt','Allow once'],['DENY_FIXTURE','must-not-exist.txt','Deny']]){
+  await side.getByLabel('Message',{exact:true}).fill(prompt);await side.getByLabel('Message',{exact:true}).press('Enter');
+  const pending=await wait(s=>s.approvals.some((a:any)=>a.chatId===chatId&&a.status==='pending')),approval=pending.approvals.find((a:any)=>a.chatId===chatId&&a.status==='pending');
+  assert.equal(await fs.access(path.join(working,file)).then(()=>true,()=>false),false);
+  await side.getByRole('button',{name:button,exact:true}).click();await wait(s=>s.turns.find((t:any)=>t.id===approval.turnId)?.status==='completed');
+  assert.equal(await fs.access(path.join(working,file)).then(()=>true,()=>false),button==='Allow once');
+ }
+
+ await side.getByLabel('Message',{exact:true}).fill('Saved side draft');await Promise.all([side.waitForEvent('close'),side.getByLabel('Close chat window',{exact:true}).click({noWaitAfter:true}).catch((error:Error)=>{if(!/closed/i.test(error.message))throw error;})]);await wait(s=>!s.chatWindows.includes(chatId));
+ await main.waitForFunction(()=>!document.querySelector<HTMLTextAreaElement>('[aria-label="Message"]')?.disabled);
+ assert.equal(await main.getByLabel('Message',{exact:true}).inputValue(),'Saved side draft');
+ opening=app.waitForEvent('window');await call('openChatWindow',{chatId});side=await opening;side.setDefaultTimeout(15000);await side.getByLabel('Message',{exact:true}).waitFor();await side.waitForFunction(()=>!document.querySelector<HTMLTextAreaElement>('[aria-label="Message"]')?.disabled);assert.equal(await side.getByLabel('Message',{exact:true}).inputValue(),'Saved side draft');
+ await fs.writeFile(path.join(data,'chat-window.png'),Buffer.from(await app.evaluate(async({BrowserWindow},url)=>Array.from((await BrowserWindow.getAllWindows().find(w=>w.webContents.getURL()===url)!.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG()),side.url())));
+ await side.getByLabel('Message',{exact:true}).fill('SLOW_FIXTURE');await side.getByLabel('Message',{exact:true}).press('Enter');
+ const active=await wait(s=>s.turns.some((t:any)=>t.chatId===chatId&&t.prompt==='SLOW_FIXTURE'&&t.status==='running'&&t.text));
+ const running=active.turns.find((t:any)=>t.prompt==='SLOW_FIXTURE').id;
+ assert.equal(await side.getByLabel('Remove DeepSeek from chat',{exact:true}).isDisabled(),true);await assert.rejects(()=>invoke(side,'removeModel',{chatId,model:'deepseek-flash'}),/Stop this model/);
+ await Promise.all([side.waitForEvent('close'),side.getByLabel('Close chat window',{exact:true}).click({noWaitAfter:true}).catch((error:Error)=>{if(!/closed/i.test(error.message))throw error;})]);await wait(s=>!s.chatWindows.includes(chatId));
+ assert.equal((await call('state')).turns.find((t:any)=>t.id===running).status,'running');
+ opening=app.waitForEvent('window');await call('openChatWindow',{chatId});side=await opening;side.setDefaultTimeout(15000);await side.getByRole('button',{name:'Stop',exact:true}).click();
+ await wait(s=>s.turns.find((t:any)=>t.id===running)?.status==='stopped');assert.equal((await call('state')).turns.filter((t:any)=>t.prompt==='SLOW_FIXTURE').length,1);
+ await side.getByLabel('Message',{exact:true}).fill('Saved side draft');
+ await invoke(side,'openMainChat',{chatId}).catch((error:Error)=>assert.match(error.message,/closed/));await wait(s=>!s.chatWindows.includes(chatId));assert.equal(await main.getByLabel('Message',{exact:true}).inputValue(),'Saved side draft');
+ await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({activeModelRemovalGuard:true,usageRefresh:true,modelManagement:true,modelScope:true,usageToggle:true,usageEscapeFocus:true,connectionsNavigation:true,scopedState:true,crossChatDenied:true,duplicateEditorDenied:true,reply:true,permissionMode:true,effort:true,attachmentAddRemove:true,fileMention:true,approvedWrite:true,deniedWrite:true,crossChatModeDenied:true,closeKeepsWorking:true,reopenStop:true,noDuplicateTurn:true,draftReopen:true,returnToMain:true}));console.log(data);
+}finally{await app.close();fake.kill();execFileSync(PYTHON,['-c',"import sys;sys.path.insert(0,'backend');import windows_credentials as v;[v.delete(sys.argv[1]+'/'+s) for s in ('deepseek','encryption')]",namespace],{windowsHide:true});}

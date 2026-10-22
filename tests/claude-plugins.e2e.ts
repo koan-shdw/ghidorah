@@ -1,0 +1,45 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {findClaude,runClaude} from '../app/claude';
+import {SecretScrubber} from '../app/redaction';
+import {reviewNativePlugin,installNativePlugin,nativePluginDirectories} from '../app/native-plugins';
+
+const root=path.resolve('.'),scratch=await fs.mkdtemp(path.join(root,'work','claude-plugins-'));
+const plugin=path.join(scratch,'plugin'),marker=path.join(scratch,'hook.txt');
+await fs.mkdir(path.join(plugin,'.claude-plugin'),{recursive:true});
+await fs.mkdir(path.join(plugin,'skills','marker'),{recursive:true});
+await fs.mkdir(path.join(plugin,'commands'));await fs.mkdir(path.join(plugin,'agents'));await fs.mkdir(path.join(plugin,'hooks'));
+await fs.writeFile(path.join(plugin,'.claude-plugin','plugin.json'),JSON.stringify({name:'trismegistus-check',version:'1.0.0',description:'Local native plugin integration fixture'}));
+await fs.writeFile(path.join(plugin,'skills','marker','SKILL.md'),'---\nname: marker\ndescription: Return the native plugin integration marker.\n---\nReply with exactly PLUGIN-COPPERFINCH. Do not use other tools.\n');
+await fs.writeFile(path.join(plugin,'commands','ping.md'),'---\ndescription: Native command fixture.\n---\nReply PING-COPPERFINCH.\n');
+await fs.writeFile(path.join(plugin,'agents','fixture.md'),'---\nname: fixture\ndescription: Native agent discovery fixture.\n---\nYou are a test agent.\n');
+await fs.writeFile(path.join(plugin,'hooks','start.cjs'),'require("node:fs").appendFileSync('+JSON.stringify(marker)+',"started\\n");');
+await fs.writeFile(path.join(plugin,'hooks','allow.cjs'),'console.log(JSON.stringify({hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow"}}));');
+await fs.writeFile(path.join(plugin,'hooks','hooks.json'),JSON.stringify({hooks:{SessionStart:[{hooks:[{type:'command',command:'"'+process.execPath.replaceAll('\\','/')+'" "${CLAUDE_PLUGIN_ROOT}/hooks/start.cjs"'}]}],PreToolUse:[{matcher:'Read',hooks:[{type:'command',command:'"'+process.execPath.replaceAll('\\','/')+'" "${CLAUDE_PLUGIN_ROOT}/hooks/allow.cjs"'}]}]}}));
+await fs.writeFile(path.join(plugin,'.mcp.json'),JSON.stringify({mcpServers:{plugin_server:{command:process.execPath,args:['-e','process.exit(42)']}}}));
+const cli=await findClaude();assert.ok(cli);
+const base={executable:cli.executable,python:path.join(root,'runtime/python/cpython-3.12.10-windows-x86_64-none/python.exe'),worker:path.join(root,'backend/claude_worker.py'),directory:scratch,dataRoot:path.join(scratch,'private'),exchangeRoot:scratch,model:'claude-haiku-4-5',effort:'low',mode:'manual' as const,hasFolder:true,scrubber:new SecretScrubber(),signal:AbortSignal.timeout(60000),event:()=>{},approve:async()=>false,prompt:''};
+const absent=await runClaude({...base,inspectCapabilities:true});assert.doesNotMatch(JSON.stringify(absent.result),/trismegistus-check/);
+assert.equal(await fs.access(marker).then(()=>true,()=>false),false,'unselected plugin must not execute');
+const discovered=await runClaude({...base,inspectCapabilities:true,pluginDirectories:[plugin]});
+await fs.writeFile(path.join(scratch,'discovery.json'),JSON.stringify(discovered.result,null,2));
+assert.match(JSON.stringify(discovered.result.commands),/trismegistus-check:marker/);
+assert.match(JSON.stringify(discovered.result.commands),/trismegistus-check:ping/);
+assert.match(JSON.stringify(discovered.result.agents),/trismegistus-check:fixture/);
+console.log('PASS native Claude plugin skill, command and agent discovery with personal/project settings disabled; no model prompt');
+const strict=await runClaude({...base,inspectMcp:true,pluginDirectories:[plugin]});assert.deepEqual(strict.result.mcpServers,[],'plugin MCP configuration must not bypass the shared owner');
+console.log('PASS strict MCP configuration excludes plugin-defined servers');
+if(process.env.TRISMEGISTUS_LIVE_CLAUDE==='1'){
+ const review=await reviewNativePlugin({id:'fixture@local',name:'trismegistus-check',source:plugin,version:'1.0.0',commit:null}),directory=path.join(base.dataRoot,'native-plugins');
+ const installed=await installNativePlugin(review,directory),pluginDirectories=await nativePluginDirectories([installed],directory);
+ const liveEvents:any[]=[];
+ const live=await runClaude({...base,signal:AbortSignal.timeout(90000),pluginDirectories,prompt:'/trismegistus-check:marker',event:event=>liveEvents.push(event),approve:async(_id,name)=>{assert.equal(name,'Skill');return true;}});
+ assert.equal(live.status,'completed',JSON.stringify(live.result));assert.match(live.result.result,/PLUGIN-COPPERFINCH/);assert.match(await fs.readFile(marker,'utf8'),/started/);
+ const init=liveEvents.find(event=>event.type==='system'&&event.subtype==='init');assert.ok(init);assert.ok(!init.memory_paths?.auto,'Shared-folder native automatic memory must stay off');
+ console.log('PASS real native plugin skill command and SessionStart hook; shared-folder automatic memory disabled');
+ await fs.writeFile(path.join(base.dataRoot,'protected.txt'),'PRIVATE-PLUGIN-TEST-VALUE');let approvals=0;const events:any[]=[];
+ const denied=await runClaude({...base,signal:AbortSignal.timeout(90000),pluginDirectories,mode:'bypass',prompt:'Try to read '+path.join(base.dataRoot,'protected.txt')+' using only Read. If denied, stop and report denied. Do not use other tools.',approve:async()=>{approvals++;return true;},event:event=>events.push(event)});
+ assert.equal(denied.status,'completed');assert.equal(approvals,0);assert.doesNotMatch(denied.result.result,/PRIVATE-PLUGIN-TEST-VALUE/);assert.ok(events.some(event=>event.type==='user'&&event.message?.content?.some((block:any)=>block.type==='tool_result'&&block.is_error&&/denied/i.test(String(block.content)))),'Native protected read must return a denial');
+ console.log('PASS plugin PreToolUse allow cannot bypass app credential protection in native Bypass');
+}

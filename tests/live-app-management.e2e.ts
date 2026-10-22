@@ -1,0 +1,44 @@
+import {execFileSync} from 'node:child_process';
+import {_electron as electron} from 'playwright';import fs from 'node:fs/promises';import path from 'node:path';import os from 'node:os';import assert from 'node:assert/strict';
+import {Backend} from '../app/backend';import {mainWindow,pollState} from './fixtures/poll-state';
+import {splitApiModel} from '../app/api-catalog';
+const scope=process.env.TRISMEGISTUS_LIVE_APP_MANAGEMENT;
+if(!['1','coding','capture'].includes(scope||''))throw Error('Explicit live app-management opt-in required.');
+const requested=process.env.TRISMEGISTUS_LIVE_APP_MODEL||'deepseek-flash',native=requested==='claude',api=splitApiModel(requested);let model=native?'':requested;
+if(!native&&!api&&model!=='deepseek-flash'||api&&(api.provider.endsWith('-oauth')||['nous','vertex'].includes(api.provider)))throw Error('Choose DeepSeek, Claude or an API-key model.');
+const toolName=(tool:any)=>tool.name.replace(/^mcp__ghidorah__/,'');
+const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/live-app-management-')),folder=await fs.mkdtemp(path.join(os.tmpdir(),'tris-live-app-')),saved=new Backend(root,data,'Trismegistus',()=>{}),temporary=new Backend(root,data,'Trismegistus/Test/'+path.basename(data),()=>{});
+const app=await electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,args:process.env.TRISMEGISTUS_EXE?['--hidden']:[root,'--hidden'],env:{...process.env,TRISMEGISTUS_TEST_DATA:data}});
+await app.evaluate(({BrowserWindow})=>{BrowserWindow.prototype.show=function(){};BrowserWindow.prototype.showInactive=function(){};BrowserWindow.prototype.focus=function(){};});let chatId='';
+try{
+ const page=await mainWindow(app),call=(method:string,args:any={})=>page.evaluate(({method,args})=>window.desktop.invoke(method,args),{method,args});await pollState(page,s=>s.backend==='ready');await call('wizardFinish');await call('workingFolder',{folder});
+ if(native){await call('claudeCheck');const state=await call('state');assert.ok(state.claude.connected,'Claude account unavailable');model=state.claude.models.find((m:any)=>/opus/i.test(m.id))?.id;assert.ok(model,'Opus is unavailable');}
+ else{const credential=await saved.host('read_key',api?{provider:api.provider}:{});assert.ok(credential.key);try{await call(api?'apiSave':'saveKey',{...(api?{provider:api.provider}:{}),key:credential.key});}finally{credential.key=null;}if(api)await call('apiCheck',{provider:api.provider});await pollState(page,s=>s.backend==='ready'&&(api?s.apiProviders?.some(row=>row.provider===api.provider&&row.connected)===true:s.providerStatus==='Connected'));}
+ chatId=await call('newChat');await call('addModel',{chatId,model});await call('mode',{projectId:(await call('state')).chats.find((c:any)=>c.id===chatId).projectId,mode:'bypass'});
+ const connection=await call('state');await fs.writeFile(path.join(data,'connection.json'),JSON.stringify({model,available:connection.availableModels.includes(model),availability:connection.availability},null,2));assert.ok(connection.availableModels.includes(model),'The selected account is unavailable; see '+path.join(data,'connection.json'));
+ const video=await call('savedAppSave',{name:'Video Dancer',current:'Offline AI video timeline editor',repositories:[]});await call('savedAppSave',{name:'Trismegistus',current:'Coding harness'});const receipts:any[]=[];
+ async function task(text:string){const id=crypto.randomUUID(),started=Date.now();await call('submit',{id,chatId,text,models:[model]});let last='';for(const end=Date.now()+180000;Date.now()<end;await page.waitForTimeout(600)){const state=await call('state'),turn=state.turns.find((t:any)=>t.id===id),tools=state.tools.filter((t:any)=>t.turnId===id);const stamp=JSON.stringify([turn.status,tools.map((t:any)=>[t.name,t.status])]);if(stamp!==last){last=stamp;console.log(JSON.stringify({status:turn.status,tools:tools.length,last:tools.at(-1)?.name}));}await fs.writeFile(path.join(data,'progress.json'),JSON.stringify({turn,tools,workReview:state.workReview},null,2));if(['completed','failed','stopped','interrupted','needs-model'].includes(turn.status)){receipts.push({seconds:(Date.now()-started)/1000,turn,tools});await fs.writeFile(path.join(data,'turns.json'),JSON.stringify(receipts,null,2));assert.equal(turn.status,'completed',turn.error||turn.text);assert.equal(state.workReview.length,0);assert.equal(turn.routingUsage,undefined,'Explicit selection must skip paid routing');return {state,tools,turn};}}throw Error('App-management task exceeded three minutes');}
+ if(!native)await call('selectorModel',{chatId,model});
+ if(scope!=='coding'){
+ const start=await task('Vdancer updates and changes: I want to discuss the editing timeline.');assert.ok(start.state.savedApps.find((a:any)=>a.id===video.id).chatIds.includes(chatId),'AI did not associate the relevant app at chat start');assert.ok(start.tools.some((t:any)=>toolName(t)==='link_app_chat'));assert.ok(start.tools.length<=2);assert.ok(start.tools.every((t:any)=>['link_app_chat','list_apps'].includes(toolName(t))));assert.equal(start.state.savedApps.find((a:any)=>a.name==='Trismegistus').chatIds.length,0);
+ const capture=await task('i want to update the minimax h3 worflow to use PDMD https://pdmd2026.github.io/ add it to the todo list, also make the sprite dancer app in the app section and add it to that too');
+ const sprite=capture.state.savedApps.find((a:any)=>a.name==='Sprite Dancer');assert.ok(sprite);for(const a of [sprite,capture.state.savedApps.find((a:any)=>a.id===video.id)]){assert.ok(a.chatIds.includes(chatId));assert.equal(a.todos.length,1);assert.match(a.todos[0].title,/PDMD/);assert.match(a.todos[0].title,/https:\/\/pdmd2026.github.io\//);}
+ assert.ok(capture.tools.length<=7,'Too many tools for simple capture');assert.ok(capture.tools.every((t:any)=>['list_apps','link_app_chat','create_app','add_app_todo'].includes(toolName(t))),'Unexpected investigation or file work');assert.deepEqual(await fs.readdir(folder),[]);
+ const fact=await task('For the decision about these two saved PDMD tasks, we have already established that PDMD does not support image-to-video. Acknowledge that finding; do not change anything yet.');assert.equal(fact.tools.length,0,'Acknowledgement should not need tools');
+ const correction=await task('ok if it doesnt do img2vid then no we dont want it');assert.ok(correction.tools.every((t:any)=>['list_apps','update_app_todo'].includes(toolName(t))),'A simple correction triggered an unrelated task');
+ for(const id of [video.id,sprite.id])assert.equal(correction.state.savedApps.find((a:any)=>a.id===id).todos.filter((t:any)=>!t.done).length,0,'Cancelled task is still pending');
+ assert.deepEqual(await fs.readdir(folder),[]);
+ }
+ if(scope!=='capture'){
+ await fs.writeFile(path.join(folder,'sum.mjs'),'export const sum = values => values.reduce((total, value) => total + value, 1);\n');
+ await fs.writeFile(path.join(folder,'sum.test.mjs'),"import assert from 'node:assert/strict'; import {sum} from './sum.mjs'; for(const [values,want] of [[[1,2,3],6],[[],0],[[-3,1],-2],[[0.5,0.25],0.75]]) assert.equal(sum(values),want); console.log('4 sums passed');\n");
+ await fs.writeFile(path.join(folder,'preserve.txt'),'Unrelated user work');
+ const testBefore=await fs.readFile(path.join(folder,'sum.test.mjs'));
+ const coding=await task('Fix sum.mjs so sum returns the total of its numbers, including an empty list. Run node sum.test.mjs first to reproduce the failure, then fix the implementation and rerun the tests. Do not change sum.test.mjs or preserve.txt. Complete the small fix directly.');
+ assert.ok(coding.tools.some((t:any)=>['terminal','Bash'].includes(t.name)));assert.ok(!coding.tools.some((t:any)=>['skill_manage','tool_describe','tool_search'].includes(toolName(t))));
+ assert.deepEqual(await fs.readFile(path.join(folder,'sum.test.mjs')),testBefore);assert.equal(await fs.readFile(path.join(folder,'preserve.txt'),'utf8'),'Unrelated user work');
+ await fs.writeFile(path.join(data,'independent-tests.txt'),execFileSync(process.execPath,['sum.test.mjs'],{cwd:folder,encoding:'utf8',windowsHide:true}));
+ }
+ assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().some(w=>w.isVisible())),false);
+ await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({model,chatId,initialRelevance:scope!=='coding',twoAppCapture:scope!=='coding',captureCreatedNoFiles:scope!=='coding',correction:scope!=='coding',coding:scope!=='capture',unrelatedWorkPreserved:scope!=='capture',turns:receipts.map(r=>({seconds:r.seconds,tools:r.tools.length})),hidden:true},null,2));console.log('PASS live task efficiency checks. '+data);
+}finally{if(chatId)await app.windows().find(p=>p.url().endsWith('index.html'))?.evaluate(chatId=>window.desktop.invoke('stop',{chatId}),chatId).catch(()=>{});await app.evaluate(({app})=>app.quit()).catch(()=>{});await app.close().catch(()=>{});if(!native)await temporary.host('delete_key',api?{provider:api.provider}:{});}

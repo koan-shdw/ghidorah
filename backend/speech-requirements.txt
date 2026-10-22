@@ -1,0 +1,31 @@
+# Speech for dictation (R4), the local voice fallback and the wake word (8): one install on the Voice page's click
+# into the runtime folder. Every feature wheel is pinned by URL and SHA256 in feature-wheels.json and verified
+# by feature_packages.py. Independently checked against PyPI metadata, with the
+# runtime's own anyio, attrs, certifi, cffi, click, colorama, h11, httpcore, httpx, idna, packaging, pycparser, PyYAML,
+# tqdm and typing-extensions held at their bundled versions, which every package below accepts.
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.3
+aiosignal==1.4.0
+# faster-whisper 1.2.1 still calls the metadata_errors argument removed in PyAV 19.
+av==18.1.0
+ctranslate2==4.8.2
+edge-tts==7.2.7
+faster-whisper==1.2.1
+filelock==4.0.9
+flatbuffers==25.12.19
+frozenlist==1.8.0
+fsspec==2026.9.0
+hf-xet==1.6.0
+huggingface-hub==1.33.0
+multidict==6.9.1
+numpy==2.4.3
+onnxruntime==1.27.0
+propcache==0.5.4
+protobuf==7.36.2
+sentencepiece==0.2.2
+sherpa-onnx==1.13.4
+sherpa-onnx-core==1.13.4
+sounddevice==0.5.5
+tabulate==0.10.0
+tokenizers==0.23.2
+yarl==1.25.1

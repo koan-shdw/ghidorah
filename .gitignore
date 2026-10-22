@@ -1,0 +1,18 @@
+node_modules/
+/dist/
+/runtime/
+/vendor/
+/work/
+/updates/
+/release/
+/release-*/
+.repo-map/
+.pytest_cache/
+__pycache__/
+*.pyc
+.env
+
+# Private working notes and the model rules stay on this PC.
+notes/
+/CLAUDE.md
+/AGENTS.md
