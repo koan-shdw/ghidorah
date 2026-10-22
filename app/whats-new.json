@@ -93,5 +93,9 @@
     "Your chats are copied before every install; the newest three copies stay beside your chats.",
     "If a new version doesn't open, the one before comes back by itself, and this window says so.",
     "Every version is on the public releases page, with a Download for Windows button. The installer asks where Ghidorah goes, and updates land there."
+  ]},
+  {"version":"0.1.21","date":"2026-10-22","notes":[
+    "Ghidorah is open source: the code, the README and the installer now live in one place, github.com/koan-shdw/ghidorah.",
+    "Updates now come from that repository."
   ]}
 ]
