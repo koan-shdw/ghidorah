@@ -7,8 +7,9 @@ import {readChatHistory,readRuntimeHistory,clearHistoryReads} from '../app/chat-
 import {turnActivity} from '../app/turn-status';
 import {toolResultFailed} from '../app/tool-result';
 import type {Turn,ToolCall} from '../app/types';
+import {mainSource} from './fixtures/main-source';
 
-const source=ts.createSourceFile('main.ts',fs.readFileSync('app/main.ts','utf8'),ts.ScriptTarget.Latest,true);
+const source=mainSource();
 function main(name:string,env:Record<string,unknown>){
  let node:ts.Node|undefined;const visit=(n:ts.Node)=>{if((ts.isFunctionDeclaration(n)||ts.isMethodDeclaration(n))&&n.name?.getText(source)===name)node=n;ts.forEachChild(n,visit);};visit(source);assert.ok(node);
  let code=node.getText(source);if(ts.isMethodDeclaration(node))code=code.replace(/^(async )?/,(_,prefix)=>(prefix||'')+'function ');

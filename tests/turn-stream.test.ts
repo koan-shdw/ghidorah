@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import ts from 'typescript';
 import {applyTurnStream} from '../app/turn-stream';
 import type {Snapshot,Turn} from '../app/types';
+import {mainSource} from './fixtures/main-source';
 
 test('stream updates preserve history and final replies, and never add an unrelated turn',()=>{
  const finished={id:'finished',status:'completed',text:'Final answer'},running={id:'live',status:'running',text:'Before'},tools=[{result:'large history'}];
@@ -14,7 +15,7 @@ test('stream updates preserve history and final replies, and never add an unrela
 
 test('stream transport coalesces updates and sends only turns already visible in each window',async t=>{
  t.mock.timers.enable({apis:['setTimeout']});
- const source=ts.createSourceFile('main.ts',fs.readFileSync('app/main.ts','utf8'),ts.ScriptTarget.Latest,true);
+ const source=mainSource();
  const code=source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='emitStream')!.getText(source);
  const sent:any[]=[];const window=(id:string)=>({isDestroyed:()=>false,webContents:{send:(channel:string,rows:unknown)=>sent.push({id,channel,rows})}}),main=window('main'),child=window('child'),unrelated=window('other');
  const rows=new Map<string,Partial<Turn>>([['one',{id:'one',status:'running',text:'First',reasoning:''}],['two',{id:'two',status:'running',text:'Second',reasoning:''}]]);

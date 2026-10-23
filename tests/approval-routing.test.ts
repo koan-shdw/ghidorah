@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import ts from 'typescript';
+import {mainSource} from './fixtures/main-source';
 
 // Execute the actual main-process request handler without starting Electron.
-const source=ts.createSourceFile('main.ts',fs.readFileSync(process.env.TRIS_APPROVAL_SOURCE||new URL('../app/main.ts',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true);
+const source=process.env.TRIS_APPROVAL_SOURCE?ts.createSourceFile('main.ts',fs.readFileSync(process.env.TRIS_APPROVAL_SOURCE,'utf8'),ts.ScriptTarget.Latest,true):mainSource();
 const declaration=source.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='request')!;
 const code=ts.transpileModule(declaration.getText(source),{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
 test('each live chat uses its current Bypass mode; questions and stopped turns never auto-approve',()=>{

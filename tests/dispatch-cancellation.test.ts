@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import ts from 'typescript';
 import {Store} from '../app/store';
 import {resumeDraft} from '../app/chat-context';
+import {mainSource} from './fixtures/main-source';
 
-const source=ts.createSourceFile('main.ts',fs.readFileSync('app/main.ts','utf8'),ts.ScriptTarget.Latest,true);
+const source=mainSource();
 function sessionFunction(environment:Record<string,unknown>){
  const node=source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='session')!;
  return new Function(...Object.keys(environment),ts.transpile(node.getText(source),{target:ts.ScriptTarget.ES2022})+';return session;')(...Object.values(environment));

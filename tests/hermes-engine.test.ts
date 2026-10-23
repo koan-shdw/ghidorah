@@ -1,3 +1,4 @@
+import {mainSource} from './fixtures/main-source';
 // The Hermes engine in Tris (TURN-REVIEW part 2 and section 7 item 3): every reply paired by the message IDs Hermes
 // sends back; nothing left waiting; Stop never loses a message.
 import test from 'node:test';
@@ -11,7 +12,7 @@ import {joinTurn,resetJoinedText,settleJoined} from '../app/turn-joins';
 import {finalText} from '../app/turn-text';
 import type {Turn} from '../app/types';
 
-const source=ts.createSourceFile('main.ts',fs.readFileSync('app/main.ts','utf8'),ts.ScriptTarget.Latest,true);
+const source=mainSource();
 function main(name:string,env:Record<string,unknown>){
  let node:ts.Node|undefined;const visit=(n:ts.Node)=>{if(ts.isFunctionDeclaration(n)&&n.name?.getText(source)===name)node=n;ts.forEachChild(n,visit);};visit(source);assert.ok(node,name);
  return new Function(...Object.keys(env),ts.transpile(node!.getText(source),{target:ts.ScriptTarget.ES2022})+';return '+name)(...Object.values(env));

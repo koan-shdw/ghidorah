@@ -4,9 +4,10 @@ import fs from 'node:fs';
 import ts from 'typescript';
 import {Store} from '../app/store';
 import {busyHermesRows} from '../app/turn-joins';
+import {mainSource} from './fixtures/main-source';
 
 test('a missing completion is replayed once without resubmission; a slow check does not stop work',async()=>{
- const source=ts.createSourceFile('main.ts',fs.readFileSync('app/main.ts','utf8'),ts.ScriptTarget.Latest,true);
+ const source=mainSource();
  const node=source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='reconcileReplies')!;
  for(const broken of [false,true]){
   const store=new Store(':memory:'),project=store.project(),chat=store.chat(project.id),turn=store.accept('turn',chat.id,'Do the work');
@@ -24,7 +25,7 @@ test('a missing completion is replayed once without resubmission; a slow check d
 });
 
 test('late replay results cannot complete a replacement turn or cross a backend restart',async()=>{
- const source=ts.createSourceFile('main.ts',fs.readFileSync('app/main.ts','utf8'),ts.ScriptTarget.Latest,true);
+ const source=mainSource();
  const code=source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='reconcileReplies')!.getText(source);
  for(const replaced of ['turn','backend']){
   const store=new Store(':memory:'),project=store.project(),chat=store.chat(project.id),turn=store.accept('old',chat.id,'Work');
@@ -38,7 +39,7 @@ test('late replay results cannot complete a replacement turn or cross a backend 
 });
 
 test('a Hermes turn that ended with only an error event is closed once its session is idle (audit 3.4)',async()=>{
- const source=ts.createSourceFile('main.ts',fs.readFileSync('app/main.ts','utf8'),ts.ScriptTarget.Latest,true);
+ const source=mainSource();
  const code=source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='reconcileReplies')!.getText(source);
  for(const status of ['idle','working']){
   const store=new Store(':memory:'),project=store.project(),chat=store.chat(project.id),turn=store.accept('turn',chat.id,'Read @huge.log');
@@ -54,7 +55,7 @@ test('a Hermes turn that ended with only an error event is closed once its sessi
 });
 
 test('a Hermes Stop with no answer ends locally after its deadline and drops the session (audit 3.5)',async()=>{
- const source=ts.createSourceFile('main.ts',fs.readFileSync('app/main.ts','utf8'),ts.ScriptTarget.Latest,true);
+ const source=mainSource();
  const code=source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='stopDeadline')!.getText(source);
  for(const answered of [false,true]){
   const store=new Store(':memory:'),project=store.project(),chat=store.chat(project.id),turn=store.accept('turn',chat.id,'Work');
@@ -69,7 +70,7 @@ test('a Hermes Stop with no answer ends locally after its deadline and drops the
 });
 
 test('a failed send counts as accepted only when Hermes reports the session busy (audit 3.6)',async()=>{
- const source=ts.createSourceFile('main.ts',fs.readFileSync('app/main.ts','utf8'),ts.ScriptTarget.Latest,true);
+ const source=mainSource();
  const code=source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='hermesAccepted')!.getText(source);
  const check=(answer:()=>Promise<any>)=>new Function('backend',ts.transpile(code,{target:ts.ScriptTarget.ES2022})+';return hermesAccepted;')({rpc:{request:answer}})('default','session');
  assert.equal(await check(async()=>({sessions:[{id:'session',status:'working'}]})),true,'accepted: keep watching');
@@ -79,7 +80,7 @@ test('a failed send counts as accepted only when Hermes reports the session busy
 });
 
 test('a lost completion holds the event watermark so the replay returns it, even after a later title event (audit 3.11)',()=>{
- const source=ts.createSourceFile('main.ts',fs.readFileSync('app/main.ts','utf8'),ts.ScriptTarget.Latest,true);
+ const source=mainSource();
  const code=source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='nextWatermark')!.getText(source);
  const next=new Function(ts.transpile(code,{target:ts.ScriptTarget.ES2022})+';return nextWatermark;')();
  let mark:number|undefined;for(const seq of [1,2,4,5])mark=next(mark,seq);
@@ -91,7 +92,7 @@ test('a lost completion holds the event watermark so the replay returns it, even
 // 10-19: rows Hermes never closed (a crashed reply's joined messages, a second start's row) held the chat and Fork
 // said "Wait for queued work to finish." until a restart. With nothing tracked and Hermes idle for 15 s they close.
 test('a busy Hermes row nothing tracks closes once the chat is quiet and Hermes idle',async()=>{
- const source=ts.createSourceFile('main.ts',fs.readFileSync('app/main.ts','utf8'),ts.ScriptTarget.Latest,true);
+ const source=mainSource();
  const code=source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='reconcileReplies')!.getText(source);
  for(const [status,eventAge,expected] of [['idle',60000,'failed'],['working',60000,'running'],['idle',5000,'running']] as const){
   const store=new Store(':memory:'),project=store.project(),chat=store.chat(project.id);

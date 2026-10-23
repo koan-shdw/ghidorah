@@ -1,3 +1,4 @@
+import {mainSource} from './fixtures/main-source';
 // Drop a real Hermes completion at the client, then recover through its actual replay RPC.
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
@@ -29,7 +30,7 @@ try{
  for(const end=Date.now()+30000;!complete&&Date.now()<end;)await new Promise(r=>setTimeout(r,50));assert.ok(complete,'Backend must actually finish');
  assert.equal(store.get<any>('turn',turn.id).status,'running','Completion was deliberately dropped');
  hermesEvents.set(session.session_id,{seq:0,at:Date.now()-20000});
- const source=ts.createSourceFile('main.ts',await fs.readFile('app/main.ts','utf8'),ts.ScriptTarget.Latest,true),node=source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='reconcileReplies')!;
+ const source=mainSource(),node=source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='reconcileReplies')!;
  const env={quitting:false,backend:host,store,hermesTurns,hermesEvents,hermesErrors:new Map(),checkingReplies:new Set(),hermesSent:new Map(),waitingFor:()=>new Set(),hermesWaiting:()=>0,preparing:new Map(),commandTurns:new Map(),hermesStarted:new Set(),busyHermesRows,wake:()=>{},emit:()=>{},projectFor:()=>({profile:undefined}),receive:(event:any)=>{if(event.type==='message.complete'){store.update<any>('turn',turn.id,{status:'completed',text:event.payload.text});hermesTurns.delete(chat.id);}}};
  const reconcile=new Function(...Object.keys(env),ts.transpile(node.getText(source),{target:ts.ScriptTarget.ES2022})+';return reconcileReplies;')(...Object.values(env));
  await reconcile();assert.equal(host.status,'ready');assert.equal(store.get<any>('turn',turn.id).status,'completed');assert.equal(store.get<any>('turn',turn.id).text,complete.payload.text);

@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import ts from 'typescript';
 import {Store} from '../app/store';
 import type {Turn} from '../app/types';
+import {mainSource} from './fixtures/main-source';
 
-const source=ts.createSourceFile('main.ts',fs.readFileSync('app/main.ts','utf8'),ts.ScriptTarget.Latest,true);
+const source=mainSource();
 const waitingRow=(store:Store)=>{const node=source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='waitingRow')!;return new Function('store',ts.transpile(node.getText(source),{target:ts.ScriptTarget.ES2022})+';return waitingRow;')(store);};
 
 test('after a restart queued messages are paused: never sent by themselves, never blocking, sent by one click (Koan 2026-10-08)',()=>{
