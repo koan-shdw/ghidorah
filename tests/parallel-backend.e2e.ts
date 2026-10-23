@@ -57,7 +57,7 @@ try{
  const expected=first.turnId===collision.jobs[0].id?'DeepSeek shared write.':'GPT shared write.';
  assert.equal(await fs.readFile(path.join(folder,'shared-result.txt'),'utf8'),expected);
  state=await call('state');assert.equal(state.approvals.filter((a:any)=>collision.jobs.some(job=>job.id===a.turnId)).length,1);
- assert.match(JSON.stringify(state.tools.filter((t:any)=>collision.jobs.some(job=>job.id===t.turnId))),/changed or has not been read/);
+ assert.match(JSON.stringify(state.tools.filter((t:any)=>collision.jobs.some(job=>job.id===t.turnId))),/changed or has not been read|Another job owns this resource/);
  console.log('PASS competing writes: only the first receives approval; the stale sibling must inspect the saved file before editing');
  await start(failure.jobs);state=await wait(s=>failure.jobs.every(job=>result(s,job.id)?.text.length>12));
  const nativeBefore=result(state,failure.jobs[2].id).text.length;

@@ -11,16 +11,17 @@ import {appFolderName,type SavedApp} from './saved-apps';
 
 type Resource={kind:'path'|'service'|'port';value:string;access:'read'|'write'|'observe'};
 type Inspection={id:string;job:string;signature:string;summary:string;resources:Resource[];evidence:{path:string;hash:string}[]};
-export type WorkAction={toolId?:string;id:string;group:string;job:string;name:string;args:any;resource:string;scope?:Resource[];files?:{path:string;before:string|null;after?:string|null}[];evidence?:Inspection['evidence'];access:'read'|'write'|'unknown';signature:string;before:string|null;after?:string|null;expectedAfter?:string;status:'running'|'background'|'completed'|'failed'|'blocked'|'uncertain'|'inspected';result?:unknown;inspection?:string;owner?:{generation:string;sessionId:string;chatId:string;profile:string};};
+export type WorkAction={toolId?:string;id:string;group:string;job:string;chatId?:string;name:string;args:any;resource:string;scope?:Resource[];files?:{path:string;before:string|null;after?:string|null}[];evidence?:Inspection['evidence'];access:'read'|'write'|'unknown';signature:string;before:string|null;after?:string|null;expectedAfter?:string;status:'running'|'background'|'completed'|'failed'|'blocked'|'uncertain'|'inspected';result?:unknown;inspection?:string;owner?:{generation:string;sessionId:string;chatId:string;profile:string};};
 type Action=WorkAction;
 const processTools=new Set(['process_manage','TaskOutput','TaskStop','background_process','mcp__ghidorah__background_process']);
 const fileReads=new Set(['Read','read_file']);
-const fileWrites=new Set(['Write','Edit','MultiEdit','write_file','edit_file','patch']);
+const fileWrites=new Set(['Write','Edit','MultiEdit','NotebookEdit','write_file','edit_file','patch']);
 // Cross-chat actions use the durable dispatcher and their own approval/deduplication records.
-const inspections=new Set(['link_app_chat','mcp__ghidorah__link_app_chat','search_chats','read_other_chat','send_chat_message','mcp__ghidorah__search_chats','mcp__ghidorah__read_other_chat','mcp__ghidorah__send_chat_message','image_options','mcp__ghidorah__image_options','document_tools','list_chat_files','mcp__ghidorah__document_tools','mcp__ghidorah__list_chat_files','save_chat_output','mcp__ghidorah__save_chat_output','search_web','read_web_page','query_chat_history','read_chat_history','mcp__ghidorah__search_web','mcp__ghidorah__read_web_page','mcp__ghidorah__query_chat_history','mcp__ghidorah__read_chat_history','list_apps','mcp__ghidorah__list_apps','goal_status','mcp__ghidorah__goal_status','Glob','Grep','search_files','ToolSearch','connected_tools','tool_search','tool_describe','skills_list','skill_view','session_search','todo','todo_list','TodoWrite','AskUserQuestion','EnterPlanMode','ExitPlanMode','clarify','parallel_work','mcp__ghidorah__parallel_work','inspect_action','mcp__ghidorah__inspect_action']);
+const inspections=new Set(['WebFetch','WebSearch','Skill','link_app_chat','mcp__ghidorah__link_app_chat','search_chats','read_other_chat','send_chat_message','mcp__ghidorah__search_chats','mcp__ghidorah__read_other_chat','mcp__ghidorah__send_chat_message','image_options','mcp__ghidorah__image_options','document_tools','list_chat_files','mcp__ghidorah__document_tools','mcp__ghidorah__list_chat_files','save_chat_output','mcp__ghidorah__save_chat_output','search_web','read_web_page','query_chat_history','read_chat_history','mcp__ghidorah__search_web','mcp__ghidorah__read_web_page','mcp__ghidorah__query_chat_history','mcp__ghidorah__read_chat_history','list_apps','mcp__ghidorah__list_apps','goal_status','mcp__ghidorah__goal_status','Glob','Grep','search_files','ToolSearch','connected_tools','tool_search','tool_describe','skills_list','skill_view','session_search','todo','todo_list','TodoWrite','AskUserQuestion','EnterPlanMode','ExitPlanMode','clarify','parallel_work','mcp__ghidorah__parallel_work','inspect_action','mcp__ghidorah__inspect_action']);
 type Claim={id:string;group:string;job:string;resource:string;task:string;status:'held'|'released'};
 const overlaps=(a:string,b:string)=>a===b||a.startsWith(b+path.sep)||b.startsWith(a+path.sep);
 export const parallelTool={name:'parallel_work',description:'Coordinate this parallel group. Read status before choosing work. Claim exact file/directory paths or a distinct task, publish findings with note, and release a claim when another job may take over. Claims do not execute tools or grant permission.',inputSchema:{type:'object',properties:{operation:{type:'string',enum:['status','claim','note','release']},task:{type:'string'},path:{type:'string'},claim:{type:'string'},text:{type:'string'}},required:['operation'],additionalProperties:false}};
+const capped=(text:string,max=4000)=>text.length>max?text.slice(0,max)+' ... (shortened; '+text.length+' characters)':text;
 const canonical=(value:any):string=>JSON.stringify(value,(_,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.keys(v).sort().map(k=>[k,v[k]])):v);
 const signature=(name:string,args:any,directory:string)=>createHash('sha256').update(canonical({name,args,directory:process.platform==='win32'?directory.toLowerCase():directory})).digest('hex');
 // A reported process exit is a settled result, including a failing test or a
@@ -84,12 +85,26 @@ function observerOnly(action:Action){return ['terminal','Bash'].includes(action.
 // Read-only shell commands run without inspect_action (speed plan, Koan 2026-10-06). Every part of a chain or
 // pipeline must be a known reader; redirection, substitution, backgrounding and writing flags send it to inspection.
 const READERS=/^(?:pwd|cd(?:\s+\S+)?|ls|dir|cat|type|head|tail|wc|grep|rg|findstr|find|tree|stat|file|du|df|which|where|whoami|hostname|date|echo|printf|basename|dirname|realpath|sort|uniq|cut|tr|awk|sed|jq|diff|cmp|md5sum|sha256sum|test|true|git\s+(?:status|log|diff|show|branch|rev-parse|ls-files|ls-tree|blame|grep|remote|describe|shortlog|cat-file|config\s+--get|stash\s+list|tag(?:\s+-l|\s+--list)?)|(?:node|python|python3|npm|pip|git)\s+--version|node\s+--check|Get-[A-Za-z]+|Select-[A-Za-z]+|Test-Path|Measure-Object|Sort-Object|Where-Object|ForEach-Object|Format-[A-Za-z]+|Resolve-Path|Split-Path|Join-Path|Out-String|ConvertTo-Json|ConvertFrom-Json)(?:\s|$)/i;
-const WRITING=/>|<\(|\$\(|`|\s-(?:delete|exec|execdir|ok|okdir|fprint\w*)\b|\bsed\s+(?:-[a-zA-Z]*i|--in-place)|\bsed\b[^|&;]*[/;']\s*w\s|\bsystem\s*\(|-OutFile|\|\s*(?:sh|bash|cmd|powershell|pwsh|iex|Invoke-Expression)\b|(?:^|\s)&(?:\s|$)|\bgit\s+branch\s+(?:-[dDmMcCfu]|--(?:delete|move|copy|force|set-upstream-to|unset-upstream|edit-description))|\bgit\s+remote\s+(?:add|remove|rm|set-url|rename)|\bgit\s+tag\s+(?!-l|--list)\S/i;
-function diagnosticCommand(name:string,args:any){
+const WRITING=/\bsort\b[^|&;]*\s(?:-o\b|--output)|\bgit\s+diff\b[^|&;]*--output|\b(?:Remove|Set|New|Move|Copy|Rename|Clear|Add|Out)-(?:Item|Content|File|ItemProperty)\b|\b(?:Start|Stop)-Process\b|\bInvoke-(?:WebRequest|RestMethod|Command|Item|Expression)\b|\.(?:Delete|MoveTo|CopyTo|Create|WriteAll\w*|AppendAll\w*)\(|>|<\(|\$\(|`|\s-(?:delete|exec|execdir|ok|okdir|fprint\w*)\b|\bsed\s+(?:-[a-zA-Z]*i|--in-place)|\bsed\b[^|&;]*[/;']\s*w\s|\bsystem\s*\(|-OutFile|\|\s*(?:sh|bash|cmd|powershell|pwsh|iex|Invoke-Expression)\b|(?:^|\s)&(?:\s|$)|\bgit\s+branch\s+(?:-[dDmMcCfu]|--(?:delete|move|copy|force|set-upstream-to|unset-upstream|edit-description))|\bgit\s+remote\s+(?:add|remove|rm|set-url|rename)|\bgit\s+tag\s+(?!-l|--list)\S/i;
+export function commandParts(command:string){
+ const parts:string[]=[];let current='',quote='';
+ for(let i=0;i<command.length;i++){
+  const c=command[i];
+  if(quote){current+=c;if(c==='\\'&&quote==='"'&&i+1<command.length)current+=command[++i];else if(c===quote)quote='';continue;}
+  if(c==='"'||c==="'"){quote=c;current+=c;continue;}
+  if(c==='\\'&&i+1<command.length){current+=c+command[++i];continue;}
+  if(command.startsWith('&&',i)||command.startsWith('||',i)){parts.push(current);current='';i++;continue;}
+  if(c===';'||c==='|'){parts.push(current);current='';continue;}
+  current+=c;
+ }
+ if(quote)return null;
+ parts.push(current);return parts;
+}
+export function diagnosticCommand(name:string,args:any){
  if(!['terminal','Bash'].includes(name)||typeof args?.command!=='string'||args.background||args.run_in_background)return false;
  const command=args.command.replace(/\s*2>\s*(?:\/dev\/null|nul|&1)/gi,'').trim();
  if(!command||/[\r\n]/.test(command)||WRITING.test(command))return false;
- return command.split(/&&|\|\||;|\|/).every((part:string)=>READERS.test(part.trim()));
+ const parts=commandParts(command);return !!parts&&parts.every(part=>READERS.test(part.trim()));
 }
 export const inspectionTool={name:'inspect_action',description:'Before overlapping an unfamiliar shell or service action, inspect its command, scripts and tool schema. Record the exact tool name/arguments, affected file/directory paths and stable service/resource identities, and your findings. Local ports use kind port and value tcp:3000 or udp:3000, covering all interfaces. Read script/config files first and list them in evidence; they must still match when executed. Use observe only for a watcher or read that is designed to tolerate concurrent changes. An empty resource list asserts no shared effects. Include every potential write, port, process and external effect; if you cannot establish them, do not scope the action. This records your assessment, not permission or execution.',inputSchema:{type:'object',properties:{tool:{type:'string'},arguments:{type:'object'},summary:{type:'string'},evidence:{type:'array',description:'Exact paths of files read with Read/read_file in this turn. One path per entry; no annotations or comma-separated lists. Put explanations in summary and directories in resources.',items:{type:'string'}},resources:{type:'array',items:{type:'object',properties:{kind:{type:'string',enum:['path','service','port']},value:{type:'string'},access:{type:'string',enum:['read','write','observe']}},required:['kind','value','access'],additionalProperties:false}}},required:['tool','arguments','summary','evidence','resources'],additionalProperties:false}};
 
@@ -125,6 +140,13 @@ async function fingerprint(file:string){
 async function expectedWrite(name:string,args:any,file:string,before:string|null){
  const hash=(value:string|Buffer)=>createHash('sha256').update(value).digest('hex');
  if(['Write','write_file'].includes(name)&&typeof args.content==='string')return hash(args.content);
+ if(name==='MultiEdit'&&Array.isArray(args.edits)&&before!==null){
+  let bytes:Buffer;try{bytes=await fs.readFile(file);}catch{return;}
+  let source=bytes.toString('utf8');if(hash(bytes)!==before||!Buffer.from(source).equals(bytes))return;
+  const eol=(text:string)=>source.includes('\r\n')?text.replace(/\r?\n/g,'\r\n'):text;
+  for(const edit of args.edits){if(typeof edit?.old_string!=='string'||typeof edit.new_string!=='string'||!edit.old_string)return;const pieces=source.split(eol(edit.old_string));if(pieces.length<2||pieces.length>2&&edit.replace_all!==true)return;source=pieces.join(eol(edit.new_string));}
+  return hash(source);
+ }
  if(!['Edit','patch'].includes(name)||args.mode==='patch'||typeof args.old_string!=='string'||typeof args.new_string!=='string')return;
  if(before===null)return args.old_string===''?hash(args.new_string):undefined;
  let bytes:Buffer;try{bytes=await fs.readFile(file);}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return;throw error;}
@@ -188,13 +210,16 @@ export class WorkCoordination {
  private readKey(job:string){try{return this.store.get<Turn>("turn",job).chatId||job;}catch{return job;}}
  private wake(){for(const listener of this.changed)listener();this.notify();}
  private release(id:string){this.held.delete(id);this.asking.get(id)?.stop.abort();this.asking.delete(id);}
+ // Actions recorded before 2026-10-10 have no chat: treat them as shared, as before.
+ private sameChat(a:Action,b:Action){return !a.chatId||!b.chatId||a.chatId===b.chatId;}
  private conflicts(a:Action,b:Action){
   // Owning-session validation precedes process control. It must remain usable
   // while the launch action holds its resources, including an unknown command.
   if(processTools.has(a.name)&&a.access!=='unknown'||processTools.has(b.name)&&b.access!=='unknown')return processTools.has(a.name)&&processTools.has(b.name)&&a.resource===b.resource&&(a.access!=='read'||b.access!=='read');
   // Inspection can read a live background target without granting a write.
   if(a.status==='background'&&b.access==='read'||b.status==='background'&&a.access==='read')return false;
-  if(a.access==='unknown'&&!a.scope||b.access==='unknown'&&!b.scope)return true;
+  // An unscoped unknown command locks only its own chat (Koan, 2026-10-08).
+  if(a.access==='unknown'&&!a.scope||b.access==='unknown'&&!b.scope)return this.sameChat(a,b);
   const resources=(action:Action):Resource[]=>action.scope||[{kind:'path',value:action.resource,access:action.access==='read'?'read':'write'}];
   return resources(a).some(x=>resources(b).some(y=>x.access!=='observe'&&y.access!=='observe'&&(x.access==='write'||y.access==='write')&&x.kind===y.kind&&(x.kind==='path'?overlaps(x.value,y.value):x.value===y.value)));
  }
@@ -217,7 +242,7 @@ export class WorkCoordination {
   if(inspections.has(name)||name==='mcp__ghidorah__read_project_memory'||name==='memory'&&['read','view','list'].includes(args?.action))return null;
   let resource='*',access:Action['access']='unknown';
   if(diagnosticCommand(name,args))access='read';
-  const candidate=args?.file_path||args?.path;
+  const candidate=args?.file_path||args?.path||args?.notebook_path;
   if((fileReads.has(name)||fileWrites.has(name))&&typeof candidate==='string'&&candidate){
    resource=await resolveWorkPath(path.resolve(directory,candidate));if(process.platform==='win32')resource=resource.toLowerCase();
    access=fileReads.has(name)?'read':'write';
@@ -226,8 +251,9 @@ export class WorkCoordination {
   if(name==='TaskOutput'||name==='TaskStop'){resource='process:'+String(args?.task_id||args?.shell_id||'');access=name==='TaskOutput'?'read':'write';}
   if(name==='background_process'||name==='mcp__ghidorah__background_process'){resource='process:'+String(args?.id||'list');access=args?.action==='stop'?'write':'read';}
   const hash=signature(name,args,await resolveWorkPath(directory)),plan=access==='unknown'?this.store.where<Inspection>('work-inspection','signature',hash).find(row=>row.job===job):undefined;
-  const action:Action={id:randomUUID(),group,job,name,args,resource,access,signature:hash,...(plan?{scope:plan.resources,evidence:plan.evidence,inspection:plan.summary}:{}),before:null,status:'running'};
+  const action:Action={id:randomUUID(),group,job,chatId:this.store.find<Turn>('turn',group)?.chatId,name,args,resource,access,signature:hash,...(plan?{scope:plan.resources,evidence:plan.evidence,inspection:plan.summary}:{}),before:null,status:'running'};
   const tool=name.replace(/^mcp__ghidorah__/,'');
+  if(tool==='update_project_memory')action.scope=[{kind:'service',value:'project-memory',access:'write'}];
   if(['create_app','update_app','add_app_todo','update_app_todo'].includes(tool)){
    action.scope=[{kind:'service',value:'saved-apps',access:'write'}];
    if(tool==='update_app'&&typeof args?.icon_path==='string'){
@@ -270,13 +296,13 @@ export class WorkCoordination {
    // Historical uncertainty is not an active global lease. Keep an unscoped
    // outcome for review and prevent blind repeats/unscoped mutations; current
    // file baselines and inspected scopes can establish the next action.
-   const findUnresolved=()=>this.store.where<Action>('work-action','status','uncertain').find(row=>row.access!=='read'&&(row.access==='unknown'&&!row.scope?row.signature===hash||mayWrite&&action.access==='unknown'&&!action.scope:mayWrite&&this.conflicts(action,row)));
+   const findUnresolved=()=>this.store.where<Action>('work-action','status','uncertain').find(row=>row.access!=='read'&&(row.access==='unknown'&&!row.scope?row.signature===hash||mayWrite&&action.access==='unknown'&&!action.scope&&this.sameChat(action,row):mayWrite&&this.conflicts(action,row)));
    let unresolved=findUnresolved();
    while(unresolved&&this.autoResolve){await this.settleQuietly(unresolved);unresolved=findUnresolved();previous=this.store.where<Action>('work-action','signature',hash);}
    if(unresolved)throw Error('An earlier '+unresolved.name+' action has an uncertain outcome (Work review ID '+unresolved.id+'): '+String(unresolved.args?.command||unresolved.name).slice(0,400)+'. Affected resources: '+JSON.stringify(unresolved.scope||[{kind:'path',value:unresolved.resource}])+'. This request did not run and did not create a new hold. Read/search tools and inspected read-only commands remain available. Use inspect_action to scope a different command to its actual resources; unrelated work can continue. Do not repeat this blocked call. If the original outcome cannot be established, resolve that specific entry in Work review.');
    if(previous.some(row=>row.status==='background'&&row.signature===hash))throw Error('This action already has a running background process. Inspect its status instead of starting a duplicate.');
    const duplicate=access==='unknown'&&previous.find(row=>row.job!==job&&row.signature===hash&&row.status==='completed'&&(row.group===group||overlapped.has(row.id)));
-   if(duplicate)throw Error(duplicate.group===group?'Another model already completed this action. Use its recorded result instead of repeating it: '+canonical(duplicate.result):'Another chat completed the same action while this request was waiting. Ask the user before repeating it.');
+   if(duplicate)throw Error(duplicate.group===group?'Another model already completed this action. Use its recorded result instead of repeating it: '+capped(canonical(duplicate.result)):'Another chat completed the same action while this request was waiting. Ask the user before repeating it.');
    for(const file of plan?.evidence||[])if(await fingerprint(file.path)!==file.hash)throw Error('Inspected command source changed. Read it and inspect the action again before execution.');
    for(const file of action.files||[]){
     file.before=await fingerprint(file.path);
@@ -365,6 +391,11 @@ export class WorkCoordination {
   // changed since, so remembering them per chat is safe (speed plan, Koan 2026-10-06; Claude Code keeps reads per session).
   if(!job)this.reads.clear();this.wake();
   for(const claim of this.store.all<Claim>('work-claim'))if(claim.status==='held'&&(!job||claim.job===job))this.store.update<Claim>('work-claim',claim.id,{status:'released'});
+ }
+ interruptChats(chatIds:Set<string>){
+  const jobs=new Set(this.store.all<Turn>('turn').filter(turn=>chatIds.has(turn.chatId)).map(turn=>turn.id));
+  for(const job of jobs)this.interrupt(job);
+  for(const chatId of chatIds)this.reads.delete(chatId);this.wake();
  }
  private async claim(group:string,job:string,directory:string,args:any){
   args={...args,task:args.task??args.path};

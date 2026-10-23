@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
 import {Store} from '../app/store';
-import {WorkCoordination} from '../app/work-coordination';
+import {WorkCoordination,diagnosticCommand,commandParts} from '../app/work-coordination';
 import {createParallel} from '../app/parallel';
 import {spawnSync} from 'node:child_process';
 import type {Turn} from '../app/types';
@@ -504,4 +504,59 @@ test('the job list a model is given names each job and its status, never its out
  const store=new Store(':memory:'),chat=store.chat(store.project().id),background=new BackgroundWork(store,{} as any,new WorkCoordination(store),()=>{});
  store.put('background',{id:'job',engine:'hermes',chatId:chat.id,turnId:'t',command:'npm run build',status:'running',output:'compiling 1 of 900',created:Date.now(),updated:Date.now()});
  const text=background.context(chat);assert.match(text,/npm run build/);assert.match(text,/running/);assert.doesNotMatch(text,/compiling 1 of 900/);store.db.close();
+});
+
+test('batch 3: an unknown command locks only its own chat; a waiting approval releases its lock (Koan, 2026-10-08)',async()=>{
+ const directory=await fs.mkdtemp(path.join(os.tmpdir(),'tris-locks-')),store=new Store(':memory:'),work=new WorkCoordination(store),signal=new AbortController().signal;
+ const project=store.project(directory),a=store.chat(project.id),b=store.chat(project.id),ta=store.accept(crypto.randomUUID(),a.id,'build'),tb=store.accept(crypto.randomUUID(),b.id,'read'),ta2=store.accept(crypto.randomUUID(),a.id,'more');
+ const file=path.join(directory,'shared.txt');await fs.writeFile(file,'one\n');
+ const settled=(promise:Promise<unknown>)=>Promise.race([promise.then(()=>true,()=>true),new Promise(resolve=>setTimeout(()=>resolve(false),300))]);
+ // 4a: chat A's unknown command does not hold chat B's read; it still holds chat A's next unknown command.
+ const build=(await work.begin(ta.id,ta.id,directory,'Bash',{command:'npm test'},signal))!;
+ assert.equal(await settled(work.begin(tb.id,tb.id,directory,'Read',{file_path:file},signal).then(id=>work.finish(id,tb.id,{ok:true}))),true,'another chat reads at once');
+ const next=work.begin(ta2.id,ta2.id,directory,'Bash',{command:'npm run build'},signal);
+ assert.equal(await settled(next),false,'the same chat waits');
+ await work.finish(build,ta.id,{exit_code:0});await work.finish((await next)!,ta2.id,{exit_code:0});
+ // 4b: a write waiting on approval no longer holds the file for other chats' reads (its turn keeps its edit claim),
+ // and it is refused if the file changed meanwhile.
+ const readA=(await work.begin(ta.id,ta.id,directory,'Read',{file_path:file},signal))!;await work.finish(readA,ta.id,{ok:true});
+ const write={file_path:file,content:'from A\n'},waiting=(await work.begin(ta.id,ta.id,directory,'Write',write,signal))!;
+ work.ask(ta.id,'Write\n'+JSON.stringify(write,null,2));
+ const readB=work.begin(tb.id,tb.id,directory,'Read',{file_path:file},signal);
+ assert.equal(await settled(readB),true,'chat B reads while chat A waits on its approval');await work.finish((await readB)!,tb.id,{ok:true});
+ await fs.writeFile(file,'edited meanwhile\n');
+ await assert.rejects(work.checkApproval(ta.id,'Write\n'+JSON.stringify(write,null,2)),/changed while approval was pending/);
+ work.denied(ta.id,'Write\n'+JSON.stringify(write,null,2));assert.equal(store.get<any>('work-action',waiting).status,'blocked');
+ store.db.close();
+});
+
+test('batch 3: chained readers with quoted pipes are reads; hidden writers are not',()=>{
+ const read=(command:string)=>diagnosticCommand('Bash',{command});
+ // The command refused on 2026-10-08 while a backgrounded grep held the lock.
+ assert.equal(read(`wc -l backend/host.py && grep -n "app_summary\\|def _summary\\|web_research\\|def op_\\|elif operation\\|operation==\\|OPERATIONS\\|'cron_next'" backend/host.py | head -60`),true);
+ assert.deepEqual(commandParts('grep "a|b" x | head'),['grep "a|b" x ',' head']);assert.equal(commandParts('echo "open'),null);
+ for(const command of ['sort -o out.txt in.txt','git diff --output=patch.txt','Get-ChildItem | ForEach-Object { Remove-Item $_ }','Get-ChildItem x | ForEach-Object { $_.Delete() }'])assert.equal(read(command),false,command);
+});
+
+test('batch 3: web, skill and notebook tools; capped duplicates; MultiEdit keeps its read; restore resets one chat',async()=>{
+ const directory=await fs.mkdtemp(path.join(os.tmpdir(),'tris-known-')),store=new Store(':memory:'),work=new WorkCoordination(store),signal=new AbortController().signal;
+ const project=store.project(directory),a=store.chat(project.id),b=store.chat(project.id),ta=store.accept(crypto.randomUUID(),a.id,'a'),tb=store.accept(crypto.randomUUID(),b.id,'b');
+ for(const name of ['WebFetch','WebSearch','Skill'])assert.equal(await work.begin(ta.id,ta.id,directory,name,{url:'https://example.org'},signal),null,name);
+ const book=path.join(directory,'book.ipynb');await fs.writeFile(book,'{}');
+ const readBook=(await work.begin(ta.id,ta.id,directory,'Read',{file_path:book},signal))!;await work.finish(readBook,ta.id,{ok:true});
+ const nb=(await work.begin(ta.id,ta.id,directory,'NotebookEdit',{notebook_path:book,new_source:'x'},signal))!;assert.equal(store.get<any>('work-action',nb).access,'write');await work.finish(nb,ta.id,{ok:true});
+ // 4h: a refused duplicate quotes at most 4,000 characters of the first result.
+ const parent=store.accept(crypto.randomUUID(),a.id,'group');store.update<any>('turn',parent.id,{jobs:['j1','j2']});
+ const first=(await work.begin(parent.id,'j1',directory,'Bash',{command:'make data'},signal))!;await work.finish(first,'j1',{exit_code:0,output:'x'.repeat(50000)});
+ await assert.rejects(work.begin(parent.id,'j2',directory,'Bash',{command:'make data'},signal),(error:any)=>error.message.length<4300&&/shortened/.test(error.message));
+ // 4g: a multi-line MultiEdit on a CRLF file keeps the read.
+ const file=path.join(directory,'app.py');await fs.writeFile(file,'a = 1\r\nb = 2\r\nc = 3\r\n');
+ const read=(await work.begin(ta.id,ta.id,directory,'Read',{file_path:file},signal))!;await work.finish(read,ta.id,{ok:true});
+ const edits={file_path:file,edits:[{old_string:'a = 1\nb = 2',new_string:'a = 10\nb = 20'},{old_string:'c = 3',new_string:'c = 30'}]};
+ const multi=(await work.begin(ta.id,ta.id,directory,'MultiEdit',edits,signal))!;await fs.writeFile(file,'a = 10\r\nb = 20\r\nc = 30\r\n');await work.finish(multi,ta.id,{ok:true});
+ const again=(await work.begin(ta.id,ta.id,directory,'Edit',{file_path:file,old_string:'c = 30',new_string:'c = 31'},signal))!;assert.ok(again,'the next edit is not refused');await work.finish(again,ta.id,{ok:true},false,true);
+ // 4f: restoring chat A's checkpoint leaves chat B's running work held.
+ const runningB=(await work.begin(tb.id,tb.id,directory,'Bash',{command:'npm start'},signal))!;
+ work.interruptChats(new Set([a.id]));assert.equal(store.get<any>('work-action',runningB).status,'running');
+ store.db.close();
 });

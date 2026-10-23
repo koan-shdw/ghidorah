@@ -2340,7 +2340,7 @@ const handlers:Record<string,(args:any)=>any>={
     try{
       for(const owner of store.all<Chat>('chat'))await native.closeChat(owner.id);
       if(workspaceDrafts.size)throw Error('Save or discard file drafts before restoring files.');
-      const result=restoreCheckpoint(store,chatId,turnId,directory,revision);coordination.interrupt();
+      const result=restoreCheckpoint(store,chatId,turnId,directory,revision);coordination.interruptChats(new Set([chatId,...store.all<Chat>('chat').filter(row=>row.parentChatId===chatId).map(row=>row.id)]));
       let newChatId:string|undefined;
       if(retry&&result.results.every(row=>row.status==='restored')){
         newChatId=sidebar.fork(chatId,{beforeTurnId:turnId});
