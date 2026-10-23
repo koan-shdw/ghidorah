@@ -115,3 +115,11 @@ test('Stop targets the running reply, never the message being prepared behind it
  assert.equal(replyRow('chat'),'slow reply');claude=undefined;hermesTurns.set('chat','gpt reply');assert.equal(replyRow('chat'),'gpt reply');
  hermesTurns.clear();assert.equal(replyRow('chat'),'correction','with nothing running, Stop ends the preparation');
 });
+
+test('a Hermes session the chat lets go of is closed (audit 2.5, batch 5, 7d)',()=>{
+ const calls:any[]=[],chats:any={a:{id:'a',runtimeId:'sid-1'},b:{id:'b',runtimeId:null}};
+ const backend={status:'ready',rpc:{request:(method:string,params:any)=>{calls.push([method,params]);return Promise.resolve();}}};
+ const release=main('releaseHermesSession',{store:{get:(_:string,id:string)=>chats[id]},backend,projectFor:()=>({profile:'p'})});
+ release(chats.a);release(chats.b);assert.deepEqual(calls,[['session.close',{session_id:'sid-1',profile:'p'}]]);
+ backend.status='starting';release(chats.a);assert.equal(calls.length,1,'no backend, nothing to close');
+});

@@ -11,7 +11,7 @@ import {speechVoices,savedSpeechVoices} from './speech-voices';
 import {previewCheckpoint,restoreCheckpoint} from './checkpoints';
 import {chatFiles,findChatFile,readChatFile,saveChatOutput,filePreview,outputTool} from './chat-files';
 import {toolResultFailed} from './tool-result';
-import {contextSource,saveContext,contextSystem,shouldAutoCompact,summaryModel,readRuntimeHistory,clearHistoryReads,chatHistoryTool,type ContextDraft} from './chat-context';
+import {contextSource,saveContext,resumeDraft,contextSystem,shouldAutoCompact,summaryModel,readRuntimeHistory,clearHistoryReads,chatHistoryTool,type ContextDraft} from './chat-context';
 import {queryChatHistory,rlmHistoryTool,rlmContext} from './rlm-history';
 import wakeModel from '../backend/wake-model.json';
 import {LiveVoiceDesk} from './live-voice-desk';
@@ -258,6 +258,11 @@ const hermesEvents=new Map<string,{seq:number;at:number}>(),checkingReplies=new 
 // A Hermes turn can end with only an `error` event (audit 3.4); the reply check ends it once the session is idle.
 const hermesErrors=new Map<string,string>();
 let replyTimer:NodeJS.Timeout|undefined;
+// A Hermes session the chat lets go of is closed, so abandoned sessions do not pile up in the backend (audit 2.5, 7d).
+function releaseHermesSession(chat:Chat){
+  const sid=store.get<Chat>('chat',chat.id).runtimeId;if(!sid||backend?.status!=='ready')return;
+  void backend.rpc.request('session.close',{session_id:sid,profile:projectFor(chat).profile},10000).catch(()=>{});
+}
 // A Hermes Stop that gets no answer ends locally after its deadline (audit 3.5): the turn is marked stopped,
 // the chat lets go of that Hermes session so the next message starts a fresh one, and the session is closed.
 function stopDeadline(chatId:string,id:string,sid:string){
@@ -941,7 +946,7 @@ async function signOutCodex(){
       for(const row of health.rows())if(row.provider==='openai-codex')store.remove('availability',row.id);
       health.observe('openai-codex','auth','auth',true);
       for(const chat of store.all<Chat>('chat')){
-        store.update<Chat>('chat',chat.id,{runtimeId:null,storedId:null});
+        releaseHermesSession(chat);store.update<Chat>('chat',chat.id,{runtimeId:null,storedId:null});
         store.put('engine',{...store.enginePosition(chat.id,'hermes'),sessionId:null});
       }
     });hermesModels.clear();
@@ -1479,7 +1484,7 @@ async function dispatch(chat:Chat,turn:Turn){
       const rows=store.all<Turn>('turn').filter(t=>t.chatId===chatId),through=busy&&sessionRows?rows.slice(0,rows.findIndex(t=>t.id===turn.id)).reverse().find(t=>sessionRows.has(t.id))?.id:undefined;
       step('Checking plugins: history');const stored=store.beginEngine(chatId,'hermes'),position=through?{...stored,sessionId:chat.storedId||chat.runtimeId,throughTurnId:through,uncertain:false}:stored;
       const transfer=handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),turn,position,chat.context,chat.contextInstructions,appChatContext(store,chat)+'\n'+rlmContext(store,chat));
-      if(!transfer.sessionId){store.update<Chat>('chat',chatId,{runtimeId:null,storedId:null});chat.runtimeId=null;chat.storedId=null;}
+      if(!transfer.sessionId){releaseHermesSession(chat);store.update<Chat>('chat',chatId,{runtimeId:null,storedId:null});chat.runtimeId=null;chat.storedId=null;}
       preparingStep('Opening model session');const sid=await session(chat,turn.model,signal);
       if(store.get<Turn>('turn',turn.id).status==='stopping'){store.update<Turn>('turn',turn.id,{status:'stopped'});return;}
       // While Hermes answers, the session keeps the settings the running reply was sent with (same model: switchReason).
@@ -1519,7 +1524,7 @@ async function dispatch(chat:Chat,turn:Turn){
         if(answer.status==='queued')hermesQueued.add(turn.id);
         store.update<Turn>('turn',turn.id,{delivery:'sent',activity:answer.status==='queued'?'Sent, '+label+' answers it next':'Sent, '+label+' reads it after the current step'});
       }
-    }catch(e){if(!stuck){const status=store.get<Turn>('turn',turn.id).status;if(hermesTurns.get(chatId)===turn.id)hermesTurns.delete(chatId);hermesSent.get(chatId)?.delete(turn.id);if(providerFor(turn.model)!=='claude-code'&&!hermesTurns.has(chatId)&&!hermesWaiting(chatId))store.update<Chat>('chat',chatId,{runtimeId:null});if(status!=='needs-model')store.update<Turn>('turn',turn.id,{status:status==='stopping'?'stopped':'interrupted',error:status==='stopping'?null:phase+': '+backend.scrubber.text(String(e))});}}
+    }catch(e){if(!stuck){const status=store.get<Turn>('turn',turn.id).status;if(hermesTurns.get(chatId)===turn.id)hermesTurns.delete(chatId);hermesSent.get(chatId)?.delete(turn.id);if(providerFor(turn.model)!=='claude-code'&&!hermesTurns.has(chatId)&&!hermesWaiting(chatId)){releaseHermesSession(chat);store.update<Chat>('chat',chatId,{runtimeId:null});}if(status!=='needs-model')store.update<Turn>('turn',turn.id,{status:status==='stopping'?'stopped':'interrupted',error:status==='stopping'?null:phase+': '+backend.scrubber.text(String(e))});}}
     finally{if(!stuck){finish(store.get<Turn>('turn',turn.id).status);done();emit();}}
   })();
   await Promise.race([work,released]);
@@ -2158,15 +2163,20 @@ async function generateContext(chatId:string,model:string,options:{beforeTurnId?
   // Each summary call has its own time limit (contextCompletion); the whole automatic run gets 5 minutes, not 60 s.
   const signal=options.origin==='automatic'?AbortSignal.any([controller.signal,AbortSignal.timeout(300000)]):controller.signal;
   contextJobs.set(chatId,job);emit();
-    let summary=source.previous,tokens:number|null=0;
+    // A run saves its progress after each batch; a retry continues from it, and a partial draft is never applied (7a).
+    const resume=resumeDraft(store.find<ContextDraft>('context-draft',chatId),source.revision,source.batches.length);
+    let summary=resume?.summary??source.previous,tokens:number|null=0;job.done=resume?.start||0;
     try{
-      for(const batch of source.batches){
+      for(const [index,batch] of source.batches.entries()){
+        if(index<job.done)continue;
         signal.throwIfAborted();const prompt=JSON.stringify({focus,previousSummary:summary,standingInstructions:source.instructions,goal:source.goal,records:batch});
         const usageId=randomUUID();store.put('context-usage',{id:usageId,chatId,model,tokens:null});
         const answer=await contextCompletion(chat,model,contextSystem,prompt,signal);
         summary=answer.text;if(!summary||summary.length>40000)throw Error('The summary was empty or too large. The current context is kept.');
         store.update<{id:string;tokens:number|null}>('context-usage',usageId,{tokens:answer.tokens});
-        tokens=tokens!==null&&answer.tokens!==null?tokens+answer.tokens:null;job.done++;emit();
+        tokens=tokens!==null&&answer.tokens!==null?tokens+answer.tokens:null;job.done++;
+        if(job.done<source.batches.length)store.put<ContextDraft>('context-draft',{id:chatId,chatId,throughTurnId:source.throughTurnId,revision:source.revision,summary,instructions:source.instructions,sourceCharacters:source.sourceCharacters,model,tokens,created:Date.now(),...options,partial:true,done:job.done});
+        emit();
       }
       signal.throwIfAborted();return store.put<ContextDraft>('context-draft',{id:chatId,chatId,throughTurnId:source.throughTurnId,revision:source.revision,summary,instructions:source.instructions,sourceCharacters:source.sourceCharacters,model,tokens,created:Date.now(),...options});
     }finally{contextJobs.delete(chatId);emit();}
@@ -2175,7 +2185,7 @@ async function generateContext(chatId:string,model:string,options:{beforeTurnId?
 // A summary that finished in the background is applied when the chat next needs a fresh session (batch 5, 7b).
 async function applyReadyDraft(chatId:string){
  const chat=sidebar.root(chatId),draft=store.find<ContextDraft>('context-draft',chat.id);
- if(!draft||draft.origin!=='automatic'||contextJobs.has(chat.id))return false;
+ if(!draft||draft.partial||draft.origin!=='automatic'||contextJobs.has(chat.id))return false;
  try{for(const owner of sidebar.owned(chat.id))await native.closeChat(owner.id);saveContext(store,chat.id,draft.revision,draft.summary,draft.instructions);}catch{return false;}
  store.update<Chat>('chat',chat.id,{contextRetryAfter:undefined,contextNotice:'Context compacted. Original messages remain available.'});emit();return true;
 }

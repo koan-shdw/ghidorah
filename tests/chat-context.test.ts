@@ -54,3 +54,10 @@ test('parallel jobs receive the reviewed parent context and can retrieve parent 
  const f=fixture(),first=f.turn('Old source'),last=f.turn('Latest');const s=draft(f);saveContext(f.store,f.chat.id,s.revision,'Reviewed compact context','Exact instruction');const current=f.store.accept('parallel-current',f.chat.id,'Build');const jobs=createParallel(f.store,current,['deepseek-flash','claude-code:haiku']);
  for(const job of jobs){assert.match(job.commandContext!,/Reviewed compact context/);assert.match(job.commandContext!,/Exact instruction/);assert.equal(readChatHistory(f.store,job,{turnId:first.id}).id,first.id);}f.store.db.close();
 });
+
+test('a summary run continues after the batches a partial draft covered; a partial draft is never applied (batch 5, 7a)',async()=>{
+ const {resumeDraft}=await import('../app/chat-context');
+ const draft:any={partial:true,revision:'r1',done:2,summary:'two batches'};
+ assert.deepEqual(resumeDraft(draft,'r1',5),{start:2,summary:'two batches'});
+ assert.equal(resumeDraft(draft,'r2',5),null,'the history changed');assert.equal(resumeDraft({...draft,partial:false},'r1',5),null);assert.equal(resumeDraft(draft,'r1',2),null,'already complete');assert.equal(resumeDraft(undefined,'r1',5),null);
+});

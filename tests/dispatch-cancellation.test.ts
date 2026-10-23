@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import ts from 'typescript';
 import {Store} from '../app/store';
+import {resumeDraft} from '../app/chat-context';
 
 const source=ts.createSourceFile('main.ts',fs.readFileSync('app/main.ts','utf8'),ts.ScriptTarget.Latest,true);
 function sessionFunction(environment:Record<string,unknown>){
@@ -36,7 +37,7 @@ test('automatic compaction has one total deadline and retains the prior context 
  t.mock.method(AbortSignal,'timeout',(ms:number)=>{assert.equal(ms,300000);return deadline.signal;});
  let entered!:()=>void;const waiting=new Promise<void>(resolve=>entered=resolve);
  const node=source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='generateContext')!;
- const environment={store,apiChanging:false,contextJobs,sidebar:{root:()=>chat},contextSource:()=>({batches:[[{text:'First'}],[{text:'Second'}]],previous:'Existing summary'}),emit:()=>{},randomUUID:()=>crypto.randomUUID(),contextSystem:'Summary',contextCompletion:async(_chat:any,_model:any,_system:any,_prompt:any,signal:AbortSignal)=>{entered();return new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));}};
+ const environment={store,resumeDraft,apiChanging:false,contextJobs,sidebar:{root:()=>chat},contextSource:()=>({batches:[[{text:'First'}],[{text:'Second'}]],previous:'Existing summary'}),emit:()=>{},randomUUID:()=>crypto.randomUUID(),contextSystem:'Summary',contextCompletion:async(_chat:any,_model:any,_system:any,_prompt:any,signal:AbortSignal)=>{entered();return new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));}};
  const generate=new Function(...Object.keys(environment),ts.transpile(node.getText(source),{target:ts.ScriptTarget.ES2022})+';return generateContext;')(...Object.values(environment));
  const pending=generate(chat.id,'model',{origin:'automatic'});await waiting;deadline.abort(Error('Summary deadline'));await assert.rejects(pending,/Summary deadline/);
  assert.equal(contextJobs.size,0);assert.equal(store.get<any>('chat',chat.id).context.summary,'Existing summary');assert.equal(store.all('context-draft').length,0);assert.equal(store.all('context-usage').length,1);store.db.close();
