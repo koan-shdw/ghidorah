@@ -14,3 +14,11 @@
 .kit-dialog.share-dialog{width:min(720px,calc(100vw - 40px))}
 .share-dialog textarea{font:var(--fs-list)/1.5 var(--font-mono);margin:var(--space-5) 0}
 @media (prefers-reduced-motion:reduce){.share-card{animation:none}}
+/* A page a model published (FEATURE-SPECS 4), under its reply. */
+.page-card{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px 12px;margin:8px 0 0;padding:10px 12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);max-width:640px}
+.page-card-icon{display:grid;place-items:center;width:36px;height:36px;border-radius:var(--r);border:1px solid var(--line);color:var(--muted)}
+.page-card-icon svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.page-card-text{display:grid;min-width:0}.page-card-text strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.page-card-text span{font-size:var(--fs-ui);color:var(--muted)}
+.page-card-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.page-card .chat-link-error{grid-column:1/-1;margin:0}
+@media (max-width:560px){.page-card{grid-template-columns:auto 1fr}.page-card-actions{grid-column:1/-1;justify-content:flex-start}}

@@ -7,7 +7,7 @@ from tui_gateway.contracts.registry import server_request
 
 
 class McpRequest(ServerRequestParams):
-    operation: Literal['list', 'tools', 'call', 'goal', 'app', 'app-list', 'app-link', 'app-todo', 'app-todo-update', 'chat-coordinate', 'chat-history', 'history-query', 'background-process', 'output', 'image', 'document', 'web', 'publish']
+    operation: Literal['list', 'tools', 'call', 'goal', 'app', 'app-list', 'app-link', 'app-todo', 'app-todo-update', 'chat-coordinate', 'chat-history', 'history-query', 'background-process', 'output', 'image', 'document', 'web', 'publish', 'preview']
     connection: str | None = None
     tool: str | None = None
     arguments: dict[str, JsonValue] = Field(default_factory=dict)

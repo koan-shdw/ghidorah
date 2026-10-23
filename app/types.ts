@@ -14,7 +14,8 @@ export interface ToolCall {id:string;turnId:string;name:string;args:any;result:a
 // A side answer (FEATURE-SPECS 2): kept in the chat, never in the main model's context unless Koan sends it on.
 // Share with clients (FEATURE-SPECS 3) as the windows see it: no password hash, the key only inside the AI address.
 export type ShareProjectView=Omit<import('./share').ShareProject,'password'|'aiKey'>&{password:boolean;link:string;aiAddress:string;message:string;notes:import('./share').ShareNote[]};
-export interface ShareView {site:string;ready:boolean;status:string;checked?:number;alerts:string[];projects:ShareProjectView[]}
+export interface PageView {id:string;chatId:string;title:string;version:number;link:string;notes:import('./share').ShareNote[]}
+export interface ShareView {site:string;ready:boolean;status:string;checked?:number;alerts:string[];projects:ShareProjectView[];pages?:PageView[]}
 export interface SideAnswer {id:string;chatId:string;turnId:string;question:string;model:string;forced:boolean;status:'sorting'|'answering'|'done'|'failed';text:string;created:number;tokens?:number|null;closed?:boolean;sent?:'told'|'asked';}
 // waiting: Allow was given and the action waits for a related command to finish first.
 export interface Approval {id:string;chatId:string;turnId:string;method:string;params:any;status:string;waiting?:string;}

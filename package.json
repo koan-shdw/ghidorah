@@ -106,7 +106,8 @@
           "**/document-tools.json",
           "**/chat-tools.json",
           "**/image-tools.json",
-          "**/app-tools.json"
+          "**/app-tools.json",
+          "**/preview-tools.json"
         ]
       },
       {

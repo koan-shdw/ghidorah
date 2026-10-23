@@ -233,6 +233,14 @@ def test_permission_decisions_include_fixed_secret_rule(tmp_path):
     assert module.decide('write_file',{'path':'result.txt'},policy) is None
     # Starting an app makes one folder inside the working folder: an edit, never allowed in Plan.
     assert module.decide('create_app',{'name':'Shop'},policy) is None
+    # Preview pages (FEATURE-SPECS 4): private publishing and reading never ask; deleting always asks, except in Bypass.
+    for mode,publish,delete in [('manual',None,'approve'),('accept-edits',None,'approve'),('auto',None,'approve'),('plan','block','block'),('bypass',None,None)]:
+        page_policy={**policy,'mode':mode}
+        assert module.decide('preview_page',{'action':'list'},page_policy) is None
+        result=module.decide('preview_page',{'action':'publish','path':'mock.html','title':'Mock'},page_policy)
+        assert (result and result['action'])==publish,(mode,result)
+        result=module.decide('preview_page',{'action':'delete','link':'https://s.dev/AbCdEfGhIjKlMnOpQrStUv/'},page_policy)
+        assert (result and result['action'])==delete,(mode,result)
     assert module.decide('create_app',{'name':'Shop'},{**policy,'folder':None})['action']=='block'
     assert module.decide('create_app',{'name':'Shop'},{**policy,'mode':'plan'})['action']=='block'
     assert module.decide('create_app',{'name':'Shop'},{**policy,'mode':'manual'})['action']=='approve'

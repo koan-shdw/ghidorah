@@ -2,9 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
-import {sections,pageLink,aiAddress,readyMessage,aiPage,noteMessages,notesForModel,hashPassword,privateId,stageSite,writeProject,databaseIdOf,deployedUrl,run,type ShareProject,type ShareNote} from '../app/share';
+import {sections,pageLink,aiAddress,readyMessage,aiPage,noteMessages,notesForModel,hashPassword,privateId,stageSite,writeProject,databaseIdOf,deployedUrl,run,previewIdOf,previewLink,ownerHash,writePreview,zip,previewTool,previewGuide,type ShareProject,type ShareNote} from '../app/share';
 
 const project:ShareProject={id:'p',shareId:'AbCdEfGhIjKlMnOpQrStUv',chatId:'c',title:'Davan',page:'index.html',version:2,aiKey:'key123',sections:['Home','Pricing'],published:0,since:0};
 
@@ -39,7 +38,7 @@ test('share: what Koan is told and what the model gets (3.4)',()=>{
 });
 
 test('share: the site folder and a project folder (3.1, 3.5)',async()=>{
- const temp=await fs.mkdtemp(path.join(os.tmpdir(),'tris-share-')),site=path.join(temp,'site');
+ await fs.mkdir('work',{recursive:true});const temp=await fs.mkdtemp(path.resolve('work','unit-share-')),site=path.join(temp,'site');
  try{
   await fs.mkdir(path.join(site,'public','Published0000000000001'),{recursive:true});await fs.writeFile(path.join(site,'public','Published0000000000001','index.html'),'kept');
   await stageSite(path.resolve('share'),site,'db-id-1');
@@ -60,6 +59,38 @@ test('share: the installed app carries the share site (code rule 5)',async()=>{
  const shipped=JSON.parse(await fs.readFile('package.json','utf8')).build.extraResources.find((entry:any)=>entry.from==='share');
  assert.ok(shipped,'share\ is in the package');assert.equal(shipped.to,'share');
  for(const file of ['src/**/*','public/_notes/**/*','schema.sql','package.json'])assert.ok(shipped.filter.includes(file),file+' ships');
+ const plugins=JSON.parse(await fs.readFile('package.json','utf8')).build.extraResources.find((entry:any)=>entry.from==='plugins');
+ assert.ok(plugins.filter.includes('**/preview-tools.json'),'the preview tool schema ships for Hermes');
+});
+
+test('share: preview pages, the Tris side (FEATURE-SPECS 4)',async()=>{
+ assert.equal(previewLink('https://s.dev','AbCdEfGhIjKlMnOpQrStUv'),'https://s.dev/AbCdEfGhIjKlMnOpQrStUv/');
+ assert.equal(previewIdOf('https://s.dev','https://s.dev/AbCdEfGhIjKlMnOpQrStUv/'),'AbCdEfGhIjKlMnOpQrStUv');
+ assert.equal(previewIdOf('https://s.dev','https://s.dev/AbCdEfGhIjKlMnOpQrStUv'),'AbCdEfGhIjKlMnOpQrStUv');
+ assert.equal(previewIdOf('https://s.dev','AbCdEfGhIjKlMnOpQrStUv'),'AbCdEfGhIjKlMnOpQrStUv','a bare id');
+ assert.equal(previewIdOf('https://s.dev','https://evil.dev/AbCdEfGhIjKlMnOpQrStUv/'),null,'only links to Koan’s own site');
+ assert.equal(previewIdOf('https://s.dev','https://s.dev/pages'),null);
+ assert.equal(ownerHash('abc'),'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+ assert.equal(previewTool.name,'preview_page');assert.deepEqual(previewTool.inputSchema.properties.action.enum,['publish','list','read','delete','guide']);
+ assert.equal((previewTool as any)._meta['anthropic/alwaysLoad'],true,'always loaded, like Claude’s own artifact tool');
+ for(const rule of ['Real content only','prefers-color-scheme','phone width','"Now" first','numbered versions','Tune panel','localStorage'])assert.ok(previewGuide.includes(rule),rule);
+ await fs.mkdir('work',{recursive:true});const temp=await fs.mkdtemp(path.resolve('work','unit-pages-'));
+ try{
+  await stageSite(path.resolve('share'),temp,'db');
+  assert.equal(await fs.readFile(path.join(temp,'src','pages.js'),'utf8'),await fs.readFile('share/src/pages.js','utf8'),'the viewer goes with the Worker');
+  await writePreview(temp,'AbCdEfGhIjKlMnOpQrStUv',new Map([['old.html',Buffer.from('old')]]));
+  await writePreview(temp,'AbCdEfGhIjKlMnOpQrStUv',new Map([['mock.html',Buffer.from('<h1>Mock</h1>')],[path.join('img','a.png'),Buffer.from('png bytes')]]));
+  const folder=path.join(temp,'public','AbCdEfGhIjKlMnOpQrStUv'),windowsTar=path.join(process.env.SystemRoot||'C:\\Windows','System32','tar.exe');
+  assert.deepEqual((await fs.readdir(folder)).sort(),['_export.zip','img','mock.html'],'exactly this version, and the zip Export hands out');
+  const listing=spawnSync(windowsTar,['-tf',path.join(folder,'_export.zip')],{encoding:'utf8'});
+  assert.equal(listing.status,0,listing.stderr);assert.deepEqual(listing.stdout.trim().split(/\r?\n/).sort(),['img/a.png','mock.html']);
+  const out=path.join(temp,'unzipped');await fs.mkdir(out);
+  assert.equal(spawnSync(windowsTar,['-xf',path.join(folder,'_export.zip'),'-C',out]).status,0);
+  assert.equal(await fs.readFile(path.join(out,'img','a.png'),'utf8'),'png bytes','the zip holds the real bytes');
+  await writePreview(temp,'AbCdEfGhIjKlMnOpQrStUv',new Map([['one.html',Buffer.from('1')]]));
+  assert.deepEqual(await fs.readdir(folder),['one.html'],'one file needs no zip');
+  assert.equal(zip(new Map()).length,22,'an empty zip is just its end record');
+ }finally{await fs.rm(temp,{recursive:true,force:true});}
 });
 
 test('share: reading wrangler output, and only simple arguments',()=>{

@@ -1,7 +1,7 @@
 // Share work with clients on screen (FEATURE-SPECS 3): the setup (Settings and the setup wizard, in Koan's words),
 // the shared projects, the card in a shared project's chat and the review of the "for your AI" page.
 import React,{useState} from 'react';
-import type {Snapshot,ShareProjectView} from './types';
+import type {Snapshot,ShareProjectView,PageView} from './types';
 import {SettingsCard} from './settings-dialog';
 import {Button,Dialog} from './kit';
 
@@ -31,6 +31,10 @@ export function ShareSettings({state,call}:{state:Snapshot;call:Call}){
    {!projects.length&&<p className="hint">Nothing shared yet. Ask a model in any chat to share a page with the client.</p>}
    {projects.map(project=><ShareRow key={project.id} project={project} call={call} review={()=>setReview(project.id)}/>)}
    <div className="actions"><button onClick={()=>void call('shareCheck').catch(()=>{})}>Check for notes now</button></div>
+  </SettingsCard>}
+  {state.share?.ready&&<SettingsCard title="Preview pages">
+   <p className="hint">Pages the models publish for you, like Claude’s artifacts. Only you can open them until you share one from its Share button.</p>
+   <div className="actions"><button onClick={()=>void call('pagesOpen').catch(()=>{})}>Open All pages</button></div>
   </SettingsCard>}
   {review&&<AiPageDialog project={projects.find(project=>project.id===review)!} call={call} close={()=>setReview(null)}/>}
  </>;
@@ -64,12 +68,22 @@ export function AiPageDialog({project,call,close}:{project:ShareProjectView;call
 }
 
 // In the shared project's chat, just above the message box: a new version shared, an AI page draft to review, notes.
+// Notes Koan (or anyone he shared it with) left on a page this chat's model made (FEATURE-SPECS 4).
+function PageNotesCard({page,call}:{page:PageView;call:Call}){
+ const people=[...new Set(page.notes.map(note=>note.name))].join(', ');
+ return <section className="share-card" aria-label={'Notes on '+page.title}>
+  <header><span>Notes on {page.title} · version {page.version}</span><Button iconOnly icon="close" className="side-close" aria-label="Dismiss" title="Dismiss" onClick={()=>void call('pageNotesDismiss',{id:page.id}).catch(()=>{})}/></header>
+  <div className="share-line"><span>{page.notes.length} new note{page.notes.length===1?'':'s'} from {people}</span><button className="primary" onClick={()=>void call('pageNotesSend',{id:page.id}).catch(()=>{})}>Send to the model</button><button onClick={()=>void call('pageOpen',{chatId:page.chatId,url:page.link}).catch(()=>{})}>Open</button></div>
+ </section>;
+}
+
 export function ShareCard({state,call,chatId}:{state:Snapshot;call:Call;chatId:string}){
  const [review,setReview]=useState<string|null>(null);
+ const pages=(state.share?.pages||[]).filter(page=>page.chatId===chatId&&page.notes.length>0);
  const projects=(state.share?.projects||[]).filter(project=>project.chatId===chatId&&(project.seenVersion!==project.version||draftWaiting(project)||fresh(project).length>0));
- if(!projects.length&&!review)return null;
+ if(!projects.length&&!pages.length&&!review)return null;
  const reviewing=(state.share?.projects||[]).find(project=>project.id===review);
- return <>{projects.map(project=><section className="share-card" aria-label={'Shared with the client: '+project.title} key={project.id}>
+ return <>{pages.map(page=><PageNotesCard key={page.id} page={page} call={call}/>)}{projects.map(project=><section className="share-card" aria-label={'Shared with the client: '+project.title} key={project.id}>
   <header><span>Shared with the client · version {project.version}</span><Button iconOnly icon="close" className="side-close" aria-label="Dismiss" title="Dismiss" onClick={()=>void call('shareDismiss',{id:project.id}).catch(()=>{})}/></header>
   <div className="share-line"><span className="share-address">{project.link}</span><button onClick={()=>copy(project.link)}>Copy link</button><button onClick={()=>void call('shareOpen',{id:project.id}).catch(()=>{})}>Open</button></div>
   {project.draft?.status==='writing'&&<p className="hint">Writing the AI page draft…</p>}

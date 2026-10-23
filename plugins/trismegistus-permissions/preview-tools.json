@@ -1,0 +1,41 @@
+[
+ {
+  "name": "preview_page",
+  "description": "Publish an interactive HTML page (a mockup, comparison, prototype, dashboard or report) to a private link on the user's own site, like Claude's artifacts: only the user can open it until he shares it from the page, and his notes on it come back to you. Use it whenever a page would show work better than text; no need to ask first. Call action guide before writing a new page. publish: path (an HTML file in the working folder; the files it links to in its folder go with it), title (two to four words), description (one sentence), link (an earlier page to update; publishing the same file again from this chat updates it too). list: the user's pages. read: a page's published HTML (link). delete: link; the user confirms.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "publish",
+      "list",
+      "read",
+      "delete",
+      "guide"
+     ]
+    },
+    "path": {
+     "type": "string",
+     "description": "publish: the HTML file, relative to the working folder"
+    },
+    "title": {
+     "type": "string",
+     "description": "publish: a short name, two to four words"
+    },
+    "description": {
+     "type": "string",
+     "description": "publish: one sentence"
+    },
+    "link": {
+     "type": "string",
+     "description": "The page's link, to update (publish), read or delete it"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false
+  }
+ }
+]

@@ -4,11 +4,22 @@
 (() => {
   if (window.__koanNotes) return;
   window.__koanNotes = true;
-  const page = location.pathname.replace(/\/index\.html?$/i, '/');
+  // On a preview page (FEATURE-SPECS 4) the page runs in a sandboxed frame with no origin of its own: the viewer
+  // around it names the page and carries its notes to the site.
+  const script = document.currentScript, framed = script?.dataset.frame === '1' && parent !== window;
+  const page = framed ? script.dataset.page : location.pathname.replace(/\/index\.html?$/i, '/');
   // The version Tris published (3.5) and, on a private page opened from the AI address, its key (3.7).
-  const version = Number(document.currentScript?.dataset.version) || 0;
+  const version = Number(script?.dataset.version) || 0;
   const key = new URLSearchParams(location.search).get('key');
   const api = (query = '') => '/api/notes' + query + (key ? (query ? '&' : '?') + 'key=' + encodeURIComponent(key) : '');
+  const waiting = new Map();
+  let asked = 0;
+  // fetch() for the notes API, or the same request through the viewer.
+  function request(method, body) {
+    if (!framed) return fetch(method === 'POST' ? api() : api('?page=' + encodeURIComponent(page)), method === 'POST' ? { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : { cache: 'no-store' })
+      .then(async (r) => ({ ok: r.ok, body: await r.json().catch(() => ({})) }));
+    return new Promise((resolve) => { const id = ++asked; waiting.set(id, resolve); parent.postMessage({ koan: 'notes', id, method, body }, '*'); });
+  }
   const earlier = (n) => version && n.version != null && n.version < version;
   const store = { get(k) { try { return localStorage.getItem('koan-notes:' + k) || ''; } catch { return ''; } }, set(k, v) { try { localStorage.setItem('koan-notes:' + k, v); } catch {} } };
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -95,6 +106,7 @@
       pins.appendChild(b);
     });
     list.textContent = 'Notes · ' + notes.length;
+    if (framed) parent.postMessage({ koan: 'notes-count', n: notes.length }, '*');
     panel.querySelector('ol').innerHTML = notes.length
       ? notes.map((n, i) => `<li data-i="${i}"><b>${i + 1}</b>${esc(n.name)}<small>${esc(when(n.created))}</small>${earlier(n) ? '<span class="old-tag">earlier version</span>' : ''}<br>${esc(n.text.length > 140 ? n.text.slice(0, 140) + '…' : n.text)}</li>`).join('')
       : '<div class="none">No notes yet. Press + Add note, then click the spot it is about.</div>';
@@ -114,9 +126,8 @@
     pins.appendChild(b); place(b, s.x, s.y);
   }
   async function send(fields) {
-    const r = await fetch(api(), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...fields, page }) });
-    const body = await r.json().catch(() => ({}));
-    if (!r.ok) throw Error(body.error || 'The note did not send.');
+    const { ok, body } = await request('POST', { ...fields, page });
+    if (!ok) throw Error(body?.error || 'The note did not send.');
     return body;
   }
   // Pasted "Section: note" lines (3.7): each is pinned to the heading of that name, else to the top of the page.
@@ -152,8 +163,8 @@
   };
   async function load() {
     try {
-      const r = await fetch(api('?page=' + encodeURIComponent(page)), { cache: 'no-store' });
-      if (r.ok) { notes = await r.json(); draw(); }
+      const { ok, body } = await request('GET');
+      if (ok && Array.isArray(body)) { notes = body; draw(); }
     } catch {}
   }
   function arm(on) {
@@ -200,6 +211,11 @@
     const li = e.target.closest('li[data-i]'); if (!li) return;
     const i = +li.dataset.i, s = spotOf(notes[i]);
     scrollTo({ top: Math.max(0, s.y - innerHeight / 3), behavior: 'smooth' }); show(i);
+  });
+  if (framed) addEventListener('message', (e) => {
+    if (e.source !== parent || !e.data) return;
+    if (e.data.koan === 'notes-reply' && waiting.has(e.data.id)) { waiting.get(e.data.id)(e.data); waiting.delete(e.data.id); }
+    if (e.data.koan === 'notes-list') list.click();
   });
   addEventListener('keydown', (e) => { if (e.key === 'Escape') { arm(false); closeComposer(); show(null); } });
   addEventListener('resize', draw);

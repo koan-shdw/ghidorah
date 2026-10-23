@@ -13,7 +13,8 @@ type Saved={id:string;chatId:string;chatFileId?:string;name?:string;url?:string;
 type Entry={savedFile?:ChatFile;view:WebContentsView;session:Session;source?:{base:string;host:string};pdf?:PreviewPdf;state:PreviewState};
 export class Previews{
  private entries=new Map<string,Entry>();
- constructor(private window:BrowserWindow,private store:Store,private root:()=>string|null,private protectedRoots:string[],private poppler:string,private data?:string){}
+ // decorate: Koan's own pages open as him (FEATURE-SPECS 4); external: a page's trismegistus:// Chat link.
+ constructor(private window:BrowserWindow,private store:Store,private root:()=>string|null,private protectedRoots:string[],private poppler:string,private data?:string,private decorate?:(url:string)=>Promise<string>,private external?:(url:string)=>void){}
  private saved(chatId:string){return this.store.all<Saved>('preview').find(item=>item.id===chatId);}
  state(chatId:string):PreviewState{
   const entry=this.entries.get(chatId);if(entry){const web=entry.view.webContents;return {...entry.state,loading:web.isLoading(),back:web.navigationHistory.canGoBack(),forward:web.navigationHistory.canGoForward()};}
@@ -39,7 +40,7 @@ export class Previews{
   partition.webRequest.onBeforeRequest({urls:['<all_urls>']},(details,callback)=>{const url=new URL(details.url);callback({cancel:url.protocol==='file:'||!!entry.savedFile&&!(url.protocol==='tris-preview:'&&url.hostname===entry.source?.host||['data:','blob:'].includes(url.protocol))});});
   const navigation=(url:string)=>{try{const target=new URL(url);return !entry.savedFile&&['http:','https:'].includes(target.protocol)&&!target.username&&!target.password||target.protocol==='tris-preview:'&&target.hostname===entry.source?.host;}catch{return false;}};
   web.setWindowOpenHandler(()=>{entry.state.error='Pop-up blocked. Open the destination in the address field.';return {action:'deny'};});
-  web.on('will-frame-navigate',event=>{if(!navigation(event.url)){event.preventDefault();entry.state.error='This destination cannot be opened in Preview.';}else if(event.isMainFrame&&!event.url.startsWith('tris-preview:'))entry.source=undefined;});
+  web.on('will-frame-navigate',event=>{if(event.url.startsWith('trismegistus:')){event.preventDefault();this.external?.(event.url);return;}if(!navigation(event.url)){event.preventDefault();entry.state.error='This destination cannot be opened in Preview.';}else if(event.isMainFrame&&!event.url.startsWith('tris-preview:'))entry.source=undefined;});
   web.on('will-redirect',(event,url)=>{if(!navigation(url))event.preventDefault();else if(!url.startsWith('tris-preview:'))entry.source=undefined;});
   web.on('will-attach-webview',event=>event.preventDefault());
   web.on('did-fail-load',(_event,code,description,_url,main)=>{if(main&&code!==-3)entry.state.error='Could not load this preview: '+description;});
@@ -68,7 +69,7 @@ export class Previews{
   // document directory. Remote pages never inherit local-file access.
   this.close(chatId,false);const entry=this.create(chatId);entry.source=source;entry.state={...entry.state,url:saved.url||saved.file!,title};this.store.put('preview',saved);
   if(saved.file&&/\.pdf$/i.test(saved.file)){const pdfFile=saved.file;entry.pdf=new PreviewPdf(this.poppler,()=>{const link=resolveChatLink(saved.root!,pdfFile,this.protectedRoots);if(link.kind!=='file'||link.directory)throw Error('Unavailable');return path.join(link.root,link.path);});}
-  void entry.view.webContents.loadURL(url).catch(error=>{entry.state.error='Could not load this preview: '+String(error.message);});return this.state(chatId);
+  void (source||!this.decorate?Promise.resolve(url):this.decorate(url)).then(address=>entry.view.webContents.loadURL(address)).catch(error=>{entry.state.error='Could not load this preview: '+String(error.message);});return this.state(chatId);
  }
  async action(chatId:string,action:string){
   const entry=this.entries.get(chatId);

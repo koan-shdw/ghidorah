@@ -9,13 +9,12 @@ import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import os from 'node:os';
 import assert from 'node:assert/strict';
 import {Backend,PYTHON} from '../app/backend';
 import {mainWindow,pollState} from './fixtures/poll-state';
 import {shareSite} from './fixtures/fake-share-site';
 
-const root=path.resolve('.'),data=await fs.mkdtemp(path.join(root,'work','share-')),namespace='Trismegistus/Test/'+path.basename(data),folder=await fs.mkdtemp(path.join(os.tmpdir(),'tris-share-'));
+const root=path.resolve('.'),data=await fs.mkdtemp(path.join(root,'work','share-')),namespace='Trismegistus/Test/'+path.basename(data),folder=await fs.mkdtemp(path.join(root,'work','workspace-share-'));
 await fs.mkdir(path.join(folder,'site'));
 await fs.writeFile(path.join(folder,'site','index.html'),'<!doctype html><html><head><title>Davan</title></head><body style="font-family:sans-serif"><h1>Home</h1><img src="logo.svg" alt="logo" width="80"><h2>Header</h2><p>Intro text.</p><h2>Pricing</h2><p>Monthly only.</p><div style="height:1200px"></div></body></html>');
 await fs.writeFile(path.join(folder,'site','logo.svg'),'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>');
@@ -68,7 +67,7 @@ try{
  assert.equal((await get(project.link+'for-ai')).status,404,'the AI page is not live before Koan approves it');
 
  // 3. The card in the chat; Koan reviews, edits and approves the AI page.
- const card=page.locator('.share-card');await card.waitFor();assert.match(await card.innerText(),/Shared with the client · version 1[\s\S]*The AI page for version 1 is ready for you/);
+ const card=page.locator('.share-card');await card.getByText('The AI page for version 1 is ready for you.').waitFor();assert.match(await card.innerText(),/Shared with the client · version 1[\s\S]*The AI page for version 1 is ready for you/);
  await card.getByRole('button',{name:'Review',exact:true}).dispatchEvent('click');
  const review=page.getByRole('dialog',{name:/^AI page for /});await review.waitFor();
  const text=review.getByLabel('AI page text',{exact:true});assert.match(await text.inputValue(),/^WHAT THIS PROJECT IS\nFixture project .*, version 1\./);
@@ -126,4 +125,4 @@ try{
  await assert.rejects(call('sharePassword',{id:project.id,password:'abc'}),/4 to 200 characters/);
  await assert.rejects(call('shareAiApprove',{id:project.id,text:''}),/Write the AI page first/);
  console.log('PASS share with clients: setup (sign-in, database, deploy, test note), share after asking, AI page approved, pasted notes pinned by section, notes collected and sent on click, new version keeps link and marks old notes, password with AI key. '+data);
-}finally{await app.close().catch(()=>{});await site.close();const cleanup=spawn(PYTHON,['-c',"import sys;sys.path.insert(0,'backend');import windows_credentials as v;v.delete(sys.argv[1])",namespace+'/encryption'],{windowsHide:true,stdio:'ignore'});await once(cleanup,'close');}
+}finally{await app.close().catch(()=>{});await site.close();await fs.rm(folder,{recursive:true,force:true});const cleanup=spawn(PYTHON,['-c',"import sys;sys.path.insert(0,'backend');import windows_credentials as v;v.delete(sys.argv[1])",namespace+'/encryption'],{windowsHide:true,stdio:'ignore'});await once(cleanup,'close');}

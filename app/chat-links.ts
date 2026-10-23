@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {workspacePath} from './workspace-files';
 
-export type FileRequest={chatFileId?:string;id:string;refresh?:boolean;chatId?:string;root:string;path:string;line?:number;column?:number;directory:boolean};
+export type FileRequest={url?:string;chatFileId?:string;id:string;refresh?:boolean;chatId?:string;root:string;path:string;line?:number;column?:number;directory:boolean};
 const inside=(base:string,file:string)=>{const relative=path.relative(base,file);return relative===''||(!path.isAbsolute(relative)&&relative!=='..'&&!relative.startsWith('..'+path.sep));};
 export const protectedChatPath=(file:string)=>file.split(/[/\\]/).some(part=>/^(?:\.git|\.claude|\.codex|\.ssh|\.aws|\.azure|\.gnupg|mcp-tokens|state-snapshots|auth\.json|credentials(?:\.json)?|config\.yaml|\.env(?:\..*)?)$/i.test(part));
 export function resolveChatLink(root:string|null,href:unknown,protectedRoots:string[]=[]){

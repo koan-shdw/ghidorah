@@ -6,6 +6,7 @@ import React,{useContext,useState} from 'react';
 import {ChatViewContext} from './chat-view';
 import type {ToolCall} from './types';
 import {toolResultFailed} from './tool-result';
+import {Button} from './kit';
 
 const object=(value:any):any=>{try{if(typeof value==='string')return JSON.parse(value);}catch{}return value;};
 // Tris checking or describing its own tools: bookkeeping, not work (Koan: "internal steps hidden").
@@ -44,6 +45,7 @@ export function activityInfo(tool:ToolCall){
   :kind==='read'?'Read '+(file||'a file')
   :kind==='edit'?(/^write/.test(key)?'Write ':'Edit ')+(file||'a file')
   :kind==='search'?(key==='glob'?'Find files '+clip(pattern,50):pattern?'Search for "'+clip(pattern,50)+'"':'Search files')
+  :key==='preview_page'?(args.action==='publish'?'Publish the page "'+clip(String(args.title??''),50)+'"':args.action==='delete'?'Delete a page':args.action==='read'?'Read a page':args.action==='list'?'List your pages':'Read the page guide')
   :kind==='web'?(/search/.test(key)?'Search the web for "'+clip(pattern,50)+'"':'Open '+host(String(args.url??'')))
   :clip(key.replace(/_/g,' ').replace(/^\w/,c=>c.toUpperCase())+(detail?' '+detail:''),80);
  return {kind,key,args,result,files,detail,counts,state,words,internal:internal.has(key)};
@@ -96,6 +98,21 @@ function ActionRow({row,open:initial,fileLink}:{row:Row;open:boolean;fileLink:(f
  </details>;
 }
 
+// A page a model published (FEATURE-SPECS 4), like Claude's artifact card: its title, Open in the preview pane as
+// the user, Open in browser, Copy link.
+// What preview_page returned, as Claude Code records it (content blocks or their text) or as a JSON-RPC answer.
+const pageOf=(value:any):any=>{value=object(value);if(value?.jsonrpc&&value.result)value=value.result;if(Array.isArray(value))value={content:value};value=value?.content?.length===1&&value.content[0]?.type==='text'?object(value.content[0].text):value;return typeof value?.link==='string'?value:null;};
+function PageCard({tool,page}:{tool:ToolCall;page:{link:string;title:string;version:number}}){
+ const [error,setError]=useState(''),[copied,setCopied]=useState(false);
+ const open=(browser:boolean)=>void window.desktop.invoke('pageOpen',{turnId:tool.turnId,url:page.link,browser}).catch(e=>setError(String(e).replace(/^Error invoking remote method 'app': (?:Error: )?/,'').replace(/^Error: /,'')));
+ return <section className="page-card" aria-label={'Page: '+page.title}>
+  <span className="page-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM4 9h16M8 13h5M8 16h8"/></svg></span>
+  <span className="page-card-text"><strong>{page.title}</strong><span>Page · version {page.version}</span></span>
+  <span className="page-card-actions"><Button variant="primary" onClick={()=>open(false)}>Open</Button><Button variant="outline" onClick={()=>open(true)}>Open in browser</Button><Button variant="outline" onClick={()=>void navigator.clipboard.writeText(page.link).then(()=>setCopied(true),()=>{})}>{copied?'Copied':'Copy link'}</Button></span>
+  {error&&<p className="chat-link-error" role="alert">{error}</p>}
+ </section>;
+}
+
 export function ToolActivity({tools}:{tools:ToolCall[]}){
  const viewMode=useContext(ChatViewContext),[error,setError]=useState(''),[opened,setOpened]=useState({mode:viewMode,open:viewMode==='verbose'});
  const expanded=opened.mode===viewMode?opened.open:viewMode==='verbose';
@@ -107,5 +124,6 @@ export function ToolActivity({tools}:{tools:ToolCall[]}){
  return <div className="activity-list"><details className="activity-group" key={viewMode} open={expanded} onToggle={event=>{if(event.target===event.currentTarget)setOpened({mode:viewMode,open:event.currentTarget.open});}} aria-label="Tool activity">
   <summary>{current?<><span className="activity-spin" role="status" aria-label="Working"/><span className="activity-words">{current.words}</span><span className="activity-more">· {count}</span></>:<span className="activity-words">Ran {count}</span>}{failed>0&&<span className="activity-failed">· {failed} failed</span>}<span className="activity-chevron" aria-hidden="true">›</span></summary>
   {expanded&&<div className="activity-group-body">{rows.map(row=><ActionRow key={row.tool.id} row={row} open={viewMode==='verbose'} fileLink={fileLink}/>)}</div>}
- </details>{error&&<p className="chat-link-error" role="alert">{error}</p>}</div>;
+ </details>{error&&<p className="chat-link-error" role="alert">{error}</p>}
+ {rows.filter(row=>row.key==='preview_page'&&row.args.action==='publish'&&row.state==='completed'&&pageOf(row.tool.result)).map(row=><PageCard key={row.tool.id} tool={row.tool} page={pageOf(row.tool.result)}/>)}</div>;
 }

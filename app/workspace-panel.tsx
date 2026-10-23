@@ -90,6 +90,8 @@ export function WorkspacePanel({chatId,root,view,setView,visible,onHide,call,ter
   useEffect(()=>{if(!commentDraft.current&&active('changes')&&root&&!(only==='changes'&&initial?.diff))void run(refreshChanges);},[active('changes'),directory,root]);
   useEffect(()=>{if(!fileRequest)return;void run(async()=>{
     if(fileRequest.chatFileId){await call('previewOpen',{chatId,chatFileId:fileRequest.chatFileId});setPreviewRequest(value=>value+1);setView('preview');return;}
+    // One of Koan's preview pages (FEATURE-SPECS 4), opened as him in the preview pane.
+    if(fileRequest.url){await call('previewOpen',{chatId,url:fileRequest.url});setPreviewRequest(value=>value+1);setView('preview');return;}
     if(fileRequest.root!==root)throw Error('The working folder changed. Open the link again.');
     if(fileRequest.directory){await list(fileRequest.path);return;}
     if(!fileRequest.refresh&&canPreview(fileRequest.path)){await preview(fileRequest.path);return;}

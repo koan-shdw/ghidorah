@@ -73,6 +73,11 @@ def register(ctx):
         schema={'name': 'publish_page', 'description': "Publish an HTML page from the working folder to the user's publishing destination (Cloudflare Pages or GitHub Pages). The page and the files it links to inside its folder are published; the result is a public link. With client true it is shared with the client instead: a private link with a notes layer, the same link for every new version (Share with clients). Only publish or share when the user asks.",
                 'parameters': {'type': 'object', 'properties': {'path': {'type': 'string', 'description': 'The HTML file, relative to the working folder'}, 'client': {'type': 'boolean', 'description': 'Share with the client at a private link with notes, instead of publishing publicly'}}, 'required': ['path'], 'additionalProperties': False}},
         handler=lambda args, **_: exchange('publish', arguments=args))
+    # Preview pages (FEATURE-SPECS 4): the same schema Claude models get (app/share.ts reads this file too).
+    for tool in json.loads((Path(__file__).parent / 'preview-tools.json').read_text(encoding='utf-8')):
+        ctx.register_tool(name=tool['name'], toolset='trismegistus_mcp', description='Publish and manage private preview pages',
+            schema={'name': tool['name'], 'description': tool['description'], 'parameters': tool['inputSchema']},
+            handler=lambda args, **_: exchange('preview', arguments=args))
     ctx.register_tool(name='connected_tools', toolset='trismegistus_mcp', description='Discover connected MCP tools',
         schema={'name': 'connected_tools', 'description': 'List the shared MCP connections. Supply a connection ID to read its tools and input schemas before calling one.',
                 'parameters': {'type': 'object', 'properties': {'connection': {'type': 'string'}}, 'additionalProperties': False}},

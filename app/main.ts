@@ -52,7 +52,7 @@ import {decideNotDiamond,notDiamondEndpoint} from './notdiamond';
 import {Terminals} from './terminal';
 import {resolveChatLink} from './chat-links';
 import {readPublishing,validatePublishing,publishPage,publishTool,pageBundle,assertNoSecrets} from './publishing';
-import {DATABASE,privateId,hashPassword,sections as pageSections,pageLink,aiAddress,readyMessage,aiSystem,noteMessages,notesForModel,stageSite,writeProject,findWrangler,run as runShare,databaseIdOf,deployedUrl,type ShareSettings,type ShareProject,type ShareNote} from './share';
+import {DATABASE,privateId,hashPassword,sections as pageSections,pageLink,aiAddress,readyMessage,aiSystem,noteMessages,notesForModel,stageSite,writeProject,findWrangler,run as runShare,databaseIdOf,deployedUrl,previewLink,previewIdOf,ownerHash,writePreview,previewGuide,previewTool,type ShareSettings,type ShareProject,type ShareNote,type PreviewPage} from './share';
 import {AppUpdates,APP_FEED,compareVersions,unseenNotes,installedCopy,previousInstaller,backupChats,readUpdateWatch,markOpened,hermesReleases,newerReleases,HERMES_RELEASES,type Feed,type UpdateMode,type UpdateWatch,type WhatsNew} from './updates';
 import whatsNew from './whats-new.json';
 import featureWheels from '../backend/feature-wheels.json';
@@ -120,7 +120,7 @@ const updateCheck=process.argv.includes('--update-check'),updateWatchFile=path.j
 if(updateCheck)void app.whenReady().then(()=>{const check=new BrowserWindow({show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false}});check.webContents.once('did-finish-load',()=>{markOpened(updateWatchFile,app.getVersion());app.exit(0);});void check.loadFile(path.join(__dirname,'index.html'));});
 const ownsInstance=!updateCheck&&app.requestSingleInstanceLock();
 if(!ownsInstance&&!updateCheck)app.quit();
-app.on('second-instance',()=>{if(win){win.show();win.focus();}});
+app.on('second-instance',(_event,argv)=>{const link=argv.find(arg=>arg.startsWith('trismegistus://'));if(link)openChatLink(link);else if(win){win.show();win.focus();}});
 let coordination:WorkCoordination;
 let background:BackgroundWork,native:NativeSessions,backgroundTimer:NodeJS.Timeout|undefined;
 let store:Store,backend:Backend,win:BrowserWindow, tray:Tray,sidebar:Sidebar;
@@ -961,16 +961,22 @@ async function publish(file:string,signal?:AbortSignal,settings=publishing()){
 // Share work with clients (FEATURE-SPECS 3): Tris's own copy of the share site, its setup, sharing a page with the
 // client, the notes that come back and the "for your AI" page Koan approves.
 const shareSite=()=>path.join(data,'share-site'),shareTest=()=>namespace.startsWith('Trismegistus/Test/');
-function shareSettings():ShareSettings&{testId?:string}{const row=store.all<any>('settings').find(row=>row.id==='share');return {site:typeof row?.site==='string'?row.site:'',databaseId:typeof row?.databaseId==='string'?row.databaseId:'',ready:row?.ready===true,wrangler:typeof row?.wrangler==='string'?row.wrangler:undefined,checked:row?.checked,testId:row?.testId};}
+function shareSettings():ShareSettings&{testId?:string}{const row=store.all<any>('settings').find(row=>row.id==='share');return {site:typeof row?.site==='string'?row.site:'',databaseId:typeof row?.databaseId==='string'?row.databaseId:'',ready:row?.ready===true,wrangler:typeof row?.wrangler==='string'?row.wrangler:undefined,checked:row?.checked,testId:row?.testId,ownerKey:typeof row?.ownerKey==='string'?row.ownerKey:undefined,pagesSince:Number(row?.pagesSince)||0};}
 let shareStatus='',shareBusy:Promise<unknown>=Promise.resolve();
 // One wrangler at a time: setup, sharing, approvals and password changes wait for each other.
 function shareQueue<T>(work:()=>Promise<T>){const next=shareBusy.catch(()=>{}).then(work);shareBusy=next;return next;}
 // Every deploy restages the Worker from the app (so app updates reach the site) and rewrites each project's settings.
-async function shareDeploy(signal?:AbortSignal){
+async function shareDeploy(signal?:AbortSignal,write?:()=>Promise<void>){
   const settings=shareSettings(),wrangler=await findWrangler(shareSite(),settings.wrangler);if(!wrangler||!settings.databaseId)throw Error('Set up Share with clients in Settings first.');
   await stageSite(path.join(root,'share'),shareSite(),settings.databaseId);
+  const copied=await previewSync();
+  await write?.();
   for(const project of store.all<ShareProject>('share-project'))await writeProject(shareSite(),project);
-  return deployedUrl(await runShare(wrangler,['deploy'],shareSite(),signal),shareTest());
+  await fs.writeFile(path.join(shareSite(),'public','_owner.json'),JSON.stringify({hash:ownerHash(ownerKey())}));
+  const url=deployedUrl(await runShare(wrangler,['deploy'],shareSite(),signal),shareTest());
+  // The copies have their own folders now.
+  for(const row of copied)await pagesApi('/'+row.id,{method:'PUT',body:JSON.stringify({...row,folder:row.id})}).catch(()=>{});
+  return url;
 }
 async function shareSetup(){
   return shareQueue(async()=>{
@@ -1058,6 +1064,15 @@ async function shareCheck(){
     store.update<ShareProject>('share-project',project.id,{since:Math.max(project.since,...fresh.map(note=>note.created))});found+=fresh.length;
     for(const line of noteMessages(project.title,fresh))shareAlert(project,line);
   }
+  // Notes on Koan's preview pages: one feed, each page's notes go to the chat that made it.
+  try{
+    const response=await fetch(settings.site+'/api/notes?pages=1&since='+shareSettings().pagesSince,{headers:{authorization:'Bearer '+ownerKey()},signal:AbortSignal.timeout(20000)}),rows=response.ok?await response.json():null;
+    const fresh:ShareNote[]=Array.isArray(rows)?rows.filter((row:any)=>typeof row?.id==='string'&&typeof row.text==='string'&&typeof row.name==='string'&&Number.isFinite(row.created)&&typeof row.page==='string'&&!store.find<ShareNote>('share-note',row.id)).map((row:any)=>{const id=row.page.split('/')[1]||'';return {id:row.id,shareId:id,projectId:'page:'+id,page:row.page,name:row.name.slice(0,60),text:row.text.slice(0,4000),anchor:typeof row.anchor==='string'?row.anchor:null,version:Number.isInteger(row.version)?row.version:null,created:row.created};}):[];
+    for(const note of fresh)store.put('share-note',note);
+    if(fresh.length)store.put('settings',{...shareSettings(),id:'share',pagesSince:Math.max(shareSettings().pagesSince||0,...fresh.map(note=>note.created))});
+    found+=fresh.length;
+    for(const id of new Set(fresh.map(note=>note.shareId))){const page=store.find<PreviewPage>('preview-page',id);for(const line of noteMessages(page?.title||'A page',fresh.filter(note=>note.shareId===id)))pageAlert(page,id,line);}
+  }catch{/* The site may be away for a moment; the next check picks the notes up. */}
   store.put('settings',{...shareSettings(),id:'share',checked:Date.now()});if(found)emit();return found;
 }
 // Tests record the line only, like the other desktop alerts.
@@ -1070,10 +1085,118 @@ function shareAlert(project:ShareProject,line:string){
   notification.on('click',()=>{desktopNotices.delete(notification);const site=shareSettings().site;if(site)void shell.openExternal(pageLink(site,project));const owner=chatWindows.get(project.chatId)||win;owner.show();owner.focus();if(owner===win)win.webContents.send('select-chat',project.chatId);});
   notification.show();
 }
+function pageAlert(page:PreviewPage|undefined,id:string,line:string){
+  shareAlerts.push(line);shareAlerts.splice(0,shareAlerts.length-20);
+  if(quitting||shareTest()||!Notification.isSupported())return;
+  const notification=new Notification({title:'Notes on your page',body:line});desktopNotices.add(notification);
+  notification.on('close',()=>desktopNotices.delete(notification));
+  notification.on('click',()=>{desktopNotices.delete(notification);const site=shareSettings().site;if(page)openPage(page.chatId,previewLink(site,id));else if(site)void withOwner(previewLink(site,id)).then(url=>shell.openExternal(url));});
+  notification.show();
+}
 // What the windows see: never the password hash or the key on its own.
 function shareView(){
   const settings=shareSettings(),notes=store.all<ShareNote>('share-note');
-  return {site:settings.site,ready:settings.ready,status:shareStatus,checked:settings.checked,alerts:shareTest()?[...shareAlerts]:[],projects:store.all<ShareProject>('share-project').map(project=>{const {password,aiKey,...rest}=project;return {...rest,password:!!password,link:settings.site?pageLink(settings.site,project):'',aiAddress:settings.site&&project.ai?aiAddress(settings.site,project):'',message:settings.site&&project.ai?readyMessage(settings.site,project):'',notes:notes.filter(note=>note.projectId===project.id).slice(-100)};})};
+  return {site:settings.site,ready:settings.ready,status:shareStatus,checked:settings.checked,alerts:shareTest()?[...shareAlerts]:[],pages:pagesView(),projects:store.all<ShareProject>('share-project').map(project=>{const {password,aiKey,...rest}=project;return {...rest,password:!!password,link:settings.site?pageLink(settings.site,project):'',aiAddress:settings.site&&project.ai?aiAddress(settings.site,project):'',message:settings.site&&project.ai?readyMessage(settings.site,project):'',notes:notes.filter(note=>note.projectId===project.id).slice(-100)};})};
+}
+// Preview pages (FEATURE-SPECS 4), like Claude Code's artifacts: pages on the share site that only Koan opens until he
+// shares them. The site knows Tris by the owner key (a bearer token, never in an address) and his browsers and the
+// preview pane by sessions made from one-time sign-in codes. It keeps each page's settings; Tris keeps which chat
+// made it.
+let ownerRegistered=false;
+function ownerKey(){
+  let key=shareSettings().ownerKey;
+  if(!key||!/^[A-Za-z0-9_-]{22}$/.test(key)){key=privateId();store.put('settings',{...shareSettings(),id:'share',ownerKey:key});}
+  if(!ownerRegistered){backend.scrubber.register(key);ownerRegistered=true;}
+  return key;
+}
+async function pagesApi(tail:string,init:RequestInit={}){
+  const site=shareSettings().site;if(!site)throw Error('Set up Share with clients in Settings first; preview pages live on the same private site.');
+  const response=await fetch(site+'/api/pages'+tail,{...init,headers:{authorization:'Bearer '+ownerKey(),'content-type':'application/json'},signal:init.signal||AbortSignal.timeout(20000)});
+  const body=await response.json().catch(()=>({}));if(!response.ok)throw Error(body?.error||'The share site answered '+response.status+'.');return body;
+}
+// Before files change on the site: duplicates made on the web (still showing their source's files) get their own
+// folders, and pages deleted on the web lose theirs. Returns the copies, to point them at their folders after deploy.
+async function previewSync(){
+  const settings=shareSettings();if(!settings.ready||!settings.site)return [];
+  let rows:any[];try{rows=await pagesApi('?all=1');}catch{return [];}
+  const valid=(id:unknown)=>typeof id==='string'&&/^[A-Za-z0-9_-]{16,64}$/.test(id),site=shareSite(),copied:any[]=[];
+  rows=Array.isArray(rows)?rows.filter(row=>valid(row?.id)&&valid(row?.folder)):[];
+  for(const row of rows)if(!row.deleted&&row.folder!==row.id&&await fs.access(path.join(site,'public',row.folder)).then(()=>true,()=>false)){await fs.cp(path.join(site,'public',row.folder),path.join(site,'public',row.id),{recursive:true,force:true});copied.push(row);}
+  for(const row of rows)if(row.deleted){
+    if(row.folder===row.id&&!rows.some(other=>!other.deleted&&other.folder===row.id&&!copied.includes(other)))await fs.rm(path.join(site,'public',row.id),{recursive:true,force:true});
+    if(store.find<PreviewPage>('preview-page',row.id))store.remove('preview-page',row.id);
+  }
+  return copied.map(({id,title,description,entry,model,chatId,chatTitle,version,files})=>({id,title,description,entry,model,chatId,chatTitle,version,files}));
+}
+const pageUrl=(url:unknown)=>{const site=shareSettings().site;return typeof url==='string'&&!!site&&url.startsWith(site+'/')&&!!previewIdOf(site,url);};
+// Tris opens Koan's own pages as Koan: a one-time sign-in code in the address (two minutes, once); the site turns it
+// into that browser's own session and drops it from the address, so history keeps nothing that opens a page.
+async function withOwner(url:string){
+  const site=shareSettings().site;if(!site||!url.startsWith(site+'/')||/[?&]login=/.test(url))return url;
+  try{const response=await fetch(site+'/api/login',{method:'POST',headers:{authorization:'Bearer '+ownerKey()},signal:AbortSignal.timeout(15000)}),body=await response.json();if(response.ok&&typeof body?.code==='string')return url+(url.includes('?')?'&':'?')+'login='+body.code;}catch{/* Opened without signing in: the page says it is private. */}
+  return url;
+}
+function openPage(chatId:string,url:string){
+  const popped=workspaceWindows.get('preview'),request={url,chatId,root:'',path:'',directory:false,id:randomUUID()};
+  if(popped){if(popped.info.chatId!==chatId)throw Error(workspaceTitle('preview')+' is open for another chat. Return that window before opening this page.');popped.window.show();popped.window.focus();popped.window.webContents.send('open-file',request);return;}
+  const owner=chatWindows.get(chatId)||win;owner.show();owner.focus();owner.webContents.send('open-file',request);
+}
+// A page's Chat button: trismegistus://chat/<id>.
+function openChatLink(link:string){
+  const id=/^trismegistus:\/\/chat\/([\w-]{8,80})\/?$/i.exec(link)?.[1];const chat=id&&store.find<Chat>('chat',id);if(!chat)return;
+  const target=sidebar.root(chat.id),window=chatWindows.get(target.id)||win;if(!window)return;window.webContents.send('select-chat',target.id);window.show();window.focus();
+}
+async function previewPublish(chat:Chat,turn:Turn,input:any,signal:AbortSignal){
+  const settings=shareSettings();if(!settings.ready||!settings.site)throw Error('Set up Share with clients in Settings first; preview pages live on the same private site.');
+  const link=resolveChatLink(defaultFolder(),String(input?.path||''),[data]);if(link.kind!=='file'||link.directory||!/\.html?$/i.test(link.path))throw Error('Choose an HTML file in the working folder.');
+  const title=String(input?.title||'').replace(/\s+/g,' ').trim().slice(0,200);if(!title)throw Error('Give the page a short title.');
+  const file=path.join(link.root,link.path),bundle=await pageBundle(file),entry=path.basename(file);
+  assertNoSecrets(bundle,text=>backend.scrubber.text(text)!==text||redactPastedKeys(text)!==text);
+  const owner=sidebar.root(chat.parentChatId||chat.id);
+  // The same file from the same chat, or a page's link, updates that page and keeps its link (like Claude Code).
+  let id=input?.link?previewIdOf(settings.site,input.link):null,version=0;
+  if(input?.link){
+    if(!id)throw Error('That is not a link to one of your pages.');
+    const row=(await pagesApi('') as any[]).find(page=>page.id===id);if(!row)throw Error('That page is gone. Publish without a link to make a new one.');version=row.version;
+  }else{
+    // A page Koan deleted on the web stays deleted: the same file then makes a new, private page.
+    const earlier=store.all<PreviewPage>('preview-page').find(page=>page.chatId===owner.id&&page.sourcePath===link.path);
+    if(earlier&&(await pagesApi('') as any[]).some(page=>page.id===earlier.id)){id=earlier.id;version=earlier.version;}
+  }
+  const page:PreviewPage={...store.find<PreviewPage>('preview-page',id||''),id:id||privateId(),chatId:owner.id,sourcePath:link.path,title,description:String(input?.description||'').replace(/\s+/g,' ').trim().slice(0,600),entry,version:version+1,files:bundle.size,published:Date.now(),model:modelLabel(turn.model,claude.models)};
+  await shareQueue(async()=>{
+    // The page's settings first: the site never serves a page folder it has no settings for as anything else. A site
+    // set up before preview pages does not know the owner key yet; one deploy carries it.
+    const register=()=>pagesApi('/'+page.id,{method:'PUT',body:JSON.stringify({folder:page.id,title,description:page.description,entry,version:page.version,files:page.files,model:page.model,chatId:owner.id,chatTitle:owner.title}),signal});
+    try{await register();}catch(error){if(!/Only the owner/.test(String(error)))throw error;await shareDeploy(signal);await register();}
+    await shareDeploy(signal,()=>writePreview(shareSite(),page.id,bundle));
+  });
+  store.put('preview-page',page);emit();
+  const url=previewLink(settings.site,page.id);
+  for(const end=Date.now()+60000;Date.now()<end;){try{const response=await fetch(url,{headers:{authorization:'Bearer '+ownerKey()},signal:AbortSignal.timeout(10000)});const text=await response.text();if(response.ok&&text.includes('/v/'))break;}catch{}signal.throwIfAborted();await new Promise(resolve=>setTimeout(resolve,2000));}
+  return {link:url,title,version:page.version,files:[...bundle.keys()].map(name=>name.split(path.sep).join('/')),access:'Private: only the user can open it until they share it from the page.',show:'Ghidorah shows the page under your reply as a card with Open. Put the link in your reply too.'};
+}
+async function previewTool_(chat:Chat,turn:Turn,input:any,signal:AbortSignal){
+  const action=input?.action,site=shareSettings().site;
+  if(action==='guide')return {guide:previewGuide};
+  if(action==='publish')return previewPublish(chat,turn,input,signal);
+  if(!shareSettings().ready||!site)throw Error('Set up Share with clients in Settings first; preview pages live on the same private site.');
+  if(action==='list'){const owner=sidebar.root(chat.parentChatId||chat.id);return (await pagesApi('') as any[]).map(page=>({link:previewLink(site,page.id),title:page.title,description:page.description,updated:new Date(page.updated).toISOString(),version:page.version,access:page.access,pinned:page.pinned,fromThisChat:store.find<PreviewPage>('preview-page',page.id)?.chatId===owner.id}));}
+  const id=previewIdOf(site,input?.link);if(!id)throw Error('Give the link of one of your pages.');
+  const row=(await pagesApi('?all=1') as any[]).find(page=>page.id===id&&!page.deleted);if(!row)throw Error('That page is gone.');
+  if(action==='read'){
+    const folder=path.join(shareSite(),'public',row.folder),files:string[]=[];
+    const walk=async(dir:string):Promise<void>=>{for(const entry of await fs.readdir(dir,{withFileTypes:true}))if(entry.isDirectory())await walk(path.join(dir,entry.name));else if(entry.name!=='_export.zip')files.push(path.relative(folder,path.join(dir,entry.name)).split(path.sep).join('/'));};
+    await walk(folder).catch(()=>{throw Error('This page’s files are not on this computer.');});
+    const html=await fs.readFile(path.join(folder,row.entry),'utf8');
+    return {link:previewLink(site,id),title:row.title,version:row.version,entry:row.entry,files,html:html.length>300000?html.slice(0,300000)+'\n[cut at 300,000 characters]':html};
+  }
+  if(action==='delete'){await pagesApi('/'+id,{method:'DELETE',signal});store.remove('preview-page',id);emit();return {deleted:true,link:previewLink(site,id),note:'The link stopped working; its files go at the next publish.'};}
+  throw Error('Choose publish, list, read, delete or guide.');
+}
+function pagesView(){
+  const notes=store.all<ShareNote>('share-note'),site=shareSettings().site;
+  return store.all<PreviewPage>('preview-page').map(page=>({id:page.id,chatId:page.chatId,title:page.title,version:page.version,link:site?previewLink(site,page.id):'',notes:notes.filter(note=>note.projectId==='page:'+page.id&&!note.handled).slice(-100)}));
 }
 // Settings, Always on. Remote (6a) turns remoteOn on and off.
 let awakeBlocker:number|null=null,remoteOn=false;
@@ -1338,7 +1461,7 @@ async function configure(project?:Project) {
     display:{busy_input_mode:'steer'},
     wake_word:{enabled:!project&&wakeSettings().enabled,surface:'gui',provider:'sherpa',phrase:wakeSettings().phrase,profile_routing:false,start_new_session:false,capture:'client',sherpa:{model_dir:path.join(data,'models','wake',wakeModel.sha256)},sensitivity:.5},
     terminal:{cwd:project?workingDirectory(project):home},
-    tools:{tool_search:{eager:[...directAppTools,'skills_list','skill_view','search_web','read_web_page','read_chat_history','query_chat_history','save_chat_output','goal_status','background_process','connected_tools']},desktop:{enabled:['file','terminal','memory','session_search','todo','clarify','trismegistus_mcp','skills',...toolAccess().on],disabled:['cronjob','delegation','messaging',...['browser','computer_use'].filter(name=>!toolAccess().on.includes(name))]}},
+    tools:{tool_search:{eager:[...directAppTools,'preview_page','skills_list','skill_view','search_web','read_web_page','read_chat_history','query_chat_history','save_chat_output','goal_status','background_process','connected_tools']},desktop:{enabled:['file','terminal','memory','session_search','todo','clarify','trismegistus_mcp','skills',...toolAccess().on],disabled:['cronjob','delegation','messaging',...['browser','computer_use'].filter(name=>!toolAccess().on.includes(name))]}},
     };
   await fs.writeFile(path.join(home,'config.yaml'),JSON.stringify(config,null,2));
   if(project&&!project.folder)await fs.mkdir(workingDirectory(project),{recursive:true});
@@ -1865,7 +1988,7 @@ function bindClaude(chat:Chat,turn:Turn,project:Project,controller:AbortControll
       store.update<Turn>('turn',turn.id,{status:'waiting'});emit();
     });
     const memory=projectMemory(backend,project.profile,()=>store.get<Project>('project',project.id).mode,(input,signal)=>ask('Update project memory\n'+JSON.stringify(backend.scrubber.value(input),null,2),signal),(name,args)=>coordination.denied(turn.id,'mcp__ghidorah__'+name+'\n'+JSON.stringify(backend.scrubber.value(args))));
-    const localTools={tools:[...memory.tools,goalTool,appTool,listAppsTool,appTodoTool,appLinkTool,appUpdateTodoTool,appUpdateTool,publishTool,inspectionTool,backgroundProcessTool,chatHistoryTool,rlmHistoryTool,outputTool,...chatTools,...documentTools,...imageTools,...webTools,...(turn.parentTurnId?[parallelTool]:[])],call:async(name:string,args:any,signal:AbortSignal,directory?:string)=>{
+    const localTools={tools:[...memory.tools,goalTool,appTool,listAppsTool,appTodoTool,appLinkTool,appUpdateTodoTool,appUpdateTool,publishTool,previewTool,inspectionTool,backgroundProcessTool,chatHistoryTool,rlmHistoryTool,outputTool,...chatTools,...documentTools,...imageTools,...webTools,...(turn.parentTurnId?[parallelTool]:[])],call:async(name:string,args:any,signal:AbortSignal,directory?:string)=>{
       signal.throwIfAborted();
       if(name==='background_process'){
        try{
@@ -1906,6 +2029,15 @@ function bindClaude(chat:Chat,turn:Turn,project:Project,controller:AbortControll
       if(name==='goal_status')return {content:[{type:'text',text:JSON.stringify(goals.tool(turn.id,backend.scrubber.value(args)))}]};
       if(name==='list_apps')return {content:[{type:'text',text:JSON.stringify(listAppTasks(chat))}]};
       if(name==='link_app_chat')return {content:[{type:'text',text:JSON.stringify(linkCurrentApp(chat,backend.scrubber.value(args)))}]};
+      if(name==='preview_page'){
+        const input=backend.scrubber.value(args),mode=store.get<Project>('project',project.id).mode;
+        try{
+          // Like Claude Code: a private page needs no question; deleting one always asks (except in Bypass).
+          if(mode==='plan'&&['publish','delete'].includes(input?.action))throw Error('Plan mode permits inspection and proposals only.');
+          if(input?.action==='delete'&&mode!=='bypass'&&!await ask('Delete a preview page\n'+String(input?.link||''),signal))throw Error('Deleting was denied.');
+        }catch(error){coordination.denied(turn.id,'mcp__ghidorah__'+name+'\n'+JSON.stringify(input));throw error;}
+        return {content:[{type:'text',text:JSON.stringify(await previewTool_(chat,turn,input,signal))}]};
+      }
       if(name==='create_app'||name==='update_app'||name==='add_app_todo'||name==='update_app_todo'||name==='publish_page'){
         const input=backend.scrubber.value(args),destination=publishing(),file=String(input?.path||''),mode=store.get<Project>('project',project.id).mode;
         try{
@@ -2141,6 +2273,7 @@ function request(request:any){
       if(operation==='app-link')return linkCurrentApp(chat,backend.scrubber.value(args));
       if(operation==='app-todo-update')return updateAppTask(chat,backend.scrubber.value(args),turnId);
       if(operation==='app-todo')return addAppTask(chat,backend.scrubber.value(args));
+      if(operation==='preview'){if(['publish','delete'].includes(String(args?.action))&&projectFor(chat).mode==='plan')throw Error('Plan mode permits inspection and proposals only.');return previewTool_(chat,store.get<Turn>('turn',turnId),backend.scrubber.value(args),controller.signal);}
       if(operation==='publish'){if(projectFor(chat).mode==='plan')throw Error('Plan mode permits inspection and proposals only.');return args?.client===true?shareWithClient(chat,args?.path,controller.signal):publish(args?.path,controller.signal);}
       if(!['list','tools','call'].includes(operation))throw Error('Unsupported MCP operation.');
       if(operation==='list')return (await mcp.request('list',{},controller.signal)).filter((row:McpConnection)=>row.enabled).map((row:McpConnection)=>({id:row.id,name:row.name,status:row.status}));
@@ -2679,7 +2812,7 @@ const handlers:Record<string,(args:any)=>any>={
       const window=chatWindows.get(target.id)||win;window.webContents.send('select-chat',target.id,focus);if(!process.argv.includes('--hidden')){window.show();window.focus();}return;
     }
     const target=resolveChatLink(defaultFolder(),href,[data]);
-    if(target.kind==='web'){await shell.openExternal(target.url);return;}
+    if(target.kind==='web'){if(pageUrl(target.url)){const chat=store.get<Chat>('chat',sourceTurn.chatId);openPage(chat.parentChatId||chat.id,target.url);return;}await shell.openExternal(target.url);return;}
     if(external===true){if(target.directory)throw Error('Choose a previewable file.');return browserPreviews.open(sourceTurn.chatId,{file:path.join(target.root,target.path)});}
     const chat=store.get<Chat>('chat',store.get<Turn>('turn',turnId).chatId),chatId=chat.parentChatId||chat.id,view=!target.directory&&previewable(target.path)?'preview':'files',popped=workspaceWindows.get(view);
     if(popped){if(popped.info.chatId!==chatId)throw Error(workspaceTitle(view)+' is open for another chat. Return that window before opening this link.');popped.window.show();popped.window.focus();popped.window.webContents.send('open-file',{...target,chatId,root:defaultFolder(),id:randomUUID()});return;}
@@ -3092,6 +3225,19 @@ const handlers:Record<string,(args:any)=>any>={
     for(const note of notes)store.update<ShareNote>('share-note',note.id,{handled:true});emit();return sent;
   },
   shareDismiss({id}){const project=store.get<ShareProject>('share-project',id);store.update<ShareProject>('share-project',id,{seenVersion:project.version});for(const note of store.all<ShareNote>('share-note'))if(note.projectId===id&&!note.handled)store.update<ShareNote>('share-note',note.id,{handled:true});emit();},
+  pageOpen({turnId,chatId,url,browser=false}){
+    if(!pageUrl(url))throw Error('This is not one of your pages.');
+    if(browser){void withOwner(url).then(signed=>shell.openExternal(signed));return;}
+    const chat=store.get<Chat>('chat',typeof chatId==='string'?chatId:store.get<Turn>('turn',turnId).chatId);openPage(chat.parentChatId||chat.id,url);
+  },
+  pagesOpen(){const site=shareSettings().site;if(!shareSettings().ready||!site)throw Error('Set up Share with clients first.');void withOwner(site+'/pages').then(url=>shell.openExternal(url));},
+  async pageNotesSend({id}){
+    const page=store.get<PreviewPage>('preview-page',id),notes=store.all<ShareNote>('share-note').filter(note=>note.projectId==='page:'+id&&!note.handled);
+    if(!notes.length)throw Error('No new notes.');
+    const sent=await submitTurn({id:randomUUID(),chatId:page.chatId,text:notesForModel(previewLink(shareSettings().site,id),page.version,notes,'Notes')});
+    for(const note of notes)store.update<ShareNote>('share-note',note.id,{handled:true});emit();return sent;
+  },
+  pageNotesDismiss({id}){for(const note of store.all<ShareNote>('share-note'))if(note.projectId==='page:'+id&&!note.handled)store.update<ShareNote>('share-note',note.id,{handled:true});emit();},
   shareOpen({id}){const project=store.get<ShareProject>('share-project',id),site=shareSettings().site;if(!site)throw Error('Set up Share with clients first.');void shell.openExternal(pageLink(site,project));},
   sideAnswerModel({model}){if(typeof model!=='string'||!availableModels().includes(model))throw Error('Choose an available model for side answers.');store.put('settings',{id:'side-answers',model});emit();},
   sendPaused({id}){const turn=store.get<Turn>('turn',id);if(turn.status!=='queued'||!turn.paused)throw Error('This message is not paused.');store.update<Turn>('turn',id,{paused:false});emit();wake(turn.chatId);},
@@ -3454,7 +3600,7 @@ function openWorkspaceWindow(args:SavedWorkspaceWindow,hidden=false){
  const bounds=visibleWindowBounds(rectangle,(valid?screen.getDisplayMatching(rectangle!):screen.getPrimaryDisplay()).workArea);
  const view=new BrowserWindow({...bounds,minWidth:450,minHeight:400,show:false,title:workspaceTitle(args.view)+' · '+chat.title,icon:nativeImage.createFromPath(path.join(app.getAppPath(),'assets/icon.png')),backgroundColor:'#141413',frame:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false}});
  const info:SavedWorkspaceWindow={view:args.view,chatId:chat.id,root:defaultFolder(),directory,...(args.view==='files'&&args.file?{file:args.file}:{}),...(args.view==='changes'&&args.diff?{diff:{file:args.diff.file,staged:args.diff.staged}}:{})};
- const entry={info,window:view,preview:new Previews(view,store,defaultFolder,[data],path.join(root,'runtime/poppler/Library/bin'),data)};workspaceWindows.set(info.view,entry);
+ const entry={info,window:view,preview:new Previews(view,store,defaultFolder,[data],path.join(root,'runtime/poppler/Library/bin'),data,withOwner,openChatLink)};workspaceWindows.set(info.view,entry);
  view.webContents.setWindowOpenHandler(()=>({action:'deny'}));view.webContents.on('will-navigate',event=>event.preventDefault());
  if(info.view==='preview')(chatPreviews.get(chat.id)||previews).move(chat.id,entry.preview);
  let checking=false,discard=false;const owner=view.webContents.id;
@@ -3521,7 +3667,7 @@ function openChatWindow(chatId:string,saved?:SavedChatWindow,hidden=false){
  const bounds=visibleWindowBounds(rectangle,(valid?screen.getDisplayMatching(rectangle!):screen.getPrimaryDisplay()).workArea);
  const view=new BrowserWindow({icon:nativeImage.createFromPath(path.join(app.getAppPath(),'assets/icon.png')),...bounds,minWidth:450,minHeight:400,show:false,title:chat.title,backgroundColor:'#141413',frame:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false}});
  chatWindows.set(chatId,view);removeSavedPane('chat:'+chatId);view.webContents.setWindowOpenHandler(()=>({action:'deny'}));view.webContents.on('will-navigate',event=>event.preventDefault());
- previews.close(chatId);chatPreviews.set(chatId,new Previews(view,store,defaultFolder,[data],path.join(root,'runtime/poppler/Library/bin'),data));
+ previews.close(chatId);chatPreviews.set(chatId,new Previews(view,store,defaultFolder,[data],path.join(root,'runtime/poppler/Library/bin'),data,withOwner,openChatLink));
  const editorOwner=view.webContents.id;let checkingClose=false,discardOnClose=false;
  view.on('close',event=>{if(!quitting&&!discardOnClose&&workspaceDrafts.has(editorOwner)){event.preventDefault();if(!checkingClose){checkingClose=true;void dialog.showMessageBox(view,{type:'question',message:'This file has an unsaved draft.',detail:'Close this window and discard the file draft?',buttons:['Keep editing','Discard and close'],defaultId:0,cancelId:0}).then(result=>{checkingClose=false;if(result.response===1){discardOnClose=true;view.close();}});}}if(!event.defaultPrevented){recordClosingWindow(view,saveChatWindows);chatPreviews.get(chatId)?.closeAll();}});
  view.on('closed',()=>{workspaceDrafts.delete(editorOwner);chatPreviews.delete(chatId);chatWindows.delete(chatId);saveChatWindows();emit();});view.on('move',saveChatWindows);view.on('resize',saveChatWindows);view.on('maximize',saveChatWindows);view.on('unmaximize',saveChatWindows);
@@ -3581,7 +3727,7 @@ function window(){
   win.webContents.once('did-finish-load',()=>markOpened(updateWatchFile,app.getVersion()));
   win.webContents.on('will-navigate',event=>event.preventDefault());
   win.on('close',e=>{if(!quitting){e.preventDefault();win.hide();}});
-  previews=new Previews(win,store,defaultFolder,[data],path.join(root,'runtime/poppler/Library/bin'),data);
+  previews=new Previews(win,store,defaultFolder,[data],path.join(root,'runtime/poppler/Library/bin'),data,withOwner,openChatLink);
   win.webContents.on('did-start-navigation',()=>previews.layout('',null));
   const trustedMedia=(contents:Electron.WebContents|null,url:string|undefined,mainFrame:boolean,allowWorkspace=false)=>{
     if(!contents||!mainFrame)return false;
@@ -3698,6 +3844,8 @@ app.whenReady().then(async()=>{
       else if(method==='chatLink'){if(!owns(store.get<Turn>('turn',args?.turnId).chatId))throw Error('This link belongs to another chat.');}
       else if(method==='backgroundStop'){if(!owns(store.get<BackgroundProcess>('background',args?.id).chatId))throw Error('This process belongs to another chat.');}
       else if(method==='backgroundRefresh'){await background.refresh();return;}
+      else if(method==='pageOpen'){if(!owns(typeof args?.chatId==='string'?args.chatId:store.get<Turn>('turn',args?.turnId).chatId))throw Error('This page belongs to another chat.');}
+      else if(['pageNotesSend','pageNotesDismiss'].includes(method)){if(!owns(store.find<PreviewPage>('preview-page',args?.id)?.chatId||''))throw Error('This page belongs to another chat.');}
       else if(['shareAiApprove','shareNotesSend','shareDismiss','shareOpen','shareRedraft'].includes(method)){if(!owns(store.find<ShareProject>('share-project',args?.id)?.chatId||''))throw Error('This share belongs to another chat.');}
       else throw Error('Open the main chat for this action.');
     }
@@ -3724,7 +3872,8 @@ app.whenReady().then(async()=>{
     return handlers[method](args||{});
   });
   terminals=new Terminals(()=>backend.environment(),backend.python,root);
-  window();app.on('browser-window-focus',(_event,window)=>{if(window===win||[...chatWindows.values(),...jobWindows.values(),...[...workspaceWindows.values()].map(entry=>entry.window)].includes(window))voiceFront=window;});win.on('focus',()=>void refreshAppLights());void refreshAppLights();
+  if(app.isPackaged&&!shareTest())app.setAsDefaultProtocolClient('trismegistus',process.execPath,[]);
+  window();{const link=process.argv.find(arg=>arg.startsWith('trismegistus://'));if(link)win.webContents.once('did-finish-load',()=>setTimeout(()=>openChatLink(link),1500));}/* ponytail: a fixed wait for the window to listen; a ready signal if it ever misses */app.on('browser-window-focus',(_event,window)=>{if(window===win||[...chatWindows.values(),...jobWindows.values(),...[...workspaceWindows.values()].map(entry=>entry.window)].includes(window))voiceFront=window;});win.on('focus',()=>void refreshAppLights());void refreshAppLights();
   {const seen=updateSettings();if(!seen.lastSeen)store.put('settings',{id:'updates',...seen,lastSeen:app.getVersion()});
    else if(seen.lastSeen!==app.getVersion()){updateShow=unseenNotes(whatsNew as WhatsNew[],seen.lastSeen,app.getVersion()).length>0;store.put('settings',{id:'updates',...seen,lastSeen:app.getVersion()});}
    // The saved Manual came from the old default, so it becomes Automatic once; the choice stays in the update window.

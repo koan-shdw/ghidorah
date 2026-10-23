@@ -24,6 +24,16 @@ def decide(tool_name, args, policy, *, inspection=False):
                      or tool_name == 'update_app' and 'icon_path' not in args)
     if not policy.get('folder') and not register_only and not process_read and tool_name not in {'image_options','search_web','read_web_page','query_chat_history','read_chat_history','document_tools','list_chat_files','list_apps','add_app_todo','update_app_todo','link_app_chat','goal_status','memory','session_search','todo_list','clarify','connected_tools','tool_search','tool_describe','skills_list','skill_view','parallel_work','inspect_action'}:
         return {'action':'block','message':'Choose a working folder in the project before using file or command tools.'}
+    # Preview pages (FEATURE-SPECS 4), like Claude Code's artifacts: reading needs no question, nor does publishing a
+    # page only the user can open; plan mode changes nothing; deleting always asks, except in Bypass.
+    if tool_name == 'preview_page':
+        action, page_mode = args.get('action'), policy.get('mode')
+        if action in ('list', 'read', 'guide') or page_mode == 'bypass' or action == 'publish' and page_mode != 'plan':
+            return None
+        if page_mode == 'plan':
+            return {'action':'block','message':'Plan mode permits inspection and proposals only.'}
+        return {'action':'approve','message':'Delete a preview page: '+str(args.get('link') or ''),
+                'rule_key':'action:'+hashlib.sha256(json.dumps([tool_name,args],sort_keys=True).encode()).hexdigest()}
     # These tools enforce skill-name and relative-file boundaries themselves.
     # A skill's reference named config.yaml is not the app's private configuration.
     if tool_name in {'skills_list', 'skill_view'}:
