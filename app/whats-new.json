@@ -104,5 +104,16 @@
     "Text a model writes between its tool steps now stays in the reply.",
     "In a job window, Stop and send correction stops the run and sends, as it says.",
     "Long chat summaries pick up where they left off instead of starting over."
+  ]},
+  {"version":"0.1.23","date":"2026-10-23","notes":[
+    "A reply's actions now sit in one list: folded to \"Ran 12 actions\", or the current step while it works. Open a row to see its command and output.",
+    "On an app's page its latest chat glows, and a pill in the title bar opens that chat.",
+    "Screen control: a model can work in your apps and Chrome. It asks before each new app and before the whole screen, a bar shows while it works, and Esc stops it. Turn it on or off in Settings, Browser and computer.",
+    "Start a message with ?? to ask about the work in progress. A side model answers above the message box while the main model keeps going.",
+    "Share pages with clients: set it up once in Settings, Share with clients. Each project gets a private link, and client notes come back to the chat.",
+    "Ask a model for a page and it opens as a card under the reply, private until you share it, with Open, Open in browser and Copy link.",
+    "Long command output no longer weighs down the window; an action loads its full output when you open it.",
+    "After a Hermes model patches a file, it can edit that file again without reading it first.",
+    "In parallel work, Claude jobs get your message once, not twice."
   ]}
 ]
