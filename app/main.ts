@@ -93,6 +93,7 @@ import {claudeUsage,claudeRateUsage} from './usage';
 import {claudeTurnEvent,claudeTurnUsage} from './claude-turn';
 import {handover,managementText} from './history';
 import {joinTurn,resetJoinedText,settleJoined,busyHermesRows} from './turn-joins';
+import {finalText} from './turn-text';
 import {inspectProjectTrust,projectSkillFolders,type ProjectSourceGrant,type ProjectTrustReview} from './project-trust';
 import {nativePluginCatalog,reviewNativePlugin,reviewHermesPlugin,installNativePlugin,nativePluginDirectories,verifyPlugins,checkRuntimeOnChange,ChangeGate,hermesPluginCopies,hermesPluginKey,pluginCommand,pluginServer,sharedCommands,type NativePlugin,type NativePluginInstall} from './native-plugins';
 import {redactPastedKeys} from './redaction';
@@ -1544,7 +1545,7 @@ async function sendClaude(chat:Chat,turn:Turn,project:Project,step:(name:string)
     step('Sending');preparation.removeEventListener('abort',link);
     const answer=native.submit(picked);
     store.update<Turn>('turn',turn.id,{status:'running',delivery:'sent',activity:'Sent, '+modelLabel(turn.model,claude.models)+' reads it after the current step'});
-    void answer.then(result=>finishNative(chat,turn,result,picked.session.id,started),error=>{const saved=store.get<Turn>('turn',turn.id);store.update<Turn>('turn',turn.id,{status:controller.signal.aborted||saved.status==='stopping'?'stopped':'interrupted',error:controller.signal.aborted||saved.status==='stopping'?null:backend.scrubber.text(String(error))});}).finally(()=>cleanupNative(chat,turn));
+    void answer.then(result=>finishNative(chat,turn,result,picked.session.id,started),error=>{const saved=store.get<Turn>('turn',turn.id);store.update<Turn>('turn',turn.id,{status:controller.signal.aborted||saved.status==='stopping'?'stopped':'interrupted',...(controller.signal.aborted||saved.status==='stopping'?{stopReason:saved.stopReason||'unknown'}:{}),error:controller.signal.aborted||saved.status==='stopping'?null:backend.scrubber.text(String(error))});}).finally(()=>cleanupNative(chat,turn));
   }catch(error){cleanupNative(chat,turn);throw error;}
 }
 function finishNative(chat:Chat,turn:Turn,result:ClaudeResult,runtimeId:string,started:number){
@@ -1556,6 +1557,8 @@ function finishNative(chat:Chat,turn:Turn,result:ClaudeResult,runtimeId:string,s
   if(patch.text!==undefined&&patch.text!==current.text)resetJoinedText(store,turn.id);
   // A message from another Claude session that the prompt check refused shows as stopped, not failed (TURN-BUILD decision 2).
   if(current.automatic?.source==='other-session'&&patch.status==='failed')Object.assign(patch,{status:'stopped',error:current.error});
+  // Every stopped turn says why; Stop has already written its reason (batch 4, 6a).
+  if(patch.status==='stopped'&&!current.stopReason)patch.stopReason='unknown';
   native.finished(runtimeId,turn,result);
   if(!turn.automatic)store.finishEngine(turn.id,'claude',result.sessionId||null,patch);else store.update<Turn>('turn',turn.id,patch);
   if(result.status==='failed')claude.status='Last turn failed';else if(result.status==='completed'){claude.status='Signed in';health.clear('claude-code',['auth','model'],started,turn.model);}
@@ -1838,6 +1841,11 @@ function receive(event:any){
       const field=event.type==='message.delta'?'text':'reasoning';const key=id+field;
       let scrub=streamScrubbers.get(key);if(!scrub){scrub=backend.scrubber.stream();streamScrubbers.set(key,scrub);}
       store.update<Turn>('turn',id,{[field]:turn[field]+scrub(String(payload.text||'')),activity:field==='text'?'Writing reply':'Thinking'});
+    }else if(event.type==='message.interim'){
+      // Text Hermes did not stream (commentary beside tool calls) is shown when it arrives and kept at the end; what
+      // streams next starts a new paragraph.
+      const text=backend.scrubber.text(String(payload.text||''));
+      if(text.trim()&&!payload.already_streamed)store.update<Turn>('turn',id,{text:(turn.text.trim()?turn.text.trimEnd()+'\n\n':'')+text+'\n\n',interimText:(turn.interimText?turn.interimText+'\n\n':'')+text});
     }else if(event.type==='status.update'){
       if(payload.kind==='compacting')store.update<Turn>('turn',id,{activity:'Compressing context'});
       else if(payload.kind==='compacted'){clearHistoryReads(store,id);store.update<Turn>('turn',id,{activity:'Waiting for model'});}
@@ -1864,7 +1872,7 @@ function receive(event:any){
       }
       const currentChat=store.get<Chat>('chat',chat.id);
       if(typeof p.text==='string'&&!p.text.startsWith(turn.text))resetJoinedText(store,id);
-      store.finishEngine(id,'hermes',currentChat.storedId||currentChat.runtimeId,{status,stopReason:turn.stopReason||(status==='stopped'?'unknown':status==='failed'?'provider-error':undefined),text:typeof p.text==='string'?p.text:turn.text+tail,reasoning:p.reasoning||turn.reasoning+reasoningTail,usage,error:p.error||p.failure_reason||null});
+      store.finishEngine(id,'hermes',currentChat.storedId||currentChat.runtimeId,{status,stopReason:turn.stopReason||(status==='stopped'?'unknown':status==='failed'?'provider-error':undefined),text:finalText(typeof p.text==='string'?p.text:'',turn.text+tail,turn.interimText),reasoning:p.reasoning||turn.reasoning+reasoningTail,usage,error:p.error||p.failure_reason||null});
       for(const a of store.all<Approval>('approval'))if(a.turnId===id && a.status==='pending')store.update<Approval>('approval',a.id,{status:'expired'});
       for(const pending of mcpToolRequests.values())if(pending.chatId===chat.id)pending.controller.abort();
       for(const tool of store.where<ToolCall>('tool','turnId',id))if(tool.status==='running')store.update<ToolCall>('tool',tool.id,{status:'uncertain'});

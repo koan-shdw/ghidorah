@@ -8,6 +8,7 @@ import {Store} from '../app/store';
 import {clearHistoryReads} from '../app/chat-context';
 import {toolResultFailed} from '../app/tool-result';
 import {joinTurn,resetJoinedText,settleJoined} from '../app/turn-joins';
+import {finalText} from '../app/turn-text';
 import type {Turn} from '../app/types';
 
 const source=ts.createSourceFile('main.ts',fs.readFileSync('app/main.ts','utf8'),ts.ScriptTarget.Latest,true);
@@ -19,7 +20,7 @@ function hermes(){
  const store=new Store(':memory:'),chat=store.chat(store.project().id);store.update<any>('chat',chat.id,{runtimeId:'session',storedId:'stored'});
  const hermesTurns=new Map<string,string>(),hermesSent=new Map<string,Set<string>>(),hermesStarted=new Set<string>(),hermesQueued=new Set<string>(),woken:string[]=[];
  const waitingFor=main('waitingFor',{hermesSent});
- const env:Record<string,unknown>={store,joinTurn,resetJoinedText,settleJoined,hermesTurnRows:new Map<string,string>(),hermesTurns,hermesSent,hermesStarted,hermesQueued,waitingFor,wake:(id:string)=>woken.push(id),emit:()=>{},emitStream:()=>{},
+ const env:Record<string,unknown>={store,joinTurn,resetJoinedText,settleJoined,finalText,hermesTurnRows:new Map<string,string>(),hermesTurns,hermesSent,hermesStarted,hermesQueued,waitingFor,wake:(id:string)=>woken.push(id),emit:()=>{},emitStream:()=>{},
   hermesEvents:new Map(),hermesErrors:new Map(),hermesModels:new Map(),streamScrubbers:new Map(),usageBaseline:new Map(),requests:new Map(),mcpToolRequests:new Map(),
   backend:{generation:'g',scrubber:{value:(v:any)=>v,text:(s:string)=>s,stream:()=>(s:string)=>s}},nextWatermark:main('nextWatermark',{}),clearHistoryReads,toolResultFailed,
   coordination:{interrupt:()=>{},denied:()=>{}},background:{stopChat:async()=>{}},apiProviders:{rows:()=>[]},health:{hermes:()=>{}},blockedFor:()=>false,
@@ -118,4 +119,14 @@ test('his words alone go into a running reply; changed fixed text waits for an i
  assert.equal(resend(false,true,'rules','rules + new job'),false,'never inside a steer');
  assert.equal(resend(false,false,'rules','rules + new job'),true,'the next idle message carries the change');
  assert.equal(resend(false,false,'rules','rules'),false);
+});
+
+test('Hermes commentary beside tool calls shows when it arrives and stays when the final message is empty (batch 4, 6b, 6c)',()=>{
+ const h=hermes();h.send('A');h.start({client_ids:['A']});
+ h.event('message.interim',{text:'I will read the file.',already_streamed:false});
+ assert.equal(h.turn('A').text.trim(),'I will read the file.');
+ h.event('message.interim',{text:'Streamed already.',already_streamed:true});
+ h.event('message.delta',{text:'The answer.'});
+ h.event('message.complete',{status:'complete',text:'',client_ids:['A']});
+ assert.equal(h.turn('A').text,'I will read the file.\n\nThe answer.');
 });
