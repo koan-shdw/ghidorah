@@ -24,7 +24,13 @@ update. Chats, keys and settings stay where they are across updates.
 - **Every model in one chat.** Claude Code with your own sign-in, Codex and GPT, DeepSeek, Gemini, Grok, Kimi, GLM,
   OpenRouter and more, side by side or picked per message.
 - **Real work.** Files, changes, terminal and preview panes beside the chat; approvals and permission modes; checkpoints.
-- **Tools.** MCP servers, Claude Code plugins and skills, browser and screen control, repository maps.
+- **Tools.** MCP servers, Claude Code plugins and skills, repository maps.
+- **Screen control.** A model can work in your apps and Chrome. It asks before each new app and before the whole
+  screen, a bar shows while it works, and Esc stops it.
+- **Pages.** Ask a model for a page and it opens as a card under the reply, private until you share it. Share pages
+  with clients at a private link; their notes come back to the chat.
+- **Ask while it works.** Start a message with ?? and a side model answers from the live work, while the main model
+  keeps going.
 - **Long jobs.** Background work, goals and routines that keep running while you do something else.
 - **Voice and remote.** Dictation and live voice; answer approvals from your phone over Telegram.
 
@@ -69,11 +75,11 @@ commits it with a tag. Run the release checks on `updates/build/win-unpacked/Ghi
 
 | Folder | What is in it |
 | --- | --- |
-| `app/` | Electron main process and the interface (TypeScript, React) |
+| `app/` | Electron main process (`main.ts` and `main/`) and the interface (TypeScript, React) |
 | `backend/` | Python host: Hermes, keys in Windows Credential Manager, documents, images |
 | `hermes/` | Our fork of Hermes Agent, the engine for every non-Claude model |
 | `plugins/` | Hermes plugins Ghidorah installs: permissions and the remote gate |
-| `share/` | Cloudflare Worker for shared pages |
+| `share/` | Cloudflare Worker for shared and preview pages and client notes |
 | `scripts/` | Build, runtime staging, installer and release |
 | `tests/` | Unit and desktop tests |
 | `third-party/` | Bundled third-party files and their licences |
@@ -84,4 +90,6 @@ MIT, see [LICENSE](LICENSE).
 
 `hermes/` is a fork of [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research (MIT, see
 `hermes/LICENSE`), based on release v2026.9.24 (`f97608f`). It holds only the parts Ghidorah runs, with their tests.
-Licences for other bundled work are in `third-party/`.
+Licences for other bundled work are in `third-party/`. The installer also carries
+[agent-browser](https://www.npmjs.com/package/agent-browser) (Apache 2.0) and
+[cua-driver](https://github.com/trycua/cua) (MIT) for screen control, each with its licence beside it.
