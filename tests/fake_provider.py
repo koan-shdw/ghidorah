@@ -178,6 +178,8 @@ def response(body):
     if 'WRITE_FIXTURE' in last:return ToolCall('write_file',{'path':'slice-result.txt','content':'Written through Hermes tools.'})
     if 'DENY_FIXTURE' in last:return ToolCall('write_file',{'path':'must-not-exist.txt','content':'Do not permit this write.'})
     if 'SECRET_FIXTURE' in last:return ToolCall('read_file',{'path':'.codex/auth.json'})
+    # A command no reader list knows (two-chats.e2e): before 2026-10-10 it locked every chat.
+    if 'UNKNOWN_COMMAND_FIXTURE' in last:return ToolCall('terminal',{'command':'python -c "print(42)"'})
     if 'COMMAND_FIXTURE' in last:return ToolCall('terminal',{'command':'echo command-through-hermes'})
     if 'BACKGROUND_NOTICE_FIXTURE' in last:return ToolCall('terminal',{'command':'''python -c "import time; time.sleep(3); print('notice-fixture-done')"''','background':True,'notify_on_complete':True})
     if 'MEMORY_FIXTURE' in last:return ToolCall('memory',{'action':'add','target':'memory','content':'ALPHA_MEMORY_PRIVATE_VALUE'})
