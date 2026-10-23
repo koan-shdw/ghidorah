@@ -13,6 +13,13 @@ PROTECTED = ('.claude', '.codex', 'mcp-tokens', 'state-snapshots', 'auth.json', 
              'signal-cli', '.env', 'config.yaml', 'trismegistus-permissions')
 
 
+def secrets_mention(serialized, root):
+    # The data folder counts when its path ends there or goes on into it; a sibling whose name starts the same
+    # (Trismegistus2, Trismegistus-old) is the user's own folder.
+    root = root.lower().replace('\\', '/').rstrip('/')
+    return re.search(re.escape(root) + r'(?![^/"\'`\s;&|<>),\]}])', serialized) is not None
+
+
 def decide(tool_name, args, policy, *, inspection=False):
     if tool_name == 'session_search' and args.get('profile') and args['profile'] != policy.get('profile'):
         return {'action':'block','message':"Session search is limited to this project's history."}
@@ -55,7 +62,7 @@ def decide(tool_name, args, policy, *, inspection=False):
             paths = [p for op in operations for p in (op.file_path,op.new_path) if p]
         inspected = [str((Path(policy['folder']) / p).resolve()) for p in paths]
     serialized = json.dumps(inspected, ensure_ascii=False).lower().replace('\\\\', '/')
-    if any(word in serialized for word in PROTECTED) or policy['secrets_root'].lower().replace('\\', '/') in serialized:
+    if any(word in serialized for word in PROTECTED) or secrets_mention(serialized, policy['secrets_root']):
         return {'action':'approve', 'message':'Access to private app data or credentials requires your approval. Use skills_list and skill_view for installed skills.',
                 'rule_key':'secret:'+hashlib.sha256(serialized.encode()).hexdigest()}
     if tool_name in READS or process_read:

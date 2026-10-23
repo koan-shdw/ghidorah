@@ -31,6 +31,12 @@ test('Claude fixed protection catches credential paths and stores independently 
   assert.ok(claudeSettings(root).permissions.deny.includes('Read(~/.claude/**)'));
 });
 
+test('the data folder guard covers the folder and what is in it, never a sibling whose name starts the same (TRIS-TODO 0.14: Trismegistus2)',()=>{
+  const root='C:\\Users\\fixture\\AppData\\Local\\Trismegistus';
+  for(const input of [{directory:root},{file_path:root+'\\chat.sqlite'},{command:'cd "'+root+'" && dir'},{command:'type '+root+'\\queue.log'},{command:'dir '+root}])assert.equal(protectedClaudeAction(input,root),true,JSON.stringify(input));
+  for(const input of [{directory:root+'2'},{file_path:root+'2\\notes.md'},{directory:root+'-old\\x'},{command:'dir '+root+'Backup'}])assert.equal(protectedClaudeAction(input,root),false,JSON.stringify(input));
+});
+
 test('Opus gets the fixed rules and memory block once per session, again only when it changes (Koan, 2026-10-08)',async()=>{
   const scrubber=new SecretScrubber(),base:any={model:'opus',scrubber,event:()=>{},signal:new AbortController().signal,mode:'default'},session:any=new (ClaudeSession as any)(base);
   const sent:any[]=[];session.initial=base;session.send=(m:any)=>sent.push(m);session.setMode=async()=>{};session.command=async()=>({});session.model='opus';

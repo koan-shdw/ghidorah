@@ -215,6 +215,16 @@ def test_missing_required_permission_plugin_blocks_tools(monkeypatch):
     monkeypatch.setattr(plugins,'_ensure_plugins_discovered',lambda:Empty())
     assert plugins.resolve_pre_tool_block('write_file',{'path':'should-not-run'})
 
+def test_secret_rule_matches_the_data_folder_not_a_sibling(tmp_path):
+    # TRIS-TODO 0.14: a folder whose name starts like the data folder (Trismegistus2) is the user's own.
+    spec=importlib.util.spec_from_file_location('app_permissions',APP/'plugins'/'trismegistus-permissions'/'__init__.py')
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    policy={'mode':'accept-edits','folder':str(tmp_path),'secrets_root':str(tmp_path/'private')}
+    assert module.decide('read_file',{'path':str(tmp_path/'private'/'chat.sqlite')},policy)['action']=='approve'
+    assert module.decide('read_file',{'path':str(tmp_path/'private')},policy)['action']=='approve'
+    assert module.decide('read_file',{'path':str(tmp_path/'private2'/'notes.md')},policy) is None
+    assert module.decide('read_file',{'path':str(tmp_path/'private-old'/'notes.md')},policy) is None
+
 def test_permission_decisions_include_fixed_secret_rule(tmp_path):
     spec=importlib.util.spec_from_file_location('app_permissions',APP/'plugins'/'trismegistus-permissions'/'__init__.py')
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)

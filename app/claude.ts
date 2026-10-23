@@ -45,9 +45,12 @@ export async function claudeAccount(executable:string){
 }
 
 const protectedNames=['.claude','.codex','mcp-tokens','state-snapshots','auth.json','browser-profile','signal-cli','cmdkey','credread','credentialmanager','credential_manager','find-generic-password','windows_credentials'];
+// The data folder counts when its path ends there or goes on into it; a sibling whose name starts the same
+// (Trismegistus2, Trismegistus-old) is someone's own folder.
+const dataRootMention=(text:string,dataRoot:string)=>new RegExp(dataRoot.toLowerCase().replaceAll('\\','/').replace(/\/+$/,'').replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?![^/"\'`\\s;&|<>),\\]}])').test(text);
 export function protectedClaudeAction(input:unknown,dataRoot:string){
   const text=JSON.stringify(input).toLowerCase().replaceAll('\\\\','/').replaceAll('\\','/');
-  return protectedNames.some(name=>text.includes(name))||text.includes(dataRoot.toLowerCase().replaceAll('\\','/'));
+  return protectedNames.some(name=>text.includes(name))||dataRootMention(text,dataRoot);
 }
 const pathKey=(value:string)=>process.platform==='win32'?value.toLowerCase():value;
 const insidePath=(root:string,file:string)=>{const relative=path.relative(pathKey(root),pathKey(file));return relative!== '..'&&!relative.startsWith('..'+path.sep)&&!path.isAbsolute(relative);};
