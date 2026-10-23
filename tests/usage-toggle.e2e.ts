@@ -10,7 +10,7 @@ try{
  await app.evaluate(({BrowserWindow})=>{const window=BrowserWindow.getAllWindows()[0];window.show();window.focus();});
  await pollState(page,state=>state.backend==='ready');
  await page.getByLabel('Close settings',{exact:true}).click({timeout:90000});
- const panel=page.getByRole('dialog',{name:'Usage for all models',exact:true}),disclosure=page.getByLabel('Model details',{exact:true}),ring=page.getByRole('button',{name:'Usage for all models',exact:true});
+ const panel=page.getByRole('dialog',{name:'Context window and usage',exact:true}),disclosure=page.getByLabel('Model details',{exact:true}),ring=page.getByRole('button',{name:'Context window and usage',exact:true});
  for(const button of [disclosure,ring]){
   for(let cycle=0;cycle<3;cycle++){
    await button.click();await panel.waitFor({state:'visible'});

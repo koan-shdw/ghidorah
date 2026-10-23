@@ -15,8 +15,8 @@ try{
   assert.equal(state.claude.connected,true);assert.ok(state.claude.windows.length);
   assert.equal(state.claude.windows[0].usedPercent,12);
   await page.keyboard.press('Escape');
-  await page.getByRole('button',{name:'Usage for all models',exact:true}).click();
-  const panel=page.getByRole('dialog',{name:'Usage for all models',exact:true});
+  await page.getByRole('button',{name:'Context window and usage',exact:true}).click();
+  const panel=page.getByRole('dialog',{name:'Context window and usage',exact:true});
   const account=panel.getByRole('region',{name:'Claude Code account usage',exact:true});
   await account.waitFor();
   // Allow refresh to finish, and compare the displayed values with the protocol fixture result.

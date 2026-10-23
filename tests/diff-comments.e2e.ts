@@ -6,7 +6,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import {Backend,PYTHON} from '../app/backend';
-const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/diff-comments-')),folder=path.join(data,'repo'),namespace='Trismegistus/Test/'+path.basename(data),host=new Backend(root,data,namespace,()=>{});
+const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/diff-comments-')),folder=data+'-repo',namespace='Trismegistus/Test/'+path.basename(data),host=new Backend(root,data,namespace,()=>{});
 await fs.mkdir(folder);await fs.writeFile(path.join(folder,'note.txt'),'first\nold\nlast\n');const git=(...args:string[])=>execFileSync('git',['-C',folder,...args],{windowsHide:true,stdio:'pipe'});git('init','-q');git('add','.');git('-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','base');await fs.writeFile(path.join(folder,'note.txt'),'first\nnew\nlast\n');
 await host.host('initialize');await host.host('save_key',{key:'synthetic-deepseek-regression-credential'});const fake=spawn(PYTHON,['tests/fake_provider.py'],{windowsHide:true,stdio:'pipe'}),lines=createInterface({input:fake.stdout});const [line]=await once(lines,'line');
 const launch=()=>electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,args:process.env.TRISMEGISTUS_EXE?[]:[root],env:{...process.env,TRISMEGISTUS_TEST_DATA:data,TRISMEGISTUS_TEST_PROVIDER_URL:JSON.parse(line).url}});let app=await launch();

@@ -14,12 +14,13 @@ const render=(screen='usage',missing=false)=>createRoot(document.getElementById(
 render(new URLSearchParams(location.search).get('screen')||'usage',location.search.includes('missing'));
 `},bundle:true,write:false,format:'iife'});
 await fs.writeFile(path.join(folder,'ui.js'),result.outputFiles[0].text);
-await fs.copyFile(path.join(root,'app','ui.css'),path.join(folder,'ui.css'));
-await fs.writeFile(path.join(folder,'index.html'),'<html><head><meta charset="utf-8"><link rel="stylesheet" href="ui.css"></head><body><div id="root"></div><script src="ui.js"></script></body></html>');
+// The app's stylesheets in its own order: tokens and themes first (every size and colour since 0.1.18), then the kit.
+for(const sheet of ['tokens.css','themes.css','kit.css','ui.css'])await fs.copyFile(path.join(root,'app',sheet),path.join(folder,sheet));
+await fs.writeFile(path.join(folder,'index.html'),'<html><head><meta charset="utf-8"><link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="themes.css"><link rel="stylesheet" href="kit.css"><link rel="stylesheet" href="ui.css"></head><body><div id="root"></div><script src="ui.js"></script></body></html>');
 await fs.writeFile(path.join(folder,'main.cjs'),`const {app,BrowserWindow}=require('electron');app.setPath('userData',${JSON.stringify(path.join(folder,'data'))});app.whenReady().then(()=>{const w=new BrowserWindow({width:1280,height:900});w.loadFile(${JSON.stringify(path.join(folder,'index.html'))});});`);
 const instance=await electron.launch({args:[path.join(folder,'main.cjs')],timeout:30000});
 try{
- const page=await instance.firstWindow();await page.getByRole('dialog',{name:'Usage for all models'}).waitFor();
+ const page=await instance.firstWindow();await page.getByRole('dialog',{name:'Context window and usage'}).waitFor();
  const panel=page.locator('.usage-panel');
  const overview=async()=>{
    assert.ok(await panel.evaluate(e=>e.getBoundingClientRect().left>=0&&e.getBoundingClientRect().right<=innerWidth));

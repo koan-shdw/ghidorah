@@ -4,7 +4,7 @@ import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import assert from 'node:assert/strict';
 import {PYTHON} from '../app/backend';
-const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/file-mentions-')),folder=path.join(data,'workspace');
+const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/file-mentions-')),folder=data+'-workspace';await fs.mkdir(folder);
 await fs.mkdir(path.join(folder,'folder space'),{recursive:true});await fs.writeFile(path.join(folder,'folder space','hello world.ts'),'export const value=1;');await fs.writeFile(path.join(folder,'readme.md'),'fixture');
 const app=await electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,args:process.env.TRISMEGISTUS_EXE?[]:[root],env:{...process.env,TRISMEGISTUS_TEST_DATA:data}});
 try{

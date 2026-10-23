@@ -26,7 +26,7 @@ const settings=async(name:string)=>{if(!await page.getByRole('dialog',{name:'Set
 try{
  page=await app.firstWindow();
  let s=await wait(s=>s.backend==='ready'&&s.claude?.status==='Signed in'&&s.availableModels.includes('deepseek-flash'));
- assert.deepEqual(s.alwaysOn,{startWithWindows:false,stayAwake:'remote',awake:false},'a fresh profile starts nothing and keeps nothing awake');
+ assert.deepEqual(s.alwaysOn,{startWithWindows:false,stayAwake:'remote',desktopNotifications:true,questionSound:true,awake:false},'a fresh profile starts nothing and keeps nothing awake; alerts are on');
  assert.equal(startup(entry),'');
 
  await app.evaluate(({app})=>{(globalThis as any).savedLoginSetter=app.setLoginItemSettings;app.setLoginItemSettings=()=>{throw Error('Fixture startup registration failed');};});
