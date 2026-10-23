@@ -1,11 +1,12 @@
 // apps: moved out of app/main.ts unchanged (SPLIT-PLAN); module state stays in main.ts.
+import {providerUrls} from './dispatch';
 import {projectFor} from './projects';
 import {existingAppPath} from '../app-repositories';
 import {AppSummary,appSummarySources,summaryRevision} from '../app-summary';
 import {AppIdea,AppWatch,defaultWatch,nextWatchRun,readIdeas,updateModel} from '../app-watch';
 import {claudeOneShot} from '../claude';
 import {claudeTurnUsage} from '../claude-turn';
-import {apiChanging,appLights,appSummaryErrors,appSummaryJobs,appWatchJobs,appWatchSteps,backend,claudeExecutable,data,emit,goals,installing,pluginChanges,pluginsChanging,providerUrls,store} from '../main';
+import {apiChanging,appLights,appSummaryErrors,appSummaryJobs,appWatchJobs,appWatchSteps,backend,claudeExecutable,data,emit,goals,installing,pluginChanges,pluginsChanging,store} from '../main';
 import {redactPastedKeys} from '../redaction';
 import type {AppTodo,SavedApp} from '../saved-apps';
 import type {Chat,Snapshot,Turn} from '../types';

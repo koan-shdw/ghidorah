@@ -1,8 +1,9 @@
 // sharing: moved out of app/main.ts unchanged (SPLIT-PLAN); module state stays in main.ts.
+import {contextCompletion,sideModel} from './context';
 import {projectFor} from './projects';
 import {summaryModel} from '../chat-context';
 import {resolveChatLink} from '../chat-links';
-import {backend,chatWindows,claude,contextCompletion,data,desktopNotices,emit,namespace,ownerKey,quitting,root,shareAlerts,shareQueue,shareStatus,sideModel,sidebar,store,win,workspaceWindows} from '../main';
+import {backend,chatWindows,claude,data,desktopNotices,emit,namespace,ownerKey,quitting,root,shareAlerts,shareQueue,shareStatus,sidebar,store,win,workspaceWindows} from '../main';
 import {modelLabel} from '../models';
 import {workspaceTitle} from '../pane-layout';
 import {assertNoSecrets,pageBundle,publishPage,readPublishing,validatePublishing} from '../publishing';

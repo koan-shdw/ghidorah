@@ -1,6 +1,7 @@
 // projects: moved out of app/main.ts unchanged (SPLIT-PLAN); module state stays in main.ts.
+import {hasWork} from './turns';
 import {existingAppPath} from '../app-repositories';
-import {backend,checkpointChanging,coordination,createAppLocks,creatingProjects,data,emit,folderChanging,folderRecoveryRequired,gitOperation,hasWork,modeChanges,native,pluginControllers,preparing,refreshAppLights,sideChatOpening,startingAppTasks,store,submittingChats,terminals,voiceWindow,workspaceDrafts,workspaceWindows} from '../main';
+import {backend,checkpointChanging,coordination,createAppLocks,creatingProjects,data,emit,folderChanging,folderRecoveryRequired,gitOperation,modeChanges,native,pluginControllers,preparing,refreshAppLights,sideChatOpening,startingAppTasks,store,submittingChats,terminals,voiceWindow,workspaceDrafts,workspaceWindows} from '../main';
 import {redactPastedKeys} from '../redaction';
 import {AppTodo,SavedApp,appFolderName,appTodo,linkAppChat,saveApp,updateAppTodo} from '../saved-apps';
 import type {Chat,Mode,Project,Turn} from '../types';

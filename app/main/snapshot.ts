@@ -1,7 +1,9 @@
 // snapshot: moved out of app/main.ts unchanged (SPLIT-PLAN); module state stays in main.ts.
+import {providerUrls} from './dispatch';
+import {sideModel} from './context';
 import {ToolProgram,installedChrome,programs} from '../browser-tools';
 import {readChatLayout} from '../chat-layout';
-import {RESULT_CUT,apiProviders,appUpdates,awakeBlocker,backend,background,balance,balanceCheckedAt,chatWindows,claude,codex,connected,contextJobs,coordination,dev,discoveryRun,discoveryStatus,gliner,goals,health,hermesStatus,jevKey,jevStatus,jobWindows,mcp,mcpError,mcpLogins,mcpRows,modelPrices,namespace,native,pluginChanges,pluginHandlers,providerStatus,providerUrls,remoteGateway,remoteSecret,sideModel,sidebar,speechInstall,speechProgress,store,streamWindows,telegramInstall,updateRolledBack,updateShow,wizardDecided,wizardOpen,wizardStart,workspaceWindows} from '../main';
+import {RESULT_CUT,apiProviders,appUpdates,awakeBlocker,backend,background,balance,balanceCheckedAt,chatWindows,claude,codex,connected,contextJobs,coordination,dev,discoveryRun,discoveryStatus,gliner,goals,health,hermesStatus,jevKey,jevStatus,jobWindows,mcp,mcpError,mcpLogins,mcpRows,modelPrices,namespace,native,pluginChanges,pluginHandlers,providerStatus,remoteGateway,remoteSecret,sidebar,speechInstall,speechProgress,store,streamWindows,telegramInstall,updateRolledBack,updateShow,wizardDecided,wizardOpen,wizardStart,workspaceWindows} from '../main';
 import {NativePluginInstall,sharedCommands} from '../native-plugins';
 import {readPaneWorkspace} from '../pane-layout';
 import {pickers} from '../pickers';

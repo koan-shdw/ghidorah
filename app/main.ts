@@ -117,6 +117,9 @@ import {configure,session} from './main/backend';
 import {addAppTask,changeProjectMode,createApp,linkCurrentApp,listAppTasks,projectFor,requireIdleFolder,requireStableFolder,updateApp,updateAppTask,workingDirectory} from './main/projects';
 import {askApproval,mainSnapshot,sendState,snapshot} from './main/snapshot';
 import {agentSnapshot,agentWindowRequest,chatSnapshot,jobSnapshot,modelWindowHash,openChatWindow,openJob,openWorkspaceWindow,saveChatWindows,saveJobWindows,saveWorkspaceWindows,workspaceWindowRequest,workspaceWindowState} from './main/windows';
+import {changePlugin,generateContext,goalHold,pluginChangeWait,queryHistory,sideFirst,sideRow,submitTurn} from './main/context';
+import {automaticClaude,automaticHermes,continueNative,coordinateChat,providerUrls,request,requestProjectReview,stateProviderInChat,waitingFor,wake} from './main/dispatch';
+import {anyChatBusy,hasWork,nextWatermark,reconcileReplies,releaseHermesSession,replyRow,stopDeadline,waitForMode} from './main/turns';
 
 protocol.registerSchemesAsPrivileged(['tris-preview','tris-inline'].map(scheme=>({scheme,privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true,stream:true}})));
 export const root=app.isPackaged?process.resourcesPath:path.resolve(__dirname,'..');
@@ -161,7 +164,7 @@ function notificationChatVisible(chatId:string){
  const owned=turn?.chatId||job||[...workspaceWindows.values()].find(entry=>entry.window===focused)?.info.chatId;
  const chat=owned?store.all<Chat>('chat').find(chat=>chat.id===owned):undefined;return (chat?.parentChatId||owned)===chatId;
 }
-const managingChats=new Set<string>();
+export const managingChats=new Set<string>();
 const chatExports=new Map<string,{chatId:string;controller:AbortController}>();
 const documentPreviews=new Map<string,{chatId:string;controller:AbortController}>();
 export const contextJobs=new Map<string,{controller:AbortController;done:number;total:number}>();
@@ -182,7 +185,7 @@ export const sideChatOpening=new Map<string,Promise<string>>();
 export const chatPreviews=new Map<string,Previews>();
 export let health:AccountHealth,healthTimer:NodeJS.Timeout|undefined;
 export let jevKey:string|null=null,jevStatus='Not connected';
-const uploading=new Set<string>();
+export const uploading=new Set<string>();
 export const visionModels:Record<string,boolean>={};
 const jevControllers=new Map<string,AbortController>();
 export let kevStatus='';
@@ -202,8 +205,8 @@ export let installing=false;
 export const pluginChanges=new PluginChanges(pluginChangeWait,()=>{emit();if(!pluginChanges.pending)wakeWaiting();});
 export let pluginHandlers:PluginHandler[]=[];
 export const pluginControllers=new Map<string,AbortController>();
-const pluginOwners=new Map<string,PluginProcessOwner>();
-function pluginWorkerSettings(){const plugins=store.all<NativePluginInstall>('native-plugin').filter(row=>row.enabled&&row.hermes);return {plugins:plugins.map(hermesPluginKey),configurations:plugins.flatMap(row=>row.configuration?[row.configuration.revision]:[]),runtime:pluginRuntime()};}
+export const pluginOwners=new Map<string,PluginProcessOwner>();
+export function pluginWorkerSettings(){const plugins=store.all<NativePluginInstall>('native-plugin').filter(row=>row.enabled&&row.hermes);return {plugins:plugins.map(hermesPluginKey),configurations:plugins.flatMap(row=>row.configuration?[row.configuration.revision]:[]),runtime:pluginRuntime()};}
 async function loadPluginCommands(){
   pluginHandlers=[];
   const installed=store.all<NativePluginInstall>('native-plugin').filter(row=>row.enabled&&row.hermes&&!row.conversion);
@@ -212,8 +215,8 @@ async function loadPluginCommands(){
   for(const row of commands){const plugin=installed.find(item=>hermesPluginKey(item)===row.pluginKey);if(!plugin||typeof row.command!=='string'||!/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,79}$/.test(row.command))continue;pluginHandlers.push({...row,name:`/${plugin.name}:${row.command}`,plugin:plugin.name,pluginId:plugin.id,hash:plugin.hash,kind:'Plugin command'});}
 }
 export function pluginRuntime(){return store.all<any>('settings').find(row=>row.id==='plugin-runtime')?.runtime||null;}
-const mcpToolRequests=new Map<string,{chatId:string;controller:AbortController}>();
-const memoryCache=new MemoryCache(profile=>path.join(data,'hermes','profiles',profile),(profile,signal)=>backend.host('project_memory',{profile,name:'read_project_memory'},signal));
+export const mcpToolRequests=new Map<string,{chatId:string;controller:AbortController}>();
+export const memoryCache=new MemoryCache(profile=>path.join(data,'hermes','profiles',profile),(profile,signal)=>backend.host('project_memory',{profile,name:'read_project_memory'},signal));
 let mcpRefresh:Promise<void>|null=null;
 export let connected=false,providerStatus='Not connected',quitting=false;
 export let balance:string|null=null;
@@ -227,126 +230,33 @@ export let claude:ClaudeConnection={connected:false,status:'Not checked'};
 let checkingClaude=false,claudeSignIn:ChildProcess|undefined;
 export let claudeExecutable:string|null=null;
 // Each Claude message row's controller (its preparation, approvals and his remove button), by row.
-const claudeControllers=new Map<string,AbortController>();
-const claudeAutomatic=new Map<string,{chatId:string;controller:AbortController}>();
+export const claudeControllers=new Map<string,AbortController>();
+export const claudeAutomatic=new Map<string,{chatId:string;controller:AbortController}>();
 const claudeControls=new Map<string,{setMode:(mode:Mode)=>Promise<void>}>();
 export const requests=new Map<string,any>();
 // The chat runner's records (TURN-REVIEW part 3). Claude's busy lives in its engine (native.processing); these are the
 // rows Tris runs itself or has handed to Hermes, each set by an action and cleared by its end event, never guessed.
 export const preparing=new Map<string,{turnId:string;controller:AbortController}>(); // chat -> the message being prepared
-const commandTurns=new Map<string,string>(); // chat -> a plugin command, /compact or parallel group running
-const hermesTurns=new Map<string,string>(); // chat -> the row Hermes is answering
+export const commandTurns=new Map<string,string>(); // chat -> a plugin command, /compact or parallel group running
+export const hermesTurns=new Map<string,string>(); // chat -> the row Hermes is answering
 // Hermes's own answer to each send (TURN-REVIEW part 2): read by the running reply (steered) or next in its queue,
 // not started yet. A row leaves when message.start or message.complete names it by ID.
-const hermesSent=new Map<string,Set<string>>(); // chat -> rows Hermes has, not started
-const hermesSessionRows=new Map<string,Set<string>>(); // Hermes session -> every row sent to it
-const hermesStarted=new Set<string>(); // rows whose turn Hermes started (message.start seen)
+export const hermesSent=new Map<string,Set<string>>(); // chat -> rows Hermes has, not started
+export const hermesSessionRows=new Map<string,Set<string>>(); // Hermes session -> every row sent to it
+export const hermesStarted=new Set<string>(); // rows whose turn Hermes started (message.start seen)
 const hermesTurnRows=new Map<string,string>(); // Hermes turn_id -> the row answering it, from its start to its end
 // Rows Hermes answered 'queued'. Its Stop drops those; a steered message survives Stop and runs next (live check 10-15).
-const hermesQueued=new Set<string>();
-function hermesWaiting(chatId:string){return hermesSent.get(chatId)?.size||0;}
-// The row whose reply this chat is getting now, and whether anything in it runs.
-// The running reply comes first: a message being prepared behind it is a waiting message, never Stop's target.
-function replyRow(chatId:string){return native?.replyRow(chatId)??hermesTurns.get(chatId)??commandTurns.get(chatId)??preparing.get(chatId)?.turnId;}
-function chatBusy(chatId:string){return preparing.has(chatId)||commandTurns.has(chatId)||hermesTurns.has(chatId)||hermesWaiting(chatId)>0||!!native?.processing(chatId);}
-function anyChatBusy(){return preparing.size>0||commandTurns.size>0||hermesTurns.size>0||[...hermesSent.values()].some(rows=>rows.size>0)||!!native?.busy;}
-const hermesEvents=new Map<string,{seq:number;at:number}>(),checkingReplies=new Set<string>();
+export const hermesQueued=new Set<string>();
+export function hermesWaiting(chatId:string){return hermesSent.get(chatId)?.size||0;}
+export const hermesEvents=new Map<string,{seq:number;at:number}>(),checkingReplies=new Set<string>();
 // A Hermes turn can end with only an `error` event (audit 3.4); the reply check ends it once the session is idle.
-const hermesErrors=new Map<string,string>();
+export const hermesErrors=new Map<string,string>();
 let replyTimer:NodeJS.Timeout|undefined;
-// A Hermes session the chat lets go of is closed, so abandoned sessions do not pile up in the backend (audit 2.5, 7d).
-function releaseHermesSession(chat:Chat){
-  const sid=store.get<Chat>('chat',chat.id).runtimeId;if(!sid||backend?.status!=='ready')return;
-  void backend.rpc.request('session.close',{session_id:sid,profile:projectFor(chat).profile},10000).catch(()=>{});
-}
-// A Hermes Stop that gets no answer ends locally after its deadline (audit 3.5): the turn is marked stopped,
-// the chat lets go of that Hermes session so the next message starts a fresh one, and the session is closed.
-function stopDeadline(chatId:string,id:string,sid:string){
-  if(quitting||hermesTurns.get(chatId)!==id||store.get<Turn>('turn',id).status!=='stopping')return;
-  receive({type:'message.complete',session_id:sid,payload:{status:'interrupted'}});
-  if(store.get<Chat>('chat',chatId).runtimeId===sid)store.transaction(()=>{store.update<Chat>('chat',chatId,{runtimeId:null,storedId:null});store.put('engine',{...store.enginePosition(chatId,'hermes'),sessionId:null});});
-  void backend.rpc.request('session.close',{session_id:sid,profile:projectFor(store.get<Chat>('chat',chatId)).profile},10000).catch(()=>{});emit();
-}
-// A send that fails after Hermes already took the prompt must keep its turn watched, not leave the run
-// going unseen (audit 3.6). Hermes says whether the session is now busy.
-async function hermesAccepted(profile:string,sid:string){
-  try{const live:any=await backend.rpc.request('session.active_list',{profile},10000);return ['working','waiting','starting'].includes((live.sessions||[]).find((row:any)=>row.id===sid)?.status);}catch{return false;}
-}
-// Hermes numbers each session's events 1, 2, 3... The watermark moves only one step at a time, so a lost
-// event (e.g. the completion) holds it back and the replay fills the gap. Before, a later title event moved
-// it past the lost completion and the replay never returned it (audit 3.11, reply-recovery check 2/6 fails).
-function nextWatermark(previous:number|undefined,seq:number|undefined){
-  if(seq==null||previous==null)return Math.max(previous||0,seq||0);
-  return seq===previous+1?seq:previous;
-}
-async function reconcileReplies(){
-  if(quitting||backend.status!=='ready')return;
-  for(const [chatId,id] of hermesTurns){
-    const chat=store.get<Chat>('chat',chatId),turn=store.get<Turn>('turn',id),sid=chat.runtimeId;
-    if(!sid||turn.command||turn.model.startsWith('claude-code:')||!['running','waiting','stopping'].includes(turn.status)||checkingReplies.has(sid))continue;
-    const seen=hermesEvents.get(sid)||{seq:0,at:turn.created};if(Date.now()-seen.at<15000)continue;
-    checkingReplies.add(sid);const generation=backend.generation;
-    try{
-      // Recover a missing completion from the backend's existing event ledger. Never resubmit work.
-      const result:any=await backend.rpc.request('session.events.since',{profile:projectFor(chat).profile,session_id:sid,last_seen:seen.seq},10000);
-      if(backend.generation!==generation||hermesTurns.get(chatId)!==id)continue;
-      for(const event of result.events||[])receive(event);
-      if(hermesTurns.get(chatId)===id){
-        const live:any=await backend.rpc.request('session.active_list',{profile:projectFor(chat).profile},10000);
-        const row=(live.sessions||[]).find((row:any)=>row.id===sid);
-        if(backend.generation===generation&&hermesTurns.get(chatId)===id&&!['working','waiting','starting'].includes(row?.status)){
-          receive({type:'message.complete',session_id:sid,payload:{status:'error',error:hermesErrors.get(sid)||'Hermes ended this turn without a reply.'}});
-          const waiting=waitingFor(chatId);for(const turnId of [...waiting]){waiting.delete(turnId);if(store.find<Turn>('turn',turnId))store.update<Turn>('turn',turnId,{status:'queued',delivery:undefined,activity:undefined});}
-          wake(chatId);
-        }
-      }
-      // The replay returned everything after the watermark: the session is seen through its latest event.
-      const current=hermesEvents.get(sid)||seen;hermesEvents.set(sid,{seq:Math.max(current.seq,Number(result.latest_seq)||0),at:Date.now()});
-    }catch(error){
-      if(!quitting&&backend.generation===generation&&backend.status==='ready'){
-        // A slow read is not proof the model stopped. Keep work running and retry the check.
-        store.put('connection-check',{id,chatId,sessionId:sid,at:Date.now(),error:backend.scrubber.text(String(error))});
-        hermesEvents.set(sid,{...(hermesEvents.get(sid)||seen),at:Date.now()});
-      }
-    }finally{checkingReplies.delete(sid);}
-  }
-  // Messages Hermes took and never started, with nothing running: after 15 s of quiet and an idle session they go out
-  // again, never left waiting.
-  for(const [chatId,rows] of hermesSent){
-    if(!rows.size||hermesTurns.has(chatId))continue;
-    const chat=store.find<Chat>('chat',chatId),sid=chat?.runtimeId;if(!chat||!sid||checkingReplies.has(sid)||Date.now()-(hermesEvents.get(sid)?.at||0)<15000)continue;
-    checkingReplies.add(sid);const generation=backend.generation;
-    try{
-      const live:any=await backend.rpc.request('session.active_list',{profile:projectFor(chat).profile},10000),row=(live.sessions||[]).find((row:any)=>row.id===sid);
-      if(backend.generation===generation&&!hermesTurns.has(chatId)&&!['working','waiting','starting'].includes(row?.status)){for(const turnId of [...rows]){rows.delete(turnId);if(store.find<Turn>('turn',turnId))store.update<Turn>('turn',turnId,{status:'queued',delivery:undefined,activity:undefined});}wake(chatId);emit();}
-    }catch{}finally{checkingReplies.delete(sid);}
-  }
-  // Every wait has its own deadline (TURN-REVIEW rule 3): once Tris tracks nothing in a chat and Hermes has been quiet
-  // and idle for 15 s, a Hermes row still busy there ended unseen; it is closed instead of holding the chat (Fork).
-  for(const chat of store.all<Chat>('chat')){
-    const sid=chat.runtimeId,tracked=hermesTurns.has(chat.id)||hermesWaiting(chat.id)>0||preparing.has(chat.id)||commandTurns.has(chat.id);
-    if(tracked||sid&&(checkingReplies.has(sid)||Date.now()-(hermesEvents.get(sid)?.at||0)<15000))continue;
-    const quiet=(row:Turn)=>Date.now()-(row.lastActivity||row.created)>=15000;
-    if(!busyHermesRows(store.where<Turn>('turn','chatId',chat.id)).some(quiet))continue;
-    if(sid)checkingReplies.add(sid);const generation=backend.generation;
-    try{
-      const live:any=sid?await backend.rpc.request('session.active_list',{profile:projectFor(chat).profile},10000):{sessions:[]},row=(live.sessions||[]).find((row:any)=>row.id===sid);
-      if(backend.generation!==generation||hermesTurns.has(chat.id)||hermesWaiting(chat.id)>0||preparing.has(chat.id)||['working','waiting','starting'].includes(row?.status))continue;
-      for(const turn of busyHermesRows(store.where<Turn>('turn','chatId',chat.id)).filter(quiet)){store.update<Turn>('turn',turn.id,{status:'failed',error:'Hermes ended this turn without a reply.',activity:undefined,delivery:undefined});hermesStarted.delete(turn.id);}
-      emit();
-    }catch{}finally{if(sid)checkingReplies.delete(sid);}
-  }
-}
 export const modeChanges=new Map<string,Promise<void>>();
-async function waitForMode(projectId:string){while(modeChanges.has(projectId))await modeChanges.get(projectId)!.catch(()=>{});}
-export function hasWork(includeGoals=true,includePluginChanges=true){return includePluginChanges&&(pluginsChanging||installing)||!!gitOperation||contextJobs.size>0||checkpointChanging||apiChanging||includeGoals&&!!goals?.rows().some(goal=>goal.status==='active')||modeChanges.size>0||anyChatBusy()||pluginOwners.size>0||!!background?.rows().some(row=>['running','checking','stopping'].includes(row.status));}
 const streamScrubbers=new Map<string,ReturnType<Backend['scrubber']['stream']>>();
 export const usageBaseline=new Map<string,any>();
 export const hermesModels=new Map<string,string>();
-const hermesFixed=new Map<string,string>(); // session id -> fixed text it last received
-// Fixed text goes to a fresh session, and again when it changed, but never inside a message steered into a running
-// reply: there it buried his words (10-19: "are you done?" arrived as 10,615 characters). It waits for an idle message.
-function resendFixed(fresh:boolean,busy:boolean,last:string|undefined,next:string){return fresh||!busy&&last!==next;}
+export const hermesFixed=new Map<string,string>();
 let updateTimer:NodeJS.Timeout|null=null;
 export const appSummaryJobs=new Map<string,{controller:AbortController;promise:Promise<AppSummary>;revision:string;model:string}>();
 export const appSummaryErrors=new Map<string,{revision:string;message:string}>();
@@ -832,7 +742,7 @@ async function checkAccount(key:string,signal?:AbortSignal){
   }catch{/* Missing checks do not clear a known account failure or block an unverified account. */}
   emit();
 }
-async function routeTurn(chat:Chat,turn:Turn){
+export async function routeTurn(chat:Chat,turn:Turn){
   const controller=new AbortController();jevControllers.set(chat.id,controller);
   const selected=turn.requestedModels||[],completed=store.all<Turn>('turn').filter(t=>t.status==='completed'&&!t.command&&t.created<turn.created);
   const previous=completed.filter(t=>t.chatId===chat.id).at(-1)?.model||null;
@@ -900,356 +810,22 @@ async function routeTurn(chat:Chat,turn:Turn){
   Object.assign(turn,{model:decision.model,models:decision.models,collaboration:decision.collaboration,effort:turn.efforts?.[decision.model]||'high',routePending:false,routeNotice:notice,fallbacks:decision.order?.slice(1)||[]});
   store.transaction(()=>{store.update<Turn>('turn',turn.id,turn);if(!['jev','selector'].includes(decision.reason))recordRoute(turn.id,decision);});emit();return true;
 }
-// Each supplier's live address: what routing sends to, and what the expanded model bar shows.
-export function providerUrls():Record<string,string>{return {deepseek:process.env.TRISMEGISTUS_TEST_PROVIDER_URL||'https://api.deepseek.com/v1','openai-codex':process.env.TRISMEGISTUS_TEST_CODEX_URL||'https://chatgpt.com/backend-api/codex',...apiProviders?.urls()};}
-function stateProviderInChat(provider:string,chat:Chat){return (chat.pool||['deepseek-flash']).some(model=>providerFor(model)===provider);}
 // The chat runner (TURN-REVIEW part 3). A message goes to its engine as soon as it is prepared, busy or not; it waits
 // only for an engine or model switch, and that wait is released by the engine's own idle. Every wait names itself on
 // the message and in one queue.log line, with the engine's state.
-const holds=new Map<string,{turn:string;line:string}>();
-function engineState(chatId:string){return [preparing.has(chatId)&&'preparing='+preparing.get(chatId)!.turnId,commandTurns.has(chatId)&&'command='+commandTurns.get(chatId),hermesTurns.has(chatId)&&'hermes='+hermesTurns.get(chatId),hermesWaiting(chatId)>0&&'hermes-waiting='+hermesWaiting(chatId),...(native?.processingReasons(chatId)||[])].filter(Boolean).join(' ')||'idle';}
-function hold(chatId:string,turn:Turn|undefined,reason:string){
-  if(turn&&(turn.hold||'')!==reason){try{store.update<Turn>('turn',turn.id,{hold:reason||undefined});setImmediate(emit);}catch{}}
-  const previous=holds.get(chatId),line=turn&&reason?`turn=${turn.id} held: ${reason} | engine: ${engineState(chatId)}`:'';
-  if(line===(previous?.line||''))return;
-  if(line)holds.set(chatId,{turn:turn!.id,line});else holds.delete(chatId);
-  try{appendFileSync(path.join(data,'queue.log'),`${new Date().toISOString()} chat=${chatId} ${line||`turn=${previous?.turn||'-'} released`}\n`);}catch{}
-}
-const runningChats=new Set<string>(),runAgain=new Set<string>();
-function wake(chatId:string){if(quitting||!store)return;if(runningChats.has(chatId)){runAgain.add(chatId);return;}void runChat(chatId);}
+export const holds=new Map<string,{turn:string;line:string}>();
+export const runningChats=new Set<string>(),runAgain=new Set<string>();
 let wakePending=false;
 // Something changed (an engine went idle, a model connected, a change finished): every chat with a waiting message
 // looks again. Event-driven; this replaces the 5 s sweep.
 function wakeWaiting(){if(wakePending||!store)return;wakePending=true;setImmediate(()=>{wakePending=false;if(quitting)return;for(const chatId of new Set(store.where<Turn>('turn','status','queued').filter(t=>!t.paused).map(t=>t.chatId)))wake(chatId);});}
-async function runChat(chatId:string){
-  runningChats.add(chatId);
-  try{do{runAgain.delete(chatId);while(!quitting&&await runStep(chatId));}while(runAgain.has(chatId)&&!quitting);}
-  catch(error){try{appendFileSync(path.join(data,'queue.log'),`${new Date().toISOString()} chat=${chatId} runner error: ${backend.scrubber.text(String(error))}\n`);}catch{}}
-  finally{runningChats.delete(chatId);}
-}
-function waitingFor(chatId:string){if(!hermesSent.has(chatId))hermesSent.set(chatId,new Set());return hermesSent.get(chatId)!;}
-// A turn Hermes starts by itself (a background job's completion, a goal step, a wake-up): its own automatic row.
-function automaticHermes(chat:Chat,sid:string){
-  const rows=store.where<Turn>('turn','chatId',chat.id).sort((a,b)=>a.created-b.created),origin=rows.filter(t=>!t.model.startsWith('claude-code:')&&!t.command).at(-1);
-  const turn:Turn={id:randomUUID(),chatId:chat.id,automatic:{originTurnId:origin?.id||'',taskId:'',runtimeId:sid,source:'self'},prompt:'',text:'',reasoning:'',model:hermesModels.get(sid)||origin?.model||chat.model,effort:origin?.effort,status:'running',activity:'Waiting for model',usage:null,error:null,created:Date.now()};
-  store.put('turn',turn);hermesStarted.add(turn.id);return turn.id;
-}
-function waitingRow(chatId:string){return store.where<Turn>('turn','chatId',chatId).filter(t=>['queued','needs-model'].includes(t.status)&&!t.paused).sort((a,b)=>a.created-b.created)[0];}
-// Messages typed behind a message while it is prepared join it and reach the model as one message (Koan 10-01, 10-16).
-// Only the next run of his plain messages with the same model choice joins, so nothing is reordered or rerouted.
-const plainMessage=(t:Turn)=>t.status==='queued'&&!t.paused&&!t.command&&!t.contextCommand&&!t.prompt.trimStart().startsWith('/')&&!t.goal&&!t.remote&&!t.routine&&!t.voice&&!t.handoff&&!t.review&&!t.automatic&&!t.parentTurnId&&!t.jobs?.length;
-const modelChoice=(t:Turn)=>JSON.stringify([t.model,t.models||null,t.requestedModels||null,!!t.routePending,t.effort,t.efforts]);
-async function joinWaiting(turn:Turn,choice:string,signal:AbortSignal){
-  if(!plainMessage({...turn,status:'queued'}))return;
-  let later:Turn[]=[],files=turn.attachments?.length||0;
-  for(const t of store.where<Turn>('turn','chatId',turn.chatId).filter(t=>t.id!==turn.id&&t.created>=turn.created&&['queued','needs-model'].includes(t.status)).sort((a,b)=>a.created-b.created)){
-    files+=t.attachments?.length||0;if(!plainMessage(t)||modelChoice(t)!==choice||files>10)break;later.push(t);
-  }
-  if(!later.length)return;
-  // An image or PDF joins only if the picked model reads it.
-  await loadInputCapabilities(later.at(-1)!,signal);
-  // Stop, or his remove button on a waiting message, may have acted meanwhile.
-  if(signal.aborted||store.get<Turn>('turn',turn.id).status==='stopping')return;
-  later=later.filter(t=>store.find<Turn>('turn',t.id)?.status==='queued');
-  const earlier=conversationAttachments(store.all<Turn>('turn'),turn),fits=()=>(turn.models||[turn.model]).every(model=>!attachmentMismatch([...earlier,...later.flatMap(t=>t.attachments||[])],visionModels[model]===true,model));
-  while(later.length&&!fits())later.pop();
-  if(!later.length)return;
-  // A removal marker keeps a repeated send of a joined message from creating it again.
-  store.transaction(()=>{store.update<Turn>('turn',turn.id,{prompt:[turn,...later].map(t=>t.prompt).filter(text=>text.trim()).join('\n\n'),attachments:[...(turn.attachments||[]),...later.flatMap(t=>t.attachments||[])]});for(const t of later){store.put('turn-removed',{id:t.id,chatId:turn.chatId,mergedInto:turn.id});store.remove('turn',t.id);}});
-  Object.assign(turn,store.get<Turn>('turn',turn.id));emit();
-}
-// One step: the first waiting message goes out (true: look again), or names what it waits for (false).
-async function runStep(chatId:string){
-  let chat:Chat;try{chat=store.get<Chat>('chat',chatId);}catch{return false;}
-  const turn=waitingRow(chatId);
-  if(!turn){hold(chatId,undefined,'');return false;}
-  if(turn.status==='needs-model'){hold(chatId,turn,'Choose a model');return false;}
-  const reason=holdReason(chat,turn);hold(chatId,turn,reason);if(reason)return false;
-  await dispatch(chat,turn);return true;
-}
-function holdReason(chat:Chat,turn:Turn){
-  if(folderRecoveryRequired)return 'Waiting for the backend restart that restores the working folder';
-  if(checkpointChanging)return 'Waiting for the file restore to finish';
-  if(gitOperation)return 'Waiting for the Git action to finish';
-  if(apiChanging)return 'Waiting for the connection change to finish';
-  if(pluginsChanging)return 'Waiting for the plugin change to finish';
-  if(modeChanges.has(chat.projectId))return 'Waiting for the permission mode change';
-  const hermes=backend?.status==='ready';
-  if((turn.command||turn.routePending||turn.contextCommand)&&!hermes)return 'Waiting for the backend to start';
-  if(!turn.command&&!turn.routePending&&!turn.contextCommand){const ready=new Set(availableModels()),missing=(turn.models||[turn.model]).find(model=>!ready.has(model)||!hermes&&!model.startsWith('claude-code:'));if(missing)return 'Waiting for '+modelLabel(missing,claude.models)+' to connect';}
-  return switchReason(chat,turn);
-}
-// The one wait the engines need from Tris: a switch of engine or model, released by the engine's own idle.
-function switchReason(chat:Chat,turn:Turn){
-  const label=(model:string)=>modelLabel(model,claude.models),command=commandTurns.get(chat.id),hermesRow=hermesTurns.get(chat.id)||[...(hermesSent.get(chat.id)||[])][0],claudeBusy=!!native?.processing(chat.id);
-  if(command)return 'Waiting for '+(store.get<Turn>('turn',command).jobs?.length?'the parallel jobs':'the command')+' to finish';
-  const claudeLabel=label('claude-code:'+(native.liveModel(chat.id)||'')),hermesLabel=hermesRow?label(store.get<Turn>('turn',hermesRow).model):'';
-  // A plugin command, a summary, a review or parallel jobs need the chat to themselves.
-  const alone=!!(turn.command||turn.contextCommand||(turn.models?.length||0)>1||!turn.parentTurnId&&reviewRequest(turn.prompt));
-  if(alone&&(hermesRow||claudeBusy))return 'Waiting for '+(hermesRow?hermesLabel:claudeLabel)+' to finish';
-  // A command or summary row has no engine of its own; routing picks one in preparation.
-  if(turn.command||turn.contextCommand||turn.routePending)return '';
-  if(providerFor(turn.model)==='claude-code'){
-    if(hermesRow)return `Waiting for ${hermesLabel} to finish before ${label(turn.model)} takes over`;
-    if(claudeBusy&&'claude-code:'+native.liveModel(chat.id)!==turn.model)return `Waiting for ${claudeLabel} to finish before ${label(turn.model)} takes over`;
-    return '';
-  }
-  if(claudeBusy)return `Waiting for ${claudeLabel} to finish before ${label(turn.model)} takes over`;
-  if(hermesRow&&store.get<Turn>('turn',hermesRow).model!==turn.model)return `Waiting for ${hermesLabel} to finish before ${label(turn.model)} takes over`;
-  return '';
-}
-// TRIS-TODO 1.11: a preparation step with no time limit of its own ends its message after this long, naming itself.
-const prepareLimit=()=>namespace.startsWith('Trismegistus/Test/')&&Number(process.env.TRISMEGISTUS_TEST_PREPARE_LIMIT)>0?Number(process.env.TRISMEGISTUS_TEST_PREPARE_LIMIT):60000;
 // Test hook: the named step waits forever, once.
 let prepareHung=false;
-const testHang=async(name:string)=>{if(namespace.startsWith('Trismegistus/Test/')&&process.env.TRISMEGISTUS_TEST_PREPARE_HANG===name&&!prepareHung){prepareHung=true;await new Promise(()=>{});}};
+export const testHang=async(name:string)=>{if(namespace.startsWith('Trismegistus/Test/')&&process.env.TRISMEGISTUS_TEST_PREPARE_HANG===name&&!prepareHung){prepareHung=true;await new Promise(()=>{});}};
 // The plugin runtime passed its full check with this listing (TRIS-TODO 1.11).
-const runtimeChecked:{hash?:string;listing?:string}={};
-const pluginGate=new ChangeGate();
-// Prepares one message and hands it to its engine. Returns once the engine has it (or it failed); the reply is the
-// engine's business. A preparation step past its limit ends the message and frees the chat (TRIS-TODO 1.11).
-async function dispatch(chat:Chat,turn:Turn){
-  const chatId=chat.id,p=projectFor(chat),controller=new AbortController(),signal=controller.signal;preparing.set(chatId,{turnId:turn.id,controller});
-  let phase='Preparing reply',stepStarted=Date.now(),logged=false,stuck='',release=()=>{};const steps:string[]=[],dispatchStarted=stepStarted,released=new Promise<void>(resolve=>{release=resolve;});
-  const step=(name:string)=>{signal.throwIfAborted();const now=Date.now();steps.push(phase+' '+(now-stepStarted)+'ms');phase=name;stepStarted=now;};
-  const preparingStep=(value:string,name=value)=>{step(name);store.update<Turn>('turn',turn.id,{preparation:value});emit();};
-  const done=()=>{if(preparing.get(chatId)?.controller===controller)preparing.delete(chatId);};
-  let watch:ReturnType<typeof setInterval>|undefined;
-  const finish=(result:string)=>{clearInterval(watch);if(logged)return;logged=true;steps.push(phase+' '+(Date.now()-stepStarted)+'ms');try{appendFileSync(path.join(data,'prepare.log'),`${new Date().toISOString()} chat=${chatId} turn=${turn.id} model=${turn.model} ${result} total=${Date.now()-dispatchStarted}ms steps=${steps.join(', ')}\n`);}catch{}};
-  const limit=prepareLimit();
-  watch=setInterval(()=>{
-    if(stuck||signal.aborted||phase==='Summarising earlier messages')return;
-    // His own approval (a project settings review) is not Tris being stuck.
-    if(store.get<Turn>('turn',turn.id).status==='waiting'){stepStarted=Date.now();return;}
-    if(Date.now()-stepStarted<limit)return;
-    stuck=phase;finish('stuck: '+phase);
-    store.update<Turn>('turn',turn.id,{status:'interrupted',error:'Tris got stuck on "'+phase+'" for '+Math.round(limit/1000)+' s, so nothing was sent to the model. Send your message again.'});
-    controller.abort();claudeControllers.get(turn.id)?.abort();if(hermesTurns.get(chatId)===turn.id)hermesTurns.delete(chatId);done();emit();release();
-  },500);
-  store.update<Turn>('turn',turn.id,{status:'dispatching',hold:undefined});emit();
-  const work=(async()=>{
-    try{
-      if(turn.command){finish('plugin command');commandTurns.set(chatId,turn.id);done();void dispatchPluginCommand(chat,turn,p);return;}
-      if(turn.contextCommand){finish('summary command');commandTurns.set(chatId,turn.id);done();
-        void (async()=>{try{const text=await compactForTurn(turn,false);store.update<Turn>('turn',turn.id,{status:'completed',text,error:null});}catch(error){const status=store.get<Turn>('turn',turn.id).status;store.update<Turn>('turn',turn.id,{status:status==='stopping'?'stopped':'interrupted',error:status==='stopping'?null:backend.scrubber.text(String(error))});}finally{if(commandTurns.get(chatId)===turn.id)commandTurns.delete(chatId);emit();wake(chatId);}})();return;
-      }
-      // Engines shrink their own live sessions (Claude Code / Hermes). Tris summarises only for a session that must start fresh.
-      // A message sent into a live, busy session is never a fresh one (its saved position is uncertain while it answers).
-      const engine=providerFor(turn.model)==='claude-code'?'claude' as const:'hermes' as const,live=engine==='claude'?!!native.processing(chatId):hermesTurns.has(chatId)||hermesWaiting(chatId)>0,fresh=!live&&!handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),turn,store.enginePosition(chatId,engine),chat.context,chat.contextInstructions,'',false).sessionId;
-      // A fresh session never waits for a summary (batch 5, 7b; 10-13..20: 21 sends waited up to 285 s): one built in
-      // the background earlier is applied now, else the message goes at once with recent history and read_chat_history
-      // while one builds for next time.
-      if(fresh&&!chat.parentChatId){if(await applyReadyDraft(chatId))Object.assign(chat,store.get<Chat>('chat',chatId));else if(shouldAutoCompact(store,turn,fresh))compactInBackground(turn);}
-
-      signal.throwIfAborted();
-      preparingStep('Checking attachments');await loadInputCapabilities(turn,signal);
-      if(store.get<Turn>('turn',turn.id).status==='stopping'){store.update<Turn>('turn',turn.id,{status:'stopped'});return;}
-      preparingStep('Selecting model');const choice=modelChoice(turn);if(turn.routePending&&!(await routeTurn(chat,turn)))return;
-      await joinWaiting(turn,choice,signal);
-      // The pick may be another engine or model than the one answering: that switch waits for its idle.
-      {const reason=switchReason(chat,turn);if(reason){store.update<Turn>('turn',turn.id,{status:'queued',preparation:undefined});hold(chatId,turn,reason);return;}}
-      if((turn.models||[turn.model]).some(model=>!checkDispatch(chat,{...turn,model})))return;
-      const review=turn.parentTurnId?null:reviewRequest(turn.prompt);
-      let expanded=turn.parentTurnId?turn.prompt:await pluginCommand(turn.prompt,store.all<NativePluginInstall>('native-plugin'),path.join(data,'native-plugins'));
-      if(review){
-        const target=await reviewTarget(p.folder?workingDirectory(p):null,data,review.base,review.repository),brief=await backend.host('review_context',{messages:reviewMessages(store.all<Turn>('turn'),turn),focus:reviewFocus(target,review.focus)},signal);
-        turn.review=target;store.update<Turn>('turn',turn.id,{review:target});expanded=brief.context;
-      }
-      if(expanded!==turn.prompt){turn.commandContext=backend.scrubber.text(expanded);store.update<Turn>('turn',turn.id,{commandContext:turn.commandContext});}
-      if(store.get<Turn>('turn',turn.id).status==='stopping'){store.update<Turn>('turn',turn.id,{status:'stopped'});return;}
-      if(!turn.parentTurnId&&(turn.review||turn.models&&turn.models.length>1)){
-        finish('parallel jobs');commandTurns.set(chatId,turn.id);const jobs=createParallel(store,turn,turn.models||[turn.model]);
-        // The main window docks these jobs as side-by-side panes; a pane can still pop out into its own window.
-        for(const job of jobs)wake(job.chatId);
-        return;
-      }
-      if(providerFor(turn.model)==='claude-code'){await sendClaude(chat,turn,p,step,signal);return;}
-      preparingStep('Checking plugins','Checking plugins: plugin files');await testHang(phase);const plugins=store.all<NativePluginInstall>('native-plugin').filter(row=>row.hermes);
-      // Each check runs when its folders or inputs changed, and after every Hermes start (the generation is an input).
-      const reviewed=backend.generation+JSON.stringify(plugins.map(row=>[row.id,row.hash,row.directory,row.enabled])),copies=path.join(data,'hermes','profiles',p.profile,'plugins');
-      if(!pluginGate.quiet('files',[path.join(data,'native-plugins')],reviewed)){await verifyPlugins(plugins,path.join(data,'native-plugins'));pluginGate.pass('files',reviewed);}
-      step('Checking plugins: plugin runtime');const runtime=pluginRuntime();
-      // In full when the reviewed runtime or its files changed (about 3 s on his 300 MB); a changed folder gets a listing first.
-      if(runtime&&!pluginGate.quiet('runtime',[runtime.directory],backend.generation+runtime.hash)){await checkRuntimeOnChange(runtimeChecked,runtime,()=>backend.host('plugin_runtime_check',{runtime},signal));pluginGate.pass('runtime',backend.generation+runtime.hash);}
-      step('Checking plugins: plugin copies');
-      if(!pluginGate.quiet('copies:'+p.profile,[copies],reviewed)){await hermesPluginCopies(plugins,path.join(data,'hermes','profiles',p.profile));pluginGate.pass('copies:'+p.profile,reviewed);}
-      // A live session already has every message it was sent: the handover starts after the last of them.
-      const busy=hermesTurns.has(chatId)||hermesWaiting(chatId)>0,sessionRows=chat.runtimeId?hermesSessionRows.get(chat.runtimeId):undefined;
-      const rows=store.all<Turn>('turn').filter(t=>t.chatId===chatId),through=busy&&sessionRows?rows.slice(0,rows.findIndex(t=>t.id===turn.id)).reverse().find(t=>sessionRows.has(t.id))?.id:undefined;
-      step('Checking plugins: history');const stored=store.beginEngine(chatId,'hermes'),position=through?{...stored,sessionId:chat.storedId||chat.runtimeId,throughTurnId:through,uncertain:false}:stored;
-      const transfer=handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),turn,position,chat.context,chat.contextInstructions,appChatContext(store,chat)+'\n'+rlmContext(store,chat)+screenContext());
-      if(!transfer.sessionId){releaseHermesSession(chat);store.update<Chat>('chat',chatId,{runtimeId:null,storedId:null});chat.runtimeId=null;chat.storedId=null;}
-      preparingStep('Opening model session');const sid=await session(chat,turn.model,signal);
-      if(store.get<Turn>('turn',turn.id).status==='stopping'){store.update<Turn>('turn',turn.id,{status:'stopped'});return;}
-      // While Hermes answers, the session keeps the settings the running reply was sent with (same model: switchReason).
-      preparingStep('Configuring model');if(!busy){if(hermesModels.get(sid)!==turn.model){
-        const configured:any=await backend.rpc.request('config.set',{profile:p.profile,session_id:sid,key:'model',value:`${wireModel(turn.model)} --provider ${providerFor(turn.model)} --session`},30000,signal);
-        if(configured.deferred || configured.confirm_required)throw Error('Model selection is not ready for this turn.');
-        hermesModels.set(sid,turn.model);
-      }
-      await backend.rpc.request('config.set',{profile:p.profile,session_id:sid,key:'reasoning',value:turn.effort||chat.effort},30000,signal);
-      const ordered=turn.fallbacks||[],nativeIndex=ordered.findIndex(model=>providerFor(model)==='claude-code');
-      // Native Claude requires a new turn; never skip its place in Jev's order.
-      const fallbacks=ordered.slice(0,nativeIndex<0?ordered.length:nativeIndex).filter(model=>availableModels().includes(model)&&(chat.pool||[]).includes(model)&&!inputMismatch({...turn,model})).map(model=>({model:wireModel(model),provider:providerFor(model),base_url:apiProviders.urls()[providerFor(model)]||(providerFor(model)==='deepseek'?process.env.TRISMEGISTUS_TEST_PROVIDER_URL||'https://api.deepseek.com/v1':process.env.TRISMEGISTUS_TEST_CODEX_URL||'https://chatgpt.com/backend-api/codex')}));
-      await backend.rpc.request('config.set',{profile:p.profile,session_id:sid,key:'fallback_providers',value:fallbacks},30000,signal);}
-      const attachmentParts=await attachmentContent(path.join(data,'attachments'),chat.parentChatId||chatId,transfer.attachments);
-      preparingStep('Loading project memory');const memory=memoryContext(await memoryCache.get(p.profile,signal));
-      if(store.get<Turn>('turn',turn.id).status==='stopping'){store.update<Turn>('turn',turn.id,{status:'stopped'});return;}
-      if(!checkDispatch(chat,turn))return;
-      store.update<Turn>('turn',turn.id,{status:'running',activity:'Waiting for model'});
-      // Resumed sessions keep their cached system prompt; current task guidance
-      // also travels in the new message without rewriting earlier context.
-      // Fixed text (scratch hint, memory, jobs, goals, rules) goes once per session and again only when it changed (Koan, 2026-10-08).
-      const appText=appChatContext(store,chat)+'\n'+rlmContext(store,chat)+screenContext(),fixedText=taskScratchHint+'\n\n'+backend.scrubber.text(memory)+'\n\n'+background.context(chat)+native.context(chat)+parallelContext(store,turn)+goals.context(turn);
-      const resend=resendFixed(!transfer.sessionId,busy,hermesFixed.get(sid),fixedText+appText);
-      const prompt=resend?fixedText+transfer.prompt:handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),turn,position,chat.context,chat.contextInstructions,appText,false).prompt;
-      // From here the row is Hermes's. Idle: it starts now and its events name it. Busy: Hermes has it, not started.
-      finish('sent');if(busy)waitingFor(chatId).add(turn.id);else hermesTurns.set(chatId,turn.id);done();
-      let answer:any;
-      try{answer=await backend.rpc.request('prompt.submit',{profile:p.profile,session_id:sid,client_id:turn.id,text:attachmentParts.length?[{type:'text',text:prompt},...attachmentParts]:prompt});}
-      catch(error){if(!await hermesAccepted(p.profile,sid))throw error;}
-      if(!hermesSessionRows.has(sid))hermesSessionRows.set(sid,new Set());hermesSessionRows.get(sid)!.add(turn.id);
-      if(resend)hermesFixed.set(sid,fixedText+appText);
-      // Hermes's own answer: started now, read by the running reply after its current step (steer), or next in its queue.
-      const label=modelLabel(turn.model,claude.models);
-      if(answer?.status==='streaming'){hermesSent.get(chatId)?.delete(turn.id);if(!hermesTurns.has(chatId))hermesTurns.set(chatId,turn.id);}
-      else if(['steered','redirected','queued'].includes(answer?.status)){
-        if(hermesTurns.get(chatId)===turn.id&&!hermesStarted.has(turn.id)){hermesTurns.delete(chatId);waitingFor(chatId).add(turn.id);}
-        if(answer.status==='queued')hermesQueued.add(turn.id);
-        store.update<Turn>('turn',turn.id,{delivery:'sent',activity:answer.status==='queued'?'Sent, '+label+' answers it next':'Sent, '+label+' reads it after the current step'});
-      }
-    }catch(e){if(!stuck){const status=store.get<Turn>('turn',turn.id).status;if(hermesTurns.get(chatId)===turn.id)hermesTurns.delete(chatId);hermesSent.get(chatId)?.delete(turn.id);if(providerFor(turn.model)!=='claude-code'&&!hermesTurns.has(chatId)&&!hermesWaiting(chatId)){releaseHermesSession(chat);store.update<Chat>('chat',chatId,{runtimeId:null});}if(status!=='needs-model')store.update<Turn>('turn',turn.id,{status:status==='stopping'?'stopped':'interrupted',error:status==='stopping'?null:phase+': '+backend.scrubber.text(String(e))});}}
-    finally{if(!stuck){finish(store.get<Turn>('turn',turn.id).status);done();emit();}}
-  })();
-  await Promise.race([work,released]);
-}
-// Opus: the message goes into the chat's live Claude process at once, busy or not (TURN-REVIEW part 1). The reply
-// arrives on its own; finishNative records it.
-async function sendClaude(chat:Chat,turn:Turn,project:Project,step:(name:string)=>void,preparation:AbortSignal){
-  // Stop or the step limit during preparation also ends Claude's own waits (a settings review, the memory read).
-  const controller=new AbortController();claudeControllers.set(turn.id,controller);const link=()=>controller.abort();preparation.addEventListener('abort',link,{once:true});
-  const started=Date.now();
-  try{
-    const turns=store.all<Turn>('turn'),rows=turns.filter(t=>t.chatId===chat.id),before=rows.slice(0,rows.findIndex(t=>t.id===turn.id)).map(t=>t.id);
-    // A live process already has every message it was sent: the handover starts after the last of them.
-    const stored=store.beginEngine(chat.id,'claude'),position=native.livePosition(chat.id,before)||stored;
-    const transfer=handover(turns,store.all<ToolCall>('tool'),turn,position,chat.context,chat.contextInstructions,'',false);
-    const options=await prepareClaude(chat,turn,project,controller,transfer,undefined,step);
-    step('Opening Claude');
-    const busy=native.busyRuntime(chat.id),into={...options,sessionId:busy?.sessionId};
-    const picked=busy&&busy.compatible(into)?{session:busy,options:into}:await native.acquire(chat,options,()=>{
-      const fresh=handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),turn,undefined,chat.context,chat.contextInstructions,'',false);
-      return {...options,sessionId:undefined,prompt:backend.scrubber.text(parallelContext(store,turn)+(turn.parentTurnId?'Current user message:\n':'')+fresh.prompt)};
-    });
-    step('Sending');preparation.removeEventListener('abort',link);
-    const answer=native.submit(picked);
-    store.update<Turn>('turn',turn.id,{status:'running',delivery:'sent',activity:'Sent, '+modelLabel(turn.model,claude.models)+' reads it after the current step'});
-    void answer.then(result=>finishNative(chat,turn,result,picked.session.id,started),error=>{const saved=store.get<Turn>('turn',turn.id);store.update<Turn>('turn',turn.id,{status:controller.signal.aborted||saved.status==='stopping'?'stopped':'interrupted',...(controller.signal.aborted||saved.status==='stopping'?{stopReason:saved.stopReason||'unknown'}:{}),error:controller.signal.aborted||saved.status==='stopping'?null:backend.scrubber.text(String(error))});}).finally(()=>cleanupNative(chat,turn));
-  }catch(error){cleanupNative(chat,turn);throw error;}
-}
-function finishNative(chat:Chat,turn:Turn,result:ClaudeResult,runtimeId:string,started:number){
-  // His remove button took the row away before Claude answered.
-  if(!store.find<Turn>('turn',turn.id))return;
-  const current=store.get<Turn>('turn',turn.id),context=current.usage?.context_used!=null?{context_used:current.usage.context_used,context_max:current.usage.context_max}:{};
-  // Claude's result may replace streamed commentary with only its final message.
-  const patch:Partial<Turn>=result.answeredIn?{status:result.status,answeredIn:result.answeredIn,delivery:undefined,error:null}:{status:result.status,delivery:undefined,text:typeof result.result?.result==='string'?result.result.result:current.text,usage:{...claudeTurnUsage(result.result),...context},error:result.status==='failed'?(result.result?.errors?.join('\n')||result.result?.result||'Claude could not finish the turn.'):null};
-  if(patch.text!==undefined&&patch.text!==current.text)resetJoinedText(store,turn.id);
-  // A message from another Claude session that the prompt check refused shows as stopped, not failed (TURN-BUILD decision 2).
-  if(current.automatic?.source==='other-session'&&patch.status==='failed')Object.assign(patch,{status:'stopped',error:current.error});
-  // Every stopped turn says why; Stop has already written its reason (batch 4, 6a).
-  if(patch.status==='stopped'&&!current.stopReason)patch.stopReason='unknown';
-  native.finished(runtimeId,turn,result);
-  if(!turn.automatic)store.finishEngine(turn.id,'claude',result.sessionId||null,patch);else store.update<Turn>('turn',turn.id,patch);
-  if(result.status==='failed')claude.status='Last turn failed';else if(result.status==='completed'){claude.status='Signed in';health.clear('claude-code',['auth','model'],started,turn.model);}
-}
-function cleanupNative(chat:Chat,turn:Turn){
-  clearHistoryReads(store,turn.id);
-  for(const approval of store.all<Approval>('approval'))if(approval.turnId===turn.id&&approval.status==='pending'){requests.get(approval.id)?.respond({choice:'deny'});requests.delete(approval.id);store.update<Approval>('approval',approval.id,{status:'expired'});}
-  for(const tool of store.where<ToolCall>('tool','turnId',turn.id))if(tool.status==='running')store.update<ToolCall>('tool',tool.id,{status:'uncertain'});
-  coordination.interrupt(turn.id);if(turn.automatic){claudeAutomatic.get(turn.id)?.controller.abort();claudeAutomatic.delete(turn.id);}else claudeControllers.delete(turn.id);
-  emit();wake(chat.id);
-}
-// A turn Claude starts by itself (a job notice, a wake-up, a timer): an automatic row with its own Stop, made at once
-// from the context the chat's live process already has (TURN-REVIEW part 1). Claude is waiting, so nothing here waits.
-function automaticClaude(chatId:string,runtimeId:string,last:ClaudeRun|undefined,model:string){
-  if(quitting||!last)return undefined;
-  let chat:Chat;try{chat=store.get<Chat>('chat',chatId);}catch{return undefined;}
-  const origin=last.turnId?store.find<Turn>('turn',last.turnId):undefined,controller=new AbortController(),started=Date.now();
-  const turn:Turn={id:randomUUID(),chatId,parentTurnId:origin?.parentTurnId,remote:origin?.remote,routine:origin?.routine,voice:origin?.voice,automatic:{originTurnId:origin?.automatic?.originTurnId||origin?.id||'',taskId:'',runtimeId},prompt:'',text:'',reasoning:'',model:'claude-code:'+model,effort:last.effort,status:'running',usage:null,error:null,created:started};
-  store.transaction(()=>{store.put('turn',turn);if(turn.parentTurnId){const parent=store.get<Turn>('turn',turn.parentTurnId);store.update<Turn>('turn',parent.id,{jobs:[...parent.jobs!,turn.id],status:'running'});}});
-  if(turn.parentTurnId&&chat.parentChatId&&!commandTurns.has(chat.parentChatId))commandTurns.set(chat.parentChatId,turn.parentTurnId);
-  claudeAutomatic.set(turn.id,{chatId,controller});emit();
-  const options=bindClaude(chat,turn,projectFor(chat),controller,{...last,prompt:'',attachments:[],projectMemory:undefined,turnId:turn.id});
-  return {options,complete:(value:ClaudeResult|Error)=>{if(value instanceof Error)store.update<Turn>('turn',turn.id,{status:controller.signal.aborted?'stopped':'interrupted',error:backend.scrubber.text(value.message)});else finishNative(chat,turn,value,runtimeId,started);cleanupNative(chat,turn);}};
-}
-// An agent Claude starts with its Agent tool runs in its own pane, never holding the chat.
-async function continueNative(chat:Chat,origin:Turn,task:{id:string;model:string;runtimeId:string;description?:string;agentType?:string},projectSourceGrant?:ProjectSourceGrant){
-  if(quitting)throw Error('The app is closing.');
-  const model='claude-code:'+task.model;if(providerFor(model)!=='claude-code'||!claude.connected||!claudeExecutable||blockedFor(health.rows(),model))throw Error(unavailableMessage(model));
-  const controller=new AbortController(),started=Date.now(),turn:Turn={id:randomUUID(),chatId:chat.id,parentTurnId:origin.parentTurnId,remote:origin.remote,routine:origin.routine,voice:origin.voice,automatic:{originTurnId:origin.id,taskId:task.id,runtimeId:task.runtimeId,kind:'agent' as const,description:task.description,agentType:task.agentType},prompt:'',text:'',reasoning:'',model,status:'running',usage:null,error:null,created:started};
-  store.transaction(()=>{store.put('turn',turn);if(turn.parentTurnId){const parent=store.get<Turn>('turn',turn.parentTurnId);store.update<Turn>('turn',parent.id,{jobs:[...parent.jobs!,turn.id],status:'running'});}});
-  claudeAutomatic.set(turn.id,{chatId:chat.id,controller});
-  if(turn.parentTurnId&&chat.parentChatId&&!commandTurns.has(chat.parentChatId))commandTurns.set(chat.parentChatId,turn.parentTurnId);
-  emit();
-  const complete=(value:ClaudeResult|Error)=>{if(value instanceof Error)store.update<Turn>('turn',turn.id,{status:controller.signal.aborted?'stopped':'interrupted',error:backend.scrubber.text(value.message)});else finishNative(chat,turn,value,task.runtimeId,started);cleanupNative(chat,turn);};
-  try{
-    const transfer=handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),turn,native.position(task.runtimeId),chat.context,chat.contextInstructions,appChatContext(store,chat)+'\n'+rlmContext(store,chat)+screenContext());
-    // Worker configuration retains the parent effort. A native agent resolves
-    // its own effort; its saved record stays unknown until native reports it.
-    const options=await prepareClaude(chat,{...turn,effort:origin.effort},projectFor(chat),controller,transfer,projectSourceGrant);return {options,complete};
-  }catch(error){complete(error instanceof Error?error:Error(String(error)));throw error;}
-}
-async function coordinateChat(turn:Turn,name:string,args:any,signal:AbortSignal){
- const chat=store.get<Chat>('chat',turn.chatId);
- const approve=(description:string)=>new Promise<boolean>(resolve=>{
-  if(signal.aborted){resolve(false);return;}
-  const id='chat-access:'+turn.id+':'+randomUUID(),finish=(allowed:boolean)=>{signal.removeEventListener('abort',abort);requests.delete(id);resolve(allowed);};
-  const abort=()=>{store.update<Approval>('approval',id,{status:'expired'});finish(false);emit();};
-  signal.addEventListener('abort',abort,{once:true});requests.set(id,{respond:(answer:any)=>finish(answer.choice==='once')});
-  askApproval({id,chatId:chat.id,turnId:turn.id,method:'approval',params:{description:backend.scrubber.text(description)},status:'pending'});store.update<Turn>('turn',turn.id,{status:'waiting'});emit();
- });
- if(backend.scrubber.text(JSON.stringify(args))!==JSON.stringify(args)||redactPastedKeys(JSON.stringify(args))!==JSON.stringify(args))throw Error('Remove credentials before sharing chat content.');
- return backend.scrubber.value(await chatToolCall(store,turn,name,args,{approve,mode:()=>projectFor(chat).mode,submit:async(id,chatId,text,handoff)=>{await submitTurn({id,chatId,text},{handoff},signal);emit();}},signal));
-}
-function requestProjectReview(chat:Chat,turn:Turn,controller:AbortController,review:ProjectTrustReview,description:string,sourceDiscovery=false){return new Promise<boolean>(resolve=>{
-    if(controller.signal.aborted){resolve(false);return;}
-    const id='claude:'+turn.id+':project-trust:'+randomUUID();
-    const finish=(approved:boolean)=>{controller.signal.removeEventListener('abort',abort);requests.delete(id);resolve(approved);};
-    const abort=()=>{store.update<Approval>('approval',id,{status:'expired'});finish(false);emit();};
-    controller.signal.addEventListener('abort',abort,{once:true});requests.set(id,{respond:(answer:any)=>finish(answer.choice==='once')});
-    askApproval({id,chatId:chat.id,turnId:turn.id,method:'project-trust',params:backend.scrubber.value({sourceDiscovery,description:description+'\n'+JSON.stringify({commands:review.commands,settings:review.settings,agents:review.agents,skills:review.skills,warnings:review.warnings,scripts:review.files.map(file=>file.path)},null,2)}),status:'pending'});
-    store.update<Turn>('turn',turn.id,{status:'waiting'});emit();
-  });}
-// The context one message's Claude run needs; the waits (settings review, plugin folders, memory) are here, the
-// callbacks are in bindClaude, which a turn Claude starts itself reuses without waiting.
-async function prepareClaude(chat:Chat,turn:Turn,project:Project,controller:AbortController,transfer:ReturnType<typeof handover>,inheritedTrust?:ProjectSourceGrant,step:(name:string)=>void=()=>{}):Promise<ClaudeRun>{
-  if(!claudeExecutable)throw Error('Check the Claude Code connection in Settings.');
-  let trustedProject=false,projectSettingsHash:string|undefined,projectAgents:Record<string,any>|undefined,projectSourceGrant:ProjectSourceGrant|undefined;
-  const exchangeRoot=path.join(data,'claude-exchange');await fs.mkdir(exchangeRoot,{recursive:true});
-  step('Checking project settings');
-    if(project.folder){
-      const review=await projectSettingsReview(workingDirectory(project),inheritedTrust?.skillFolders),saved=trustRecord(review.folder);
-      if(saved?.hash&&!review.error){
-        trustedProject=inheritedTrust?.sourceHash===review.sourceHash||saved.hash===review.hash&&!review.reviewEveryRun;
-        if(!trustedProject){
-          if(turn.automatic)throw Error('Project settings changed. Review them in a new message before continuing the native task.');
-          trustedProject=await requestProjectReview(chat,turn,controller,review,saved.hash!==review.hash?'Project settings or hook scripts changed.':'Review the project commands and plugins for this run.');
-          if(trustedProject){const current=await projectSettingsReview(workingDirectory(project),review.skillFolders);if(current.error||current.sourceHash!==review.sourceHash)throw Error('Project settings changed during review. Send again to review the current settings.');store.put('trust',{id:saved.id,folder:review.folder,hash:review.hash,skillFolders:review.skillFolders});}
-        }
-      }else if(saved?.hash&&review.error)throw Error(review.error);
-      if(trustedProject){const current=await projectSettingsReview(workingDirectory(project),review.skillFolders);if(current.error||current.sourceHash!==review.sourceHash||inheritedTrust&&inheritedTrust.sourceHash!==current.sourceHash)throw Error('Project settings or agent definitions changed. Review them in a new message.');projectSettingsHash=current.sourceHash;projectAgents=current.definitions;projectSourceGrant=inheritedTrust||{sourceHash:current.sourceHash!,skillFolders:current.skillFolders||[]};}
-    }
-    if(store.get<Turn>('turn',turn.id).status==='stopping')controller.abort();
-    emit();
-    step('Checking plugin folders');
-    const pluginDirectories=await nativePluginDirectories(store.all<NativePluginInstall>('native-plugin'),path.join(data,'native-plugins'));
-    step('Loading project memory');
-    const snapshot=memoryContext(await memoryCache.get(project.profile,controller.signal));
-    step('Reading attachments');
-    const base={chrome:screenSettings().screen&&screenSettings().ownChrome,env:claudeScreenEnv(),executable:claudeExecutable,prefixArgs:fixtureClaudeArgs(),python:backend.python,worker:path.join(root,'backend','claude_worker.py'),directory:workingDirectory(project),planDirectory:project.folder?path.join(await fs.realpath(workingDirectory(project)),'.trismegistus','plans',chat.id):undefined,dataRoot:data,exchangeRoot,model:turn.model.slice(12),effort:turn.effort||'high',mode:project.mode,sessionId:transfer.sessionId||undefined,prompt:backend.scrubber.text(parallelContext(store,turn)+(turn.parentTurnId?'Current user message:\n':'')+transfer.prompt),projectMemory:managementText(appChatContext(store,chat)+'\n'+rlmContext(store,chat)+screenContext())+'\n\n'+backend.scrubber.text(snapshot)+'\n\n'+background.context(chat)+native.context(chat)+goals.context(turn),attachments:await attachmentContent(path.join(data,'attachments'),chat.parentChatId||chat.id,transfer.attachments,true),hasFolder:!!project.folder,trustedProject,projectSettingsHash,projectSourceGrant,projectAgents,scrubber:backend.scrubber,pluginDirectories} as ClaudeRun;
-    return bindClaude(chat,turn,project,controller,base);
-}
-function bindClaude(chat:Chat,turn:Turn,project:Project,controller:AbortController,base:ClaudeRun):ClaudeRun{
+export const runtimeChecked:{hash?:string;listing?:string}={};
+export const pluginGate=new ChangeGate();
+export function bindClaude(chat:Chat,turn:Turn,project:Project,controller:AbortController,base:ClaudeRun):ClaudeRun{
   let projectSourceGrant=base.projectSourceGrant;
   const reviewSources=async(name:string,args:any,directory:string)=>{
     await waitForMode(project.id);controller.signal.throwIfAborted();
@@ -1406,7 +982,7 @@ function bindClaude(chat:Chat,turn:Turn,project:Project,controller:AbortControll
     };
 }
 
-function receive(event:any){
+export function receive(event:any){
   if(event.type==='wake.detected'){wakeDetected();return;}
   if(event.type==='request.cancel'){
     const id=backend.generation+':'+(event.payload?.id||event.payload?.request_id);requests.delete(id);
@@ -1508,347 +1084,16 @@ function receive(event:any){
   hermesEvents.set(event.session_id,{seq:nextWatermark(hermesEvents.get(event.session_id)?.seq,event.seq),at:Date.now()});
   if(['message.delta','reasoning.delta','thinking.delta'].includes(event.type))emitStream(id);else emit();
 }
-function request(request:any){
-  // Completion belongs to its original lease, even after Stop, a new turn or
-  // a new model session. Never use the currently active turn as its owner.
-  if(request.method==='trismegistus.work'&&request.params.operation==='finish'){
-    void (async()=>{
-      const action=coordination.completionOwner(request.params.lease,backend.generation,request.params.session_id);
-      const chat=store.get<Chat>('chat',action.owner!.chatId);
-      await background.finishTool({...chat,runtimeId:action.owner!.sessionId},action.job,action.id,backend.scrubber.value(request.params.result),request.params.uncertain===true,request.params.refused===true);
-      return {enabled:true};
-    })().then(value=>request.respond(value),error=>request.respond({error:backend.scrubber.text(String(error))}));return true;
-  }
-  const chat=store.all<Chat>('chat').find(c=>c.runtimeId===request.params.session_id);
-  if(!chat)return false;
-  // Session replay can include a live request still owned by this handler.
-  if(['trismegistus.work','trismegistus.mcp'].includes(request.method)&&mcpToolRequests.get(backend.generation+':'+request.id)?.chatId===chat.id)return true;
-  const turnId=hermesTurns.get(chat.id);if(!turnId)return false;
-  if(request.method==='trismegistus.work'){
-    const turn=store.get<Turn>('turn',turnId);
-    if(!['running','waiting'].includes(turn.status)||turn.model.startsWith('claude-code:')){request.respond({error:'This job is no longer accepting tool actions.'});return true;}
-    const id=backend.generation+':'+request.id,controller=new AbortController();mcpToolRequests.set(id,{chatId:chat.id,controller});
-    void (async()=>{
-      if(request.replayed||!store.event('work:'+id,()=>{}))throw Error('This action request was already dispatched. Inspect its outcome.');
-      if(request.params.operation==='inspect')return {enabled:true,value:await coordination.inspectAction(turn.id,workingDirectory(projectFor(chat)),backend.scrubber.value(request.params.arguments))};
-      if(request.params.operation==='board'){if(!turn.parentTurnId)throw Error('This tool requires an active parallel job.');return {enabled:true,value:await coordination.board(turn.parentTurnId,turn.id,workingDirectory(projectFor(chat)),backend.scrubber.value(request.params.arguments))};}
-      if(request.params.operation==='begin'){
-        const {name,arguments:args}=request.params;
-        if(typeof name!=='string'||!args||typeof args!=='object'||Array.isArray(args))throw Error('Invalid action request.');
-        if(name==='computer_use'&&screenSettings().screen)await screenStep(turn,name,args,hermesScreenTarget(args),controller.signal);
-        await background.recoverReceipts();
-        const lease=await coordination.begin(turn.parentTurnId||turn.id,turn.id,workingDirectory(projectFor(chat)),name,backend.scrubber.value(args),controller.signal,request.params.patch_paths??undefined);
-        if(lease)store.update<import('./work-coordination').WorkAction>('work-action',lease,{toolId:typeof request.params.request_id==='string'?turn.id+':'+request.params.request_id:undefined,owner:{generation:backend.generation,sessionId:request.params.session_id,chatId:chat.id,profile:projectFor(chat).profile}});
-        return {enabled:true,lease};
-      }
-      throw Error('Unknown action request.');
-    })().then(value=>request.respond(value),error=>request.respond({error:backend.scrubber.text(String(error))})).finally(()=>mcpToolRequests.delete(id));return true;
-  }
-  if(request.method==='trismegistus.mcp'){
-    const id=backend.generation+':'+request.id;
-    if(request.replayed||!store.event('mcp:'+id,()=>{})){request.respond({error:'This connection request was already dispatched. Check its outcome before retrying.'});return true;}
-    if(store.get<Turn>('turn',turnId).model.startsWith('claude-code:')||!['running','waiting'].includes(store.get<Turn>('turn',turnId).status)){request.respond({error:'This chat is no longer running.'});return true;}
-    const controller=new AbortController();mcpToolRequests.set(id,{chatId:chat.id,controller});
-    const {operation,connection,tool,arguments:args}=request.params;
-    void (async()=>{
-      if(operation==='goal')return goals.tool(turnId,backend.scrubber.value(args));
-      if(operation==='app')return createApp(chat,backend.scrubber.value(args),turnId);
-      if(operation==='app-update')return updateApp(chat,backend.scrubber.value(args),turnId);
-      if(operation==='app-list')return listAppTasks(chat);
-      if(operation==='chat-coordinate')return coordinateChat(store.get<Turn>('turn',turnId),tool,args,controller.signal);
-      if(operation==='chat-history')return backend.scrubber.value(readRuntimeHistory(store,store.get<Turn>('turn',turnId),args));
-      if(operation==='background-process')return backgroundProcess(store,chat,args,()=>background.refresh(),id=>handlers.backgroundStop({id}),()=>coordination.denied(turnId,'background_process\n'+JSON.stringify(args)));
-      if(operation==='history-query')return queryHistory(store.get<Turn>('turn',turnId),args,controller.signal);
-      if(operation==='output'){const value=await saveChatOutput(store,data,store.get<Turn>('turn',turnId),workingDirectory(projectFor(chat)),args,text=>{if(backend.scrubber.text(text)!==text||redactPastedKeys(text)!==text)throw Error('Remove credentials before saving this output.');},controller.signal,backend);emit();return value;}
-      if(operation==='image'){if(tool==='generate_image'&&projectFor(chat).mode==='plan')throw Error('Plan mode permits inspection and proposals only.');return imageToolCall(store,backend,store.get<Turn>('turn',turnId),workingDirectory(projectFor(chat)),tool,args,controller.signal,()=>coordination.denied(turnId,tool+'\n'+JSON.stringify(args),undefined,'Image action ended without file changes.'),emit);}
-      if(operation==='document'){if(documentMutations.has(tool)&&projectFor(chat).mode==='plan')throw Error('Plan mode permits inspection and proposals only.');return documentToolCall(store,backend,store.get<Turn>('turn',turnId),workingDirectory(projectFor(chat)),tool,args,controller.signal,()=>coordination.denied(turnId,tool+'\n'+JSON.stringify(args),undefined,'Document action refused; no files were changed.'));}
-      if(operation==='web')return researchTool(store,backend,store.get<Turn>('turn',turnId),tool,args,controller.signal);
-      if(operation==='app-link')return linkCurrentApp(chat,backend.scrubber.value(args));
-      if(operation==='app-todo-update')return updateAppTask(chat,backend.scrubber.value(args),turnId);
-      if(operation==='app-todo')return addAppTask(chat,backend.scrubber.value(args));
-      if(operation==='preview'){if(['publish','delete'].includes(String(args?.action))&&projectFor(chat).mode==='plan')throw Error('Plan mode permits inspection and proposals only.');return previewTool_(chat,store.get<Turn>('turn',turnId),backend.scrubber.value(args),controller.signal);}
-      if(operation==='publish'){if(projectFor(chat).mode==='plan')throw Error('Plan mode permits inspection and proposals only.');return args?.client===true?shareWithClient(chat,args?.path,controller.signal):publish(args?.path,controller.signal);}
-      if(!['list','tools','call'].includes(operation))throw Error('Unsupported MCP operation.');
-      if(operation==='list')return (await mcp.request('list',{},controller.signal)).filter((row:McpConnection)=>row.enabled).map((row:McpConnection)=>({id:row.id,name:row.name,status:row.status}));
-      if(typeof connection!=='string'||operation==='call'&&(typeof tool!=='string'||!args||typeof args!=='object'||Array.isArray(args)))throw Error('Invalid MCP tool request.');
-      return mcp.request(operation,{id:connection,name:tool,arguments:args},controller.signal);
-    })().then(value=>{if(!controller.signal.aborted&&hermesTurns.get(chat.id)===turnId)request.respond({value});},error=>request.respond({error:backend.scrubber.text(String(error))})).finally(()=>mcpToolRequests.delete(id));
-    return true;
-  }
-  if(!['approval','approval.request','clarify','clarify.request'].includes(request.method))return false;
-  if(!['running','waiting'].includes(store.get<Turn>('turn',turnId).status)){request.respond(request.method.startsWith('clarify')?{}:{choice:'deny'});return true;}
-  // Read this chat's current mode at the final approval boundary, including
-  // requests from lower-level file guards. Clarifications still need an answer.
-  if(request.method.startsWith('approval')&&projectFor(chat).mode==='bypass'){request.respond({choice:'once'});return true;}
-  const id=backend.generation+':'+request.id;
-  requests.set(id,request);
-  askApproval({id,chatId:chat.id,turnId,method:request.method.split('.')[0],params:backend.scrubber.value(request.params),status:'pending'});
-  store.update<Turn>('turn',turnId,{status:'waiting'});emit();return true;
-}
-async function dispatchPluginCommand(chat:Chat,turn:Turn,project:Project){
-  const controller=new AbortController();pluginControllers.set(chat.id,controller);
-  let owner:PluginProcessOwner|undefined;
-  const argumentsText=turn.prompt.trimStart().slice(turn.command!.name.length).trimStart();
-  const toolId=turn.id+':plugin-command';let started=false;
-  const approve=(description:string,command?:string)=>new Promise<boolean>(resolve=>{
-    if(controller.signal.aborted){resolve(false);return;}
-    const id='plugin:'+turn.id+':'+randomUUID();
-    const finish=(approved:boolean)=>{controller.signal.removeEventListener('abort',abort);requests.delete(id);resolve(approved);};
-    const abort=()=>{store.update<Approval>('approval',id,{status:'expired'});finish(false);emit();};
-    controller.signal.addEventListener('abort',abort,{once:true});requests.set(id,{respond:(answer:any)=>finish(answer.choice==='once')});
-    askApproval({id,chatId:chat.id,turnId:turn.id,method:'approval',params:{description,command},status:'pending'});store.update<Turn>('turn',turn.id,{status:'waiting'});emit();
-  });
-  const validate=async()=>{
-    controller.signal.throwIfAborted();
-    const current=store.get<Project>('project',project.id);
-    if(!current.folder||workingDirectory(current)!==workingDirectory(project))throw Error('Choose a root working folder in Settings before running plugin commands.');
-    if(current.mode==='plan')throw Error('Plan mode does not run plugin command code.');
-    const plugin=store.get<NativePluginInstall>('native-plugin',turn.command!.pluginId);
-    if(!plugin.enabled||plugin.hash!==turn.command!.hash||hermesPluginKey(plugin)!==turn.command!.pluginKey)throw Error('This command changed. Review the plugin before running it.');
-    const plugins=store.all<NativePluginInstall>('native-plugin').filter(row=>row.hermes);
-    await verifyPlugins(plugins,path.join(data,'native-plugins'));await hermesPluginCopies(plugins,path.join(data,'hermes','profiles',project.profile));
-  };
-  try{
-    if(store.get<Turn>('turn',turn.id).status==='stopping')controller.abort();
-    await validate();
-    if(store.get<Project>('project',project.id).mode!=='bypass'&&!await approve('Run '+turn.command!.name+'\n'+turn.prompt+'\nThis command runs reviewed plugin code with your account’s access.'))throw Error('Plugin command was denied.');
-    await validate();
-    if(!store.event('plugin-command:'+turn.id,()=>{store.update<Turn>('turn',turn.id,{status:'running'});store.put('tool',{id:toolId,turnId:turn.id,name:turn.command!.name,args:{arguments:argumentsText},result:null,status:'running'});} ))throw Error('This command was already dispatched. Check its outcome before retrying.');
-    started=true;emit();
-    const result=await pluginWorker(backend,{operation:'run',...pluginWorkerSettings(),profile:project.profile,cwd:workingDirectory(project),chat:chat.id,turn:turn.id,command:turn.command!.command,pluginKey:turn.command!.pluginKey,arguments:argumentsText},controller.signal,text=>{if(text){const saved=store.get<Turn>('turn',turn.id);store.update<Turn>('turn',turn.id,{text:saved.text+text});emit();}},async (description,command)=>{
-      if(store.get<Project>('project',project.id).mode==='plan')return false;
-      return approve(description,command);
-    },async request=>{
-      if(request.operation==='inspect')return {value:await coordination.inspectAction(turn.id,workingDirectory(project),request.arguments)};
-      if(request.operation==='begin')return {lease:await coordination.begin(turn.id,turn.id,workingDirectory(project),request.name,request.arguments,controller.signal)};
-      if(request.operation==='finish'){if(!owner)throw Error('The command process owner is unavailable.');await background.finishTool(chat,turn.id,request.lease,request.result,request.uncertain===true,false,owner.id);return {};}
-      throw Error('Invalid command action request.');
-    },{
-      opened:value=>{owner=value;pluginOwners.set(value.id,value);},
-      processes:rows=>{if(!owner)throw Error('The command process owner is unavailable.');return background.pluginSnapshot(chat,turn.id,owner.id,rows);},
-      closed:async stopped=>{if(owner)try{await background.pluginClosed(owner.id,stopped);}finally{pluginOwners.delete(owner.id);emit();}}
-    });
-    store.transaction(()=>{const saved=store.get<Turn>('turn',turn.id);store.update<Turn>('turn',turn.id,{text:saved.text+(result?(saved.text?'\n':'')+String(result):saved.text?'':'Command completed.'),status:'completed'});store.update<ToolCall>('tool',toolId,{result,status:'completed'});});
-  }catch(error){
-    store.update<Turn>('turn',turn.id,{status:controller.signal.aborted?'stopped':'interrupted',error:backend.scrubber.text(String(error))});
-    if(started)store.update<ToolCall>('tool',toolId,{status:'uncertain'});
-  }finally{coordination.interrupt(turn.id);pluginControllers.delete(chat.id);if(commandTurns.get(chat.id)===turn.id)commandTurns.delete(chat.id);emit();wake(chat.id);}
-}
-
-function pluginChangeWait(){
-  if(quitting||!backend||backend.status!=='ready')return 'Waiting for the backend';
-  if(backend.loginChild)return 'Waiting for sign-in to finish';
-  if(pluginsChanging||installing||apiChanging||folderChanging||checkpointChanging||gitOperation)return 'Waiting for the current app change';
-  if(anyChatBusy()||submittingChats.size||contextJobs.size||appSummaryJobs.size||modeChanges.size)return 'Queued — waiting for current work to finish';
-  if(pluginOwners.size||background?.rows().some(row=>['running','checking','stopping'].includes(row.status)))return 'Queued — waiting for background work to finish';
-  return null;
-}
 function queuePluginChange(key:string,name:string,action:string,apply:(signal:AbortSignal,activate:()=>void)=>Promise<unknown>){
   return pluginChanges.enqueue(key,name,action,async(signal,activate)=>{
     pluginsChanging=true;
     try{return await apply(signal,activate);}catch(error){throw Error(backend.scrubber.text(String(error)));}finally{pluginsChanging=false;}
   });
 }
-async function restartBackend(pluginChange=false){
+export async function restartBackend(pluginChange=false){
   if(hasWork(!pluginChange,!pluginChange))throw Error('Stop active work before restarting.');
   ++wakeEpoch;closeWakeCapture();await wakeOperation;wakeArmed=false;wakeFailure=false;await backend.stop();
   for(const c of store.all<Chat>('chat'))store.update<Chat>('chat',c.id,{runtimeId:null});await startBackend();
-}
-async function changePlugin(item:NativePluginInstall,runtime?:unknown){
-  const previous=store.all<NativePluginInstall>('native-plugin').find(row=>row.id===item.id),hermes=!!(item.hermes||previous?.hermes);
-  const next=[...store.all<NativePluginInstall>('native-plugin').filter(row=>row.id!==item.id),item].filter(row=>row.enabled&&row.hermes);
-  await backend.host('plugin_dependencies_check',{plugins:next.map(row=>({directory:row.directory,name:row.name,version:row.version,key:hermesPluginKey(row)}))});
-  const previousRuntime=pluginRuntime();
-  store.transaction(()=>{store.put('native-plugin',item);if(runtime!==undefined)store.put('settings',{id:'plugin-runtime',runtime});else if(!next.some(row=>row.setup?.python.length)&&!(pluginRuntime() as any)?.features?.length)store.put('settings',{id:'plugin-runtime',runtime:null});});
-  // A changed system prefix starts a new engine session, retaining the app transcript.
-  for(const chat of store.all<Chat>('chat'))for(const engine of hermes?['claude','hermes'] as const:['claude'] as const)store.put('engine',{...store.enginePosition(chat.id,engine),sessionId:null,uncertain:true});
-  if(hermes){
-    try{await restartBackend(true);}
-    catch(error){
-      store.put('native-plugin',previous||{...item,enabled:false});
-      store.put('settings',{id:'plugin-runtime',runtime:previousRuntime});
-      try{await restartBackend(true);}catch{/* Keep the original load error; Restart remains available. */}
-      throw error;
-    }
-  }
-  emit();return true;
-}
-function goalHold(chatId:string){
-  if(pluginChanges.pending||pluginsChanging)return 'Waiting for queued plugin changes.';
-  if(gitOperation)return 'Wait for the Git operation to finish.';
-  if(contextJobs.has(chatId))return 'Wait for the context summary to finish or stop it.';
-  const chat=store.get<Chat>('chat',chatId),ids=[chatId,...store.all<Chat>('chat').filter(row=>row.parentChatId===chatId).map(row=>row.id)];
-  if(ids.some(id=>chatBusy(id)||submittingChats.has(id))||modeChanges.has(chat.projectId))return 'Wait for current work to finish.';
-  if(store.all<Turn>('turn').some(turn=>ids.includes(turn.chatId)&&['queued','running','waiting','dispatching','stopping'].includes(turn.status)))return 'Wait for queued work to finish.';
-  if([...background.rows(),...native.rows()].some(row=>ids.includes(row.chatId)&&['running','checking','stopping'].includes(row.status)))return 'Wait for background work to finish.';
-  if(coordination.pending().some(action=>ids.includes(store.get<Turn>('turn',action.job).chatId)))return 'Inspect uncertain actions before continuing the goal.';
-  return null;
-}
-async function submitTurn({id,chatId,text,selected,models,goalRun}:any,source?:Pick<Turn,'remote'|'routine'|'voice'|'handoff'>,signal?:AbortSignal){
-    const checkHandoff=()=>{signal?.throwIfAborted();if(source?.handoff&&projectFor(store.get<Chat>('chat',source.handoff.sourceChatId)).mode==='plan')throw Error('Plan mode permits inspection and proposals only.');if(source?.handoff&&store.get<Chat>('chat',chatId).archived)throw Error('Restore the destination chat before sending a task.');};
-    checkHandoff();
-    requireStableFolder();
-    if(managingChats.has(chatId)||store.get<Chat>('chat',chatId).archived)throw Error('Restore this chat before sending a message.');
-    submittingChats.set(chatId,(submittingChats.get(chatId)||0)+1);
-    try{
-    if(!source&&uploading.has(chatId))throw Error('Wait for attachments to finish preparing.');
-    if(apiChanging)throw Error('Wait for the connection update to finish.');
-    if(pluginsChanging)throw Error('Plugins are changing. Send your message when they are ready.');
-    if(backend.loginChild)throw Error('Finish or cancel the account sign-in before sending.');
-    if(typeof text!=='string'||! /^[\w-]{10,80}$/.test(id))throw Error('Invalid message');
-    if(backend.scrubber.text(text)!==text || redactPastedKeys(text)!==text)throw Error('This looks like an API key. Save it in Settings.');
-    const existing=store.all<Turn>('turn').find(turn=>turn.id===id);if(existing){if(existing.chatId!==chatId||existing.prompt!==text)throw Error('Message ID was already used.');return id;}if(store.all<{id:string;chatId:string}>('turn-removed').some(row=>row.id===id)){if(store.get<{chatId:string}>('turn-removed',id).chatId!==chatId)throw Error('Message ID was already used.');return id;}
-    if(!text.trim()&&(source||!store.get<Chat>('chat',chatId).attachments?.length))throw Error('Add a message or attachment.');
-    if(/^\/compact(?:\s|$)/i.test(text.trim())){
-      const chat=sidebar.root(chatId);if(chat.sideSourceId)throw Error('Keep this side chat before compacting.');
-      if(chat.attachments?.length)throw Error('Send or remove attachments before /compact.');
-      store.transaction(()=>{store.accept(id,chatId,text,chat.model,source);store.update<Turn>('turn',id,{contextCommand:true});});wake(chatId);emit();return id;
-    }
-    const handler=pluginHandlers.find(row=>row.name===text.trimStart().split(/\s/,1)[0]);
-    if(handler){
-      checkHandoff();
-      if(!source&&store.get<Chat>('chat',chatId).attachments?.length)throw Error('Plugin commands do not accept attachments. Send them in a model message.');
-      const chat=store.get<Chat>('chat',chatId);
-      store.transaction(()=>{store.accept(id,chatId,text,'command:'+handler.plugin,source);store.update<Turn>('turn',id,{command:handler});store.update<Chat>('chat',chatId,{selected:chat.selected,selectedModels:chat.selectedModels});});
-      wake(chatId);emit();return id;
-    }
-    const history=store.all<Turn>('turn').filter(t=>t.status==='completed'&&!t.command);
-    const previous=history.filter(t=>t.chatId===chatId).at(-1)?.model||null;
-    const chat=store.get<Chat>('chat',chatId);
-    if(chat.parentChatId)throw Error('Use the side job correction control.');
-    if(models!==undefined&&(!Array.isArray(models)||models.some(model=>typeof model!=='string'||!(chat.pool||[]).includes(model))))throw Error('Choose models linked to this chat.');
-    // A Ctrl+clicked model answers every message until released; one-off picks add to it.
-    const locked=chat.lockedModel&&(chat.pool||[]).includes(chat.lockedModel)?[chat.lockedModel]:[];
-    // Remote messages leave pending desktop selections alone. Routines follow
-    // the chosen chat's model selection while preserving its unsent draft.
-    const picks:string[]=source?.remote?locked:[...new Set([...locked,...(models??(typeof selected==='boolean'?(selected?['deepseek-flash']:[]):chat.selectedModels||(chat.selected?['deepseek-flash']:[])))])];
-    const engineError=backendSendError(backend.status,picks);if(engineError)throw Error(engineError);
-    if(!availableModels().length){
-      const model=picks[0]||(chat.pool||[]).find(model=>blockedFor(health.rows(),model))||connectedModels()[0];
-      throw Error(model?unavailableMessage(model):'Connect an available model in Settings to send a message.');
-    }
-    const accept=(model:string)=>{
-      checkHandoff();
-      const current=store.get<Chat>('chat',chatId);
-      if(goalRun&&(current.draft.trim()||current.attachments?.length||(submittingChats.get(chatId)||0)>1||store.all<Turn>('turn').some(turn=>turn.chatId===chatId&&['queued','running','waiting','dispatching','stopping','needs-model'].includes(turn.status))))throw Error('Your pending message takes priority. Resume the goal after sending it.');
-      if(source?.routine){const routine=store.get<Routine>('routine',source.routine.id);if(!routine.enabled||routine.nextFiring!==source.routine.firing)throw Error('Routine changed before dispatch.');}
-      const turn=store.accept(id,chatId,text,model,source);goals.attach(turn,goalRun,picks);
-      if(goalRun&&['New chat','New project'].includes(current.title))store.update<Chat>('chat',chatId,{title:goals.get(chatId)!.objective.slice(0,55)});
-      return turn;
-    };
-    if(!picks.length&&(classifierActive()||chatSelector(chat))){
-      store.transaction(()=>{accept(chat.model);store.update<Turn>('turn',id,{routePending:true,routeBy:chatSelector(chat)||decisionEngine(),requestedModels:picks,models:picks.length>1?picks:undefined});recordRoute(id,{reason:'routing-requested',selected:picks});});wake(chatId);emit();return id;
-    }
-    const unavailable=picks.find(model=>!availableModels().includes(model));if(unavailable)throw Error(unavailableMessage(unavailable));
-    const appPrevious=store.all<{id:string;model?:string}>('settings').find(row=>row.id==='last-model')?.model||history.at(-1)?.model||null;
-    const input={selected:picks,eligible:availableModels().filter(model=>(chat.pool||['deepseek-flash']).includes(model)),previous,appPrevious};
-    const decision=await route(input).catch(error=>{const model=source&&remoteFallback(source,input);if(!model)throw error;return {model,reason:'remote-fallback',models:undefined};});
-    const dispatchError=backendSendError(backend.status,decision.models||[decision.model]);if(dispatchError)throw Error(dispatchError);
-    store.transaction(()=>{accept(decision.model);store.update<Turn>('turn',id,{models:decision.models,requestedModels:picks});recordRoute(id,decision);});wake(chatId);emit();return id;
-    }finally{const pending=(submittingChats.get(chatId)||1)-1;if(pending)submittingChats.set(chatId,pending);else submittingChats.delete(chatId);goals.schedule();pluginChanges.poke();}
-}
-
-
-export async function contextCompletion(chat:Chat,model:string,system:string,prompt:string,signal:AbortSignal,lookup=false){
- signal=AbortSignal.any([signal,AbortSignal.timeout(lookup?45000:90000)]);
- const answer=model.startsWith('claude-code:')
-  ?await claudeOneShot(claudeExecutable!,model.slice(12),system,prompt,await fs.mkdir(path.join(data,'context-summary'),{recursive:true}).then(()=>path.join(data,'context-summary')),data,signal,lookup?45000:90000,fixtureClaudeArgs()?.concat('--fixture-oneshot'))
-  :await backend.host('context_summary',{profile:projectFor(chat).profile,model,provider_access:backend.providerAccess,provider_urls:providerUrls(),system,prompt,lookup},signal);
- signal.throwIfAborted();const usage=answer.usage,count=typeof usage?.total_tokens==='number'?usage.total_tokens:claudeTurnUsage({usage}).turn_total;
- return {text:redactPastedKeys(backend.scrubber.text(String(answer.text||''))).trim(),tokens:Number.isSafeInteger(count)&&count>=0?count:null};
-}
-// Side answers (FEATURE-SPECS 2). The model Koan picked, else the newest fast one he has connected.
-export function sideModel():string|null{const ready=availableModels(),saved=store.all<any>('settings').find(row=>row.id==='side-answers')?.model;return ready.includes(saved)?saved:preferredSideModel(ready);}
-const sideRow=(id:unknown,chatId:unknown)=>{const row=typeof id==='string'?store.find<SideAnswer>('side-answer',id):null;if(!row||row.chatId!==chatId)throw Error('This side answer belongs to another chat.');return row;};
-// A message from the message box: a side answer takes it (its id is returned) or it goes to the main model (null).
-// The running turn is never touched: the side model only reads a copy of the live state.
-async function sideFirst({id,chatId,text,goalRun}:any):Promise<string|null>{
-  if(goalRun||typeof text!=='string'||typeof chatId!=='string'||! /^[\w-]{10,80}$/.test(id))return null;
-  const chat=store.find<Chat>('chat',chatId);if(!chat||chat.parentChatId||chat.archived)return null;
-  if(store.find<SideAnswer>('side-answer',id))return id;
-  const running=replyRow(chatId),route=sideRoute(text,{running:!!running,attachments:!!chat.attachments?.length}),model=sideModel();
-  // Only "??" for now: any other message reaches the engine at once, as the turn layer delivers it mid-reply.
-  if(route!=='side'||!model)return null;
-  if(backend.scrubber.text(text)!==text||redactPastedKeys(text)!==text)throw Error('This looks like an API key. Save it in Settings.');
-  const roots=store.all<Turn>('turn').filter(t=>t.chatId===chatId&&!t.parentTurnId),turn=running?store.get<Turn>('turn',running):roots.at(-1);
-  if(!turn)return null;
-  const forced=route==='side',question=forced?sideQuestion(text):text;
-  store.put<SideAnswer>('side-answer',{id,chatId,turnId:turn.id,question,model,forced,status:forced?'answering':'sorting',text:'',created:Date.now()});emit();
-  try{
-    const jobs=(turn.jobs||[]).map(job=>store.find<Turn>('turn',job)).filter((job):job is Turn=>!!job);
-    const live=sideState({turn,jobs,tools:store.whereIn<ToolCall>('tool','turnId',[turn.id,...jobs.map(job=>job.id)]),queued:roots.filter(t=>['queued','needs-model'].includes(t.status)),recent:roots.filter(t=>t.status==='completed'&&t.id!==turn.id).slice(-3),now:Date.now()});
-    const answer=await contextCompletion(chat,model,sideSystem(forced),JSON.stringify({question,live}),new AbortController().signal,true);
-    if(!forced&&saysMain(answer.text)){store.remove('side-answer',id);emit();return null;}
-    store.update<SideAnswer>('side-answer',id,{status:'done',text:answer.text,tokens:answer.tokens});
-  }catch(error){
-    // Unsure goes to the main model; a ?? question shows why it got no answer.
-    if(!forced){store.remove('side-answer',id);emit();return null;}
-    store.update<SideAnswer>('side-answer',id,{status:'failed',text:'No side answer: '+backend.scrubber.text(error instanceof Error?error.message:String(error))});
-  }
-  emit();return id;
-}
-async function queryHistory(turn:Turn,args:any,signal:AbortSignal){
- const chat=store.get<Chat>('chat',turn.chatId);
- return queryChatHistory(store,turn,args,signal,(system,prompt,signal)=>contextCompletion(chat,turn.model,system,prompt,signal,true)).finally(emit);
-}
-async function generateContext(chatId:string,model:string,options:{beforeTurnId?:string;concise?:boolean;origin?:'command'|'automatic'}={},focus=''){
-  if(apiChanging)throw Error('Wait for the connection update to finish.');
-  if(contextJobs.has(chatId))throw Error('A context summary is already running.');
-  const chat=sidebar.root(chatId),source=contextSource(store,chatId,options),controller=new AbortController(),job={controller,done:0,total:source.batches.length};
-  // Each summary call has its own time limit (contextCompletion); the whole automatic run gets 5 minutes, not 60 s.
-  const signal=options.origin==='automatic'?AbortSignal.any([controller.signal,AbortSignal.timeout(300000)]):controller.signal;
-  contextJobs.set(chatId,job);emit();
-    // A run saves its progress after each batch; a retry continues from it, and a partial draft is never applied (7a).
-    const resume=resumeDraft(store.find<ContextDraft>('context-draft',chatId),source.revision,source.batches.length);
-    let summary=resume?.summary??source.previous,tokens:number|null=0;job.done=resume?.start||0;
-    try{
-      for(const [index,batch] of source.batches.entries()){
-        if(index<job.done)continue;
-        signal.throwIfAborted();const prompt=JSON.stringify({focus,previousSummary:summary,standingInstructions:source.instructions,goal:source.goal,records:batch});
-        const usageId=randomUUID();store.put('context-usage',{id:usageId,chatId,model,tokens:null});
-        const answer=await contextCompletion(chat,model,contextSystem,prompt,signal);
-        summary=answer.text;if(!summary||summary.length>40000)throw Error('The summary was empty or too large. The current context is kept.');
-        store.update<{id:string;tokens:number|null}>('context-usage',usageId,{tokens:answer.tokens});
-        tokens=tokens!==null&&answer.tokens!==null?tokens+answer.tokens:null;job.done++;
-        if(job.done<source.batches.length)store.put<ContextDraft>('context-draft',{id:chatId,chatId,throughTurnId:source.throughTurnId,revision:source.revision,summary,instructions:source.instructions,sourceCharacters:source.sourceCharacters,model,tokens,created:Date.now(),...options,partial:true,done:job.done});
-        emit();
-      }
-      signal.throwIfAborted();return store.put<ContextDraft>('context-draft',{id:chatId,chatId,throughTurnId:source.throughTurnId,revision:source.revision,summary,instructions:source.instructions,sourceCharacters:source.sourceCharacters,model,tokens,created:Date.now(),...options});
-    }finally{contextJobs.delete(chatId);emit();}
-}
-
-// A summary that finished in the background is applied when the chat next needs a fresh session (batch 5, 7b).
-async function applyReadyDraft(chatId:string){
- const chat=sidebar.root(chatId),draft=store.find<ContextDraft>('context-draft',chat.id);
- if(!draft||draft.partial||draft.origin!=='automatic'||contextJobs.has(chat.id))return false;
- try{for(const owner of sidebar.owned(chat.id))await native.closeChat(owner.id);saveContext(store,chat.id,draft.revision,draft.summary,draft.instructions);}catch{return false;}
- store.update<Chat>('chat',chat.id,{contextRetryAfter:undefined,contextNotice:'Context compacted. Original messages remain available.'});emit();return true;
-}
-function compactInBackground(turn:Turn){
- const chat=sidebar.root(turn.chatId),model=summaryModel(true,turn.model,chat.pool||[],availableModels(),jevSettings().summaryModel);
- if(!model||contextJobs.has(chat.id))return;
- const options={beforeTurnId:turn.id,concise:true,origin:'automatic' as const};
- try{store.update<Chat>('chat',chat.id,{contextAttemptThrough:contextSource(store,chat.id,options).throughTurnId,contextNotice:''});}catch{return;}
- void generateContext(chat.id,model,options).catch(()=>{store.update<Chat>('chat',chat.id,{contextRetryAfter:Date.now()+300000,contextNotice:'The summary of earlier messages did not finish. Recent messages are still sent; it retries later.'});emit();});
-}
-async function compactForTurn(turn:Turn,automatic:boolean){
- const chat=sidebar.root(turn.chatId),options={beforeTurnId:turn.id,concise:true,origin:automatic?'automatic' as const:'command' as const};
- const roots=store.all<Turn>('turn').filter(t=>t.chatId===chat.id);
- if(roots.slice(0,roots.findIndex(t=>t.id===turn.id)).filter(t=>!t.automatic&&!t.contextSnapshot&&!t.contextCommand).length<2)return 'No older history needs compaction. The newest exchange is kept in context.';
- const source=contextSource(store,chat.id,options);
- if(!source.sources.length)return 'Older messages are already compacted.';
- // Automatic compaction summarises with a fast model (Jev's summary model, else any Flash/Haiku), so a long chat
- // finishes its shrink; several Opus calls never fit (speed plan, Koan 2026-10-07). /compact keeps the chat's model.
- const model=summaryModel(automatic,turn.model,chat.pool||[],availableModels(),jevSettings().summaryModel);
- if(!model)throw Error('Connect an available model to compact this chat.');
- store.update<Chat>('chat',chat.id,{contextAttemptThrough:source.throughTurnId,contextNotice:''});
- const draft=await generateContext(chat.id,model,options,automatic?'':turn.prompt.replace(/^\/compact\s*/i,''));
- if(store.get<Turn>('turn',turn.id).status==='stopping')throw Error('Compaction stopped. Your previous context is kept.');
- for(const owner of sidebar.owned(chat.id))await native.closeChat(owner.id);
- if(store.get<Turn>('turn',turn.id).status==='stopping')throw Error('Compaction stopped. Your previous context is kept.');
- saveContext(store,chat.id,draft.revision,draft.summary,draft.instructions);
- store.update<Chat>('chat',chat.id,{contextRetryAfter:undefined,contextNotice:'Context compacted. Original messages remain available.'});emit();
- return 'Context compacted. Decisions, unfinished work and source references are saved; the newest exchange and original history are retained.';
 }
 
 const repoMaps=new RepoMaps(path.join(app.isPackaged?root:__dirname,'repo-map','cli.mjs'),path.join(root,'runtime','python','cpython-3.12.10-windows-x86_64-none','python.exe'));
