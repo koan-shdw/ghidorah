@@ -1,6 +1,7 @@
 // screen: moved out of app/main.ts unchanged (SPLIT-PLAN); module state stays in main.ts.
+import {projectFor} from './projects';
 import {installedChrome,installedProgram,readScreenSettings} from '../browser-tools';
-import {claude,cuaEnv,data,emit,handlers,namespace,projectFor,requests,root,screenDriver,screenEnd,screenEsc,screenEscPause,screenShow,screenTurn,store} from '../main';
+import {claude,cuaEnv,data,emit,handlers,namespace,requests,root,screenDriver,screenEnd,screenEsc,screenEscPause,screenShow,screenTurn,store} from '../main';
 import {modelLabel} from '../models';
 import {ScreenTarget,processName,sameApp,screenActions,screenGuidance,screenInstructions,screenTarget,sendsEscape} from '../screen-control';
 import type {Approval,Chat,Project,Turn} from '../types';

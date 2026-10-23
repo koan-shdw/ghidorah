@@ -113,6 +113,10 @@ import {claudeScreenEnv,screenApps,screenContext,screenEscOn,screenServer,screen
 import {openChatLink,openPage,pageUrl,previewTool_,publish,publishing,shareCheck,shareDeploy,shareDraft,shareSettings,shareSite,shareTest,shareView,shareWithClient,withOwner} from './main/sharing';
 import {discoverySettings,hermesFeed,hermesPin,updateFeed,updateSettings} from './main/updates';
 import {freeVoiceKey,speechInstalled,speechReady,voiceRequest,voiceRow,voiceSettings,voiceTestEndpoint,wakeDetected,wakeSettings} from './main/voice';
+import {configure,session} from './main/backend';
+import {addAppTask,changeProjectMode,createApp,linkCurrentApp,listAppTasks,projectFor,requireIdleFolder,requireStableFolder,updateApp,updateAppTask,workingDirectory} from './main/projects';
+import {askApproval,mainSnapshot,sendState,snapshot} from './main/snapshot';
+import {agentSnapshot,agentWindowRequest,chatSnapshot,jobSnapshot,modelWindowHash,openChatWindow,openJob,openWorkspaceWindow,saveChatWindows,saveJobWindows,saveWorkspaceWindows,workspaceWindowRequest,workspaceWindowState} from './main/windows';
 
 protocol.registerSchemesAsPrivileged(['tris-preview','tris-inline'].map(scheme=>({scheme,privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true,stream:true}})));
 export const root=app.isPackaged?process.resourcesPath:path.resolve(__dirname,'..');
@@ -120,7 +124,7 @@ export const root=app.isPackaged?process.resourcesPath:path.resolve(__dirname,'.
 // chats, keys, notification settings and taskbar pin live under them.
 // Run from source (scripts/dev.cmd) it is Ghidorah Dev: its own data, keys, taskbar entry and window, so it runs beside
 // the installed copy and never touches its chats.
-const dev=!app.isPackaged&&!process.env.TRISMEGISTUS_TEST_DATA,appName=dev?'Ghidorah Dev':'Ghidorah';
+export const dev=!app.isPackaged&&!process.env.TRISMEGISTUS_TEST_DATA,appName=dev?'Ghidorah Dev':'Ghidorah';
 export const data=process.env.TRISMEGISTUS_TEST_DATA || path.join(process.env.LOCALAPPDATA!,dev?'Ghidorah Dev':'Trismegistus');
 export const namespace=process.env.TRISMEGISTUS_TEST_DATA?'Trismegistus/Test/'+path.basename(data):dev?'Ghidorah Dev':'Trismegistus';
 app.setPath('userData',path.join(data,'electron'));
@@ -131,8 +135,8 @@ if(updateCheck)void app.whenReady().then(()=>{const check=new BrowserWindow({sho
 const ownsInstance=!updateCheck&&app.requestSingleInstanceLock();
 if(!ownsInstance&&!updateCheck)app.quit();
 app.on('second-instance',(_event,argv)=>{const link=argv.find(arg=>arg.startsWith('trismegistus://'));if(link)openChatLink(link);else if(win){win.show();win.focus();}});
-let coordination:WorkCoordination;
-let background:BackgroundWork,native:NativeSessions,backgroundTimer:NodeJS.Timeout|undefined;
+export let coordination:WorkCoordination;
+export let background:BackgroundWork,native:NativeSessions,backgroundTimer:NodeJS.Timeout|undefined;
 export let store:Store,backend:Backend,win:BrowserWindow, tray:Tray,sidebar:Sidebar;
 let workNotifications:WorkNotifications;
 export const desktopNotices=new Set<Notification>();
@@ -160,22 +164,22 @@ function notificationChatVisible(chatId:string){
 const managingChats=new Set<string>();
 const chatExports=new Map<string,{chatId:string;controller:AbortController}>();
 const documentPreviews=new Map<string,{chatId:string;controller:AbortController}>();
-const contextJobs=new Map<string,{controller:AbortController;done:number;total:number}>();
-let terminals:Terminals;
-let previews:Previews;
+export const contextJobs=new Map<string,{controller:AbortController;done:number;total:number}>();
+export let terminals:Terminals;
+export let previews:Previews;
 let inlinePreviews:InlinePreviews;
 let browserPreviews:BrowserPreviews;
 export let gliner:LocalPicker;
 export let apiProviders:ApiProviders,apiChanging=false;
 export let goals:Goals;
-const submittingChats=new Map<string,number>();
-const workspaceDrafts=new Set<number>();
+export const submittingChats=new Map<string,number>();
+export const workspaceDrafts=new Set<number>();
 let checkingWorkspaceQuit=false,discardWorkspaceOnQuit=false;
 let checkingAppExit=false;
 export const jobWindows=new Map<string,BrowserWindow>();
 export const chatWindows=new Map<string,BrowserWindow>();
-const sideChatOpening=new Map<string,Promise<string>>();
-const chatPreviews=new Map<string,Previews>();
+export const sideChatOpening=new Map<string,Promise<string>>();
+export const chatPreviews=new Map<string,Previews>();
 export let health:AccountHealth,healthTimer:NodeJS.Timeout|undefined;
 export let jevKey:string|null=null,jevStatus='Not connected';
 const uploading=new Set<string>();
@@ -188,16 +192,16 @@ export const pickerKeys:Partial<Record<PickerId,string|null>>={},pickerKeyStatus
 let providerOwner:Awaited<ReturnType<typeof providerAccess>>|undefined;
 let resetTimer:NodeJS.Timeout|undefined,scheduledReset:number|null=null;
 let balanceCheckVersion=0;
-let mcp:McpOwner,mcpRows:McpConnection[]=[],mcpError='';
-const mcpLogins=new Map<string,AbortController>();
+export let mcp:McpOwner,mcpRows:McpConnection[]=[],mcpError='';
+export const mcpLogins=new Map<string,AbortController>();
 const pluginReviews=new Map<string,NativePlugin>();
 export let pluginsChanging=false;
 // A speech, wake-word or Telegram install: it excludes plugin changes and other installs, but never holds a chat
 // (TURN-REVIEW part 3: installs held every chat for up to 71 minutes).
 export let installing=false;
 export const pluginChanges=new PluginChanges(pluginChangeWait,()=>{emit();if(!pluginChanges.pending)wakeWaiting();});
-let pluginHandlers:PluginHandler[]=[];
-const pluginControllers=new Map<string,AbortController>();
+export let pluginHandlers:PluginHandler[]=[];
+export const pluginControllers=new Map<string,AbortController>();
 const pluginOwners=new Map<string,PluginProcessOwner>();
 function pluginWorkerSettings(){const plugins=store.all<NativePluginInstall>('native-plugin').filter(row=>row.enabled&&row.hermes);return {plugins:plugins.map(hermesPluginKey),configurations:plugins.flatMap(row=>row.configuration?[row.configuration.revision]:[]),runtime:pluginRuntime()};}
 async function loadPluginCommands(){
@@ -212,10 +216,10 @@ const mcpToolRequests=new Map<string,{chatId:string;controller:AbortController}>
 const memoryCache=new MemoryCache(profile=>path.join(data,'hermes','profiles',profile),(profile,signal)=>backend.host('project_memory',{profile,name:'read_project_memory'},signal));
 let mcpRefresh:Promise<void>|null=null;
 export let connected=false,providerStatus='Not connected',quitting=false;
-let balance:string|null=null;
-let balanceCheckedAt:string|null=null;
+export let balance:string|null=null;
+export let balanceCheckedAt:string|null=null;
 // Supplier list prices for the model tooltips. Each model is asked once; failed asks retry with the 5-minute checks.
-let modelPrices:Record<string,ModelPrice>={};const pricesAsked=new Set<string>(),pricesFailed=new Set<string>();
+export let modelPrices:Record<string,ModelPrice>={};const pricesAsked=new Set<string>(),pricesFailed=new Set<string>();
 export let codex:CodexConnection={connected:false,status:'Not connected',models:[]};
 let codexCheckVersion=0;
 let codexCheckController:AbortController|null=null,codexCheckTask:Promise<any>|null=null;
@@ -229,7 +233,7 @@ const claudeControls=new Map<string,{setMode:(mode:Mode)=>Promise<void>}>();
 export const requests=new Map<string,any>();
 // The chat runner's records (TURN-REVIEW part 3). Claude's busy lives in its engine (native.processing); these are the
 // rows Tris runs itself or has handed to Hermes, each set by an action and cleared by its end event, never guessed.
-const preparing=new Map<string,{turnId:string;controller:AbortController}>(); // chat -> the message being prepared
+export const preparing=new Map<string,{turnId:string;controller:AbortController}>(); // chat -> the message being prepared
 const commandTurns=new Map<string,string>(); // chat -> a plugin command, /compact or parallel group running
 const hermesTurns=new Map<string,string>(); // chat -> the row Hermes is answering
 // Hermes's own answer to each send (TURN-REVIEW part 2): read by the running reply (steered) or next in its queue,
@@ -333,12 +337,12 @@ async function reconcileReplies(){
     }catch{}finally{if(sid)checkingReplies.delete(sid);}
   }
 }
-const modeChanges=new Map<string,Promise<void>>();
+export const modeChanges=new Map<string,Promise<void>>();
 async function waitForMode(projectId:string){while(modeChanges.has(projectId))await modeChanges.get(projectId)!.catch(()=>{});}
-function hasWork(includeGoals=true,includePluginChanges=true){return includePluginChanges&&(pluginsChanging||installing)||!!gitOperation||contextJobs.size>0||checkpointChanging||apiChanging||includeGoals&&!!goals?.rows().some(goal=>goal.status==='active')||modeChanges.size>0||anyChatBusy()||pluginOwners.size>0||!!background?.rows().some(row=>['running','checking','stopping'].includes(row.status));}
+export function hasWork(includeGoals=true,includePluginChanges=true){return includePluginChanges&&(pluginsChanging||installing)||!!gitOperation||contextJobs.size>0||checkpointChanging||apiChanging||includeGoals&&!!goals?.rows().some(goal=>goal.status==='active')||modeChanges.size>0||anyChatBusy()||pluginOwners.size>0||!!background?.rows().some(row=>['running','checking','stopping'].includes(row.status));}
 const streamScrubbers=new Map<string,ReturnType<Backend['scrubber']['stream']>>();
-const usageBaseline=new Map<string,any>();
-const hermesModels=new Map<string,string>();
+export const usageBaseline=new Map<string,any>();
+export const hermesModels=new Map<string,string>();
 const hermesFixed=new Map<string,string>(); // session id -> fixed text it last received
 // Fixed text goes to a fresh session, and again when it changed, but never inside a message steered into a running
 // reply: there it buried his words (10-19: "are you done?" arrived as 10,615 characters). It waits for an idle message.
@@ -358,7 +362,7 @@ function appWatchTick(){
 // Git light under each app icon: yellow while a linked repository has commits no remote has, green once all are pushed.
 // ponytail: refreshed at start, on window focus, on app saves and with the 5-minute checks; watch .git if lights lag.
 export const appLights=new Map<string,NonNullable<SavedApp['light']>>();let lightsRefresh:Promise<void>|null=null;
-function refreshAppLights(){return lightsRefresh??=(async()=>{
+export function refreshAppLights(){return lightsRefresh??=(async()=>{
   for(const app of store.all<SavedApp>('saved-app')){
     const statuses=await Promise.all((app.repositories||[]).map(repositoryStatus));
     if(statuses.some(row=>'error' in row||typeof row.unpushed!=='number')){appLights.delete(app.id);continue;}
@@ -369,26 +373,6 @@ function refreshAppLights(){return lightsRefresh??=(async()=>{
   }
   emit();
 })().finally(()=>{lightsRefresh=null;});}
-// Shows an approval. Its action steps out of the work lock until the user answers, so other chats' work goes on
-// (Koan 2026-10-15: one chat waiting for Allow stalled another chat's command for ten minutes).
-function askApproval(row:Approval){store.put('approval',row);if(row.method==='approval')coordination.ask(row.turnId,row.params.description,row.params.command);}
-function snapshot(options:{tools?:boolean}={}){const base=store.snapshot(options),summaryUsage=store.all<{chatId:string;model:string;tokens:number|null}>('context-usage');base.chats=base.chats.map(chat=>({...chat,compacting:contextJobs.has(chat.id)?{done:contextJobs.get(chat.id)!.done,total:contextJobs.get(chat.id)!.total}:undefined,summarizationUsage:summaryUsage.filter(row=>row.chatId===chat.id).map(({model,tokens})=>({model,tokens}))}));const shareChats=base.chats.filter(chat=>!chat.archived&&!chat.sideSourceId),shareTargets=[...new Set(shareChats.map(chat=>chat.projectId))].map(projectId=>({projectId,title:shareChats.filter(chat=>chat.projectId===projectId).map(chat=>chat.title).join(" · ")}));return {...base,share:shareView(),sideAnswers:store.all<SideAnswer>('side-answer').slice(-300),sideAnswerModel:sideModel(),shareTargets,workspaceWindows:[...workspaceWindows.keys()],agentWindows:[...jobWindows.keys()].filter(id=>id.startsWith('agent:')).map(id=>id.slice(6)),jobWindows:[...jobWindows.keys()].filter(id=>!id.startsWith('agent:')),jobChats:dockableJobChats(base.turns),chatWindows:[...chatWindows.keys()],providerUrls:providerUrls(),chatLayout:store.all<any>('settings').find(row=>row.id==='chat-layout')||null,paneLayout:store.all<any>('settings').find(row=>row.id==='pane-layout')?.tree||null,paneWorkspace:readPaneWorkspace(store.all<any>('settings').find(row=>row.id==='pane-layout')?.workspace),publishing:publishing(),updates:{current:app.getVersion(),dev,mode:updateSettings().mode,status:appUpdates?.status||'',available:appUpdates?.available||null,downloaded:!!appUpdates?.downloaded,checking:!!appUpdates?.checking,downloading:!!appUpdates?.downloading,percent:appUpdates?.percent??null,failed:appUpdates?.failed||'',rolledBack:updateRolledBack,show:updateShow,history:(whatsNew as WhatsNew[]).filter(entry=>compareVersions(entry.version,app.getVersion())<=0).reverse(),discovery:{...discoverySettings(),status:discoveryStatus,running:!!discoveryRun,result:store.all<any>('discovery').at(-1)?.result||null},hermes:{pinned:hermesPin().version,fork:hermesPin().fork,status:hermesStatus,releases:store.all<any>('hermes-release').sort((a,b)=>b.published.localeCompare(a.published)).map(({id,...row})=>row)}},browserTools:{...screenSettings(),apps:screenApps(),chrome:!!installedChrome(),on:toolAccess().on,programs:Object.fromEntries((Object.keys(programs) as ToolProgram[]).map(program=>[program,{version:programs[program].version,installed:!!(program==='agent-browser'?toolPaths().browser:toolPaths().computer)}]))},alwaysOn:{...alwaysOn(),awake:awakeBlocker!==null},routines:store.all<Routine>('routine'),voice:{...voiceSettings(),wake:wakeSettings(),speech:speechInstalled(),ready:speechReady(),installing:!!speechInstall,progress:speechProgress},wizard:{show:wizardOpen,pending:!wizardDecided,steps:wizardRow().steps||{},start:wizardStart},remote:{...remoteSettings(),paired:!!remoteSecret,waiting:remoteShown()?.kind||null,target:remoteChats().find(chat=>chat.id===remoteSettings().chatId)?.title||remoteChats()[0]?.title||null,alerts:store.all<any>('remote-alert').slice(-10).reverse(),tokenSaved:!!remoteRow()?.tokenSaved,installed:telegramInstalled(),installing:!!telegramInstall,status:remoteGateway?.status||'off',message:(remoteGateway?.message||'').replace(/\d{5,}:[\w-]{30,}/g,'[token]'),...(namespace.startsWith('Trismegistus/Test/')?{pid:remoteGateway?.pid}:{})},keyRotation:store.all<any>('settings').find(row=>row.id==='key-rotation')?.done||{},decisionEngine:{selected:decisionEngine(),connected:classifierActive(),status:pickerStatus(decisionEngine()),pickers:pickers.map(row=>({id:row.id,label:row.label,connected:pickerConnected(row.id),status:pickerStatus(row.id)}))},gliner:gliner?.state(),pickerSettings:Object.fromEntries(pickers.filter(row=>row.id!=='jev').map(row=>[row.id,pickerSettings(row.id)])),pluginChanges:pluginChanges.rows(),savedApps:savedAppRows(base),savedAppGroups:store.all<import('./saved-apps').SavedAppGroup>('saved-app-group'),sidebar:{groups:sidebar.groups(),preferences:sidebar.preferences()},goals:goals?.rows()||[],background:[...(background?.rows()||[]),...(native?.rows()||[])],workReview:[],jev:{connected:!!jevKey,status:jevStatus,summaryModel:jevSettings().summaryModel,confidence:jevSettings().confidence,timeoutMs:jevSettings().timeoutMs},connected,backend:backend.status,defaultMode:store.defaultMode(),providerStatus,balance,balanceCheckedAt,defaultFolder:defaultFolder(),codex,claude,apiProviders:apiProviders?.rows()||[],availability:health.rows(),availableModels:availableModels(),modelPrices,deepseekModels:deepseekModels(),defaultModels:defaultModels(),favouriteModels:favouriteModels(),mcp:mcpRows.map(row=>({...row,signingIn:mcpLogins.has(row.id)})),mcpError,commands:[{name:'/compact',description:'Summarize older messages and continue in this chat. Add a focus after the command.',plugin:'Ghidorah',kind:'Command'},...reviewCommands,...sharedCommands(store.all<NativePluginInstall>('native-plugin')),...pluginHandlers.map(({name,description,plugin,kind})=>({name,description,plugin,kind}))].sort((a,b)=>a.name.localeCompare(b.name))};}
-// Window refreshes carry only the tools of the chats a window shows (RUN-PLAN 3b): every tool ever recorded was
-// 276 ms to build and 65 MB per window per refresh on Koan's data. A direct 'state' request still gets everything.
-function toolsForChats(state:{turns:Turn[]},chatIds:Set<string>){
- const owners=new Set(chatIds);for(const chat of store.all<Chat>('chat'))if(chat.parentChatId&&owners.has(chat.parentChatId))owners.add(chat.id);
- const own=new Set(state.turns.filter(turn=>owners.has(turn.chatId)).map(turn=>turn.id));
- return store.whereIn<ToolCall>('tool','turnId',state.turns.filter(turn=>own.has(turn.id)||turn.parentTurnId&&own.has(turn.parentTurnId)).map(turn=>turn.id));
-}
-function mainShownChats(state:{chats:Chat[];turns:Turn[]}){
- const settings=store.all<any>('settings'),layout=readChatLayout(JSON.stringify(settings.find(row=>row.id==='chat-layout')||null));if(!layout.chatId)return null;
- const panes=JSON.stringify(settings.find(row=>row.id==='pane-layout')?.tree||null),shown=new Set([layout.chatId,layout.splitId,...[...panes.matchAll(/"chat:([^"]+)"/g)].map(match=>match[1])].filter(Boolean));
- // Recent and working chats too, so a chat opened between two refreshes keeps its tool rows.
- for(const chat of [...state.chats].sort((a,b)=>(b.updated||0)-(a.updated||0)).slice(0,8))shown.add(chat.id);
- for(const turn of state.turns)if(['queued','dispatching','running','waiting','stopping'].includes(turn.status))shown.add(turn.chatId);
- return shown;
-}
-function mainSnapshot(state:ReturnType<typeof snapshot>){const shown=mainShownChats(state);return shown?{...state,tools:toolsForChats(state,shown)}:snapshot();}
 function refreshMcp(){
   if(quitting)return Promise.resolve();
   if(mcpRefresh)return mcpRefresh;
@@ -398,10 +382,10 @@ function refreshMcp(){
 function askPrices(){if(!apiProviders)return;const models=connectedModels().filter(model=>!model.startsWith('claude-code:')&&!pricesAsked.has(model));if(!models.length)return;for(const model of models)pricesAsked.add(model);void backend.host('model_prices',{models,urls:apiProviders.urls()}).then(rows=>{modelPrices={...modelPrices,...rows};emit();},()=>{for(const model of models)pricesFailed.add(model);});}
 // The update window (5c). What's new shows once per new version, never on a fresh profile; the update check runs
 // only once there is a feed (a test sets its own).
-let appUpdates:AppUpdates|undefined,updateShow=false;
+export let appUpdates:AppUpdates|undefined,updateShow=false;
 // Before an install: a copy of the chats, then the watcher that puts the version before back if the new one does not
 // open. It runs from the data folder, so the installer can replace every file of the app.
-let installPrepared=false,updateRolledBack:string|null=null;
+export let installPrepared=false,updateRolledBack:string|null=null;
 function prepareInstall(restart:boolean){
  if(installPrepared||!appUpdates?.downloaded||!appUpdates.available)return;installPrepared=true;
  try{
@@ -417,7 +401,7 @@ function prepareInstall(restart:boolean){
  }catch(error){console.warn('The update watch could not start:',String(error));}
 }
 // New-model check (5d): Manual by default; Once per session runs one check after start for all windows.
-let discoveryRun:AbortController|undefined,discoveryStatus='',discoveredThisSession=false;
+export let discoveryRun:AbortController|undefined,discoveryStatus='',discoveredThisSession=false;
 async function runDiscovery(){
   if(apiChanging)throw Error('Wait for the connection update to finish.');
   if(discoveryRun)throw Error('A check is already running.');const settings=discoverySettings();
@@ -451,7 +435,7 @@ async function runDiscovery(){
 }
 // Hermes release notice (5e): checked on launch and every six hours, backing off after a failure; one notice per
 // new release. Roll in marks it for a fork merge that ships as a new app build; the app never runs hermes update.
-let hermesStatus='',hermesTimer:NodeJS.Timeout|undefined,hermesBackoff=0,hermesChecking=false;
+export let hermesStatus='',hermesTimer:NodeJS.Timeout|undefined,hermesBackoff=0,hermesChecking=false;
 async function hermesCheck(){
   const feed=hermesFeed();if(!feed||hermesChecking)return;hermesChecking=true;clearTimeout(hermesTimer);
   try{
@@ -545,7 +529,7 @@ async function runRoutinesTick(now:number){
 }
 // Setup wizard (W). Offered once the backend is up, on a profile with no connected supplier and no conversation,
 // until finished; under the test profile only when the test asks (rule 13). An empty chat opens it again.
-let wizardOpen=false,wizardDecided=false,wizardConnectionsChecked=false,wizardStart:string|null=null;
+export let wizardOpen=false,wizardDecided=false,wizardConnectionsChecked=false,wizardStart:string|null=null;
 function wizardOffer(){
   if(wizardDecided||backend?.status!=='ready')return;
   if(wizardRow().completed||namespace.startsWith('Trismegistus/Test/')&&process.env.TRISMEGISTUS_TEST_WIZARD!=='1'){wizardDecided=true;return;}
@@ -557,7 +541,7 @@ function wizardOffer(){
 // fetches the chosen whisper model, pinned and hash-checked. Large v3 is the default and Small the faster choice;
 // Tiny exists for tests only. It runs on the CPU.
 export let voiceWindow:BrowserWindow|null=null,voiceDesk:LiveVoiceDesk|null=null,voiceListenOnOpen=false;
-let speechInstall:AbortController|null=null,speechProgress:number|null=null;
+export let speechInstall:AbortController|null=null,speechProgress:number|null=null;
 // ponytail: one CPU transcription at a time; use a bounded queue if simultaneous dictation is needed.
 const dictations=new Map<string,{owner:number;chatId:string;controller:AbortController}>();
 export function openVoice(chatId:string,parent:BrowserWindow=win,listen=false){
@@ -703,7 +687,7 @@ export function ownerKey(){
   return key;
 }
 // Settings, Always on. Remote (6a) turns remoteOn on and off.
-let awakeBlocker:number|null=null,remoteOn=false;
+export let awakeBlocker:number|null=null,remoteOn=false;
 function applyAlwaysOn(register:boolean,settings=alwaysOn()){
   if(register)app.setLoginItemSettings({openAtLogin:settings.startWithWindows,...loginItem({packaged:app.isPackaged,execPath:process.execPath,appFolder:app.getAppPath(),testData:process.env.TRISMEGISTUS_TEST_DATA})});
   // The computer stays awake; the screen still locks (prevent-app-suspension, nothing stronger).
@@ -767,7 +751,7 @@ async function checkClaude(signal?:AbortSignal){
   }catch{claude={...claude,status:'Usage unavailable'};}
   finally{checkingClaude=false;emit();}
 }
-const streamWindows=new WeakMap<BrowserWindow,Set<string>>(),streamTurns=new Set<string>();
+export const streamWindows=new WeakMap<BrowserWindow,Set<string>>(),streamTurns=new Set<string>();
 let streamTimer:NodeJS.Timeout|undefined;
 function emitStream(id:string){
   streamTurns.add(id);if(streamTimer)return;
@@ -782,23 +766,7 @@ function emitStream(id:string){
 }
 // Pushed window states carry tool results with long strings cut (TRIS-TODO 0.14): whole results made every refresh
 // heavy. A row that opens asks for its whole result (toolResult); a direct 'state' request still gets everything.
-const RESULT_CUT=10000;
-function cutLong(value:any,depth=0):{value:any;cut:boolean}{
-  if(typeof value==='string')return value.length>RESULT_CUT?{value:value.slice(0,RESULT_CUT)+'\n… [cut here: open the row for the whole result]',cut:true}:{value,cut:false};
-  if(!value||typeof value!=='object'||depth>20)return {value,cut:false};
-  let cut=false;const next:any=Array.isArray(value)?[]:{};
-  for(const [key,item] of Object.entries(value)){const part=cutLong(item,depth+1);next[key]=part.value;cut||=part.cut;}
-  return cut?{value:next,cut}:{value,cut:false};
-}
-function windowTools(state:any){
-  if(!Array.isArray(state?.tools))return state;
-  let changed=false;const tools=state.tools.map((tool:ToolCall)=>{const part=cutLong(tool.result);if(!part.cut)return tool;changed=true;return {...tool,result:part.value,resultCut:true};});
-  return changed?{...state,tools}:state;
-}
-function sendState(window:BrowserWindow,state:any){
-  streamWindows.set(window,new Set((state.turns||[]).map((turn:Turn)=>turn.id)));
-  window.webContents.send('state',windowTools(state));
-}
+export const RESULT_CUT=10000;
 export function emit(){
   if(store&&backend)pluginChanges.poke();
   wizardOffer();
@@ -813,171 +781,11 @@ export function emit(){
   if(next!==scheduledReset){clearTimeout(resetTimer);scheduledReset=next;if(next!==null){resetTimer=setTimeout(()=>{scheduledReset=null;emit();},Math.min(next-Date.now()+10,2147483647));resetTimer.unref();}}
   if(updateTimer)return;updateTimer=setTimeout(()=>{updateTimer=null;if(!quitting)workNotifications?.scan(alwaysOn().desktopNotifications,notificationChatVisible,showWorkNotice,()=>{if(alwaysOn().questionSound&&!namespace.startsWith('Trismegistus/Test/'))shell.beep();});let shared:ReturnType<typeof snapshot>|undefined;const light=()=>shared??=snapshot({tools:false});for(const w of BrowserWindow.getAllWindows())if(!w.isDestroyed()&&!closingWindows.has(w)){const job=[...jobWindows].find(([,window])=>window===w)?.[0];const chat=[...chatWindows].find(([,window])=>window===w)?.[0];const workspace=[...workspaceWindows.values()].find(entry=>entry.window===w);sendState(w,workspace?workspaceWindowState(workspace,light()):job?.startsWith('agent:')?agentSnapshot(job.slice(6),light()):job?jobSnapshot(job,light()):chat?chatSnapshot(chat,light()):mainSnapshot(light()));}},32);
 }
-export function projectFor(chat:Chat){return store.get<Project>('project',chat.projectId);}
-let gitOperation:{chatId:string;controller:AbortController}|null=null;
-let worktreeChanging=false,folderChanging=false,creatingProjects=0,folderRecoveryRequired=false,checkpointChanging=false;
-function requireStableFolder(){if(gitOperation)throw Error('Wait for the Git operation to finish.');if(checkpointChanging)throw Error('Wait for file restoration to finish.');if(folderRecoveryRequired)throw Error('Restart the backend to restore the working folder configuration.');if(folderChanging)throw Error('Wait for the working folder change to finish.');}
-function requireIdleFolder(){
-  if(voiceWindow)throw Error('Close voice before changing the working folder.');
-  if(hasWork()||creatingProjects||submittingChats.size||preparing.size||sideChatOpening.size||store.all<Turn>('turn').some(turn=>['queued','dispatching','running','waiting','stopping'].includes(turn.status)))throw Error('Stop active work and wait for queued work before changing the working folder.');
-  if(terminals.count)throw Error('Close open terminals before changing the working folder.');
-  if(workspaceDrafts.size)throw Error('Save or discard workspace edits before changing the working folder.');
-  if(workspaceWindows.size)throw Error('Return workspace windows before changing the working folder.');
-}
-function workingDirectory(project:Project){
-  if(project.worktree){
-    if(!project.folder)throw Error('This worktree has no working folder.');
-    const directory=workspacePath(project.folder,path.relative(workspacePath(project.folder),project.worktree));
-    if(directory.toLowerCase()!==path.resolve(project.worktree).toLowerCase())throw Error('The worktree location changed. Restore its original folder before using this chat.');
-    return directory;
-  }
-  return project.folder||path.join(data,'hermes','profiles',project.profile,'workspace');
-}
-// App tools use the desktop's store, just like the form. Existing repositories are registered in place.
-function listAppTasks(chat:Chat){const root=chat.parentChatId||chat.id;return store.all<SavedApp>('saved-app').map(({id,name,stage,current,repositories,chatIds})=>({id,name,stage,current,repositories:repositories||[],linked:chatIds.includes(root),todos:store.all<AppTodo>('app-todo').filter(todo=>todo.appId===id)}));}
-function addAppTask(chat:Chat,args:any){if(projectFor(chat).mode==='plan')throw Error('Plan mode permits inspection and proposals only.');const todo=store.transaction(()=>{const value=appTodo(store,{app:args?.app,title:redactPastedKeys(backend.scrubber.text(String(args?.title||'')))});linkAppChat(store,value!.appId,chat.id,true,'model');return value;});emit();return todo;} 
-function updateAppTask(chat:Chat,args:any,turnId:string){
- let result;
- try{
-  if(projectFor(chat).mode==='plan')throw Error('Plan mode permits inspection and proposals only.');
-  if(startingAppTasks.has(args?.id))throw Error('This to-do is starting. Try again in a moment.');
-  const input={...args};if(typeof input.title==='string')input.title=redactPastedKeys(backend.scrubber.text(input.title));
-  result=store.transaction(()=>updateAppTodo(store,input));
- }catch(error){
-  const name=store.get<Turn>('turn',turnId).model.startsWith('claude-code:')?'mcp__ghidorah__update_app_todo':'update_app_todo';
-  coordination.denied(turnId,name+'\n'+JSON.stringify(args),undefined,'Task update failed without saved changes.');throw error;
- }
- emit();return result;
-}
-function linkCurrentApp(chat:Chat,args:any){const app=linkAppChat(store,args?.app,chat.id,args?.linked,'model');emit();return {id:app.id,app:app.name,linked:app.chatIds.includes(chat.parentChatId||chat.id),userUnlinked:!!app.unlinkedChatIds?.includes(chat.parentChatId||chat.id)};}
-async function appIcon(base:string,iconPath:unknown){
- const file=await existingAppPath(base,iconPath,data),stat=await fs.stat(file);
- if(!stat.isFile()||stat.size>250*1024||! /\.(png|jpe?g|webp)$/i.test(file))throw Error('Use a PNG, JPEG or WebP icon up to 250 KB.');
- const bytes=await fs.readFile(file);if(bytes.length>250*1024||nativeImage.createFromBuffer(bytes).isEmpty())throw Error('Use a valid PNG, JPEG or WebP icon up to 250 KB.');
- return 'data:image/'+(/\.jpe?g$/i.test(file)?'jpeg':path.extname(file).slice(1).toLowerCase())+';base64,'+bytes.toString('base64');
-}
-async function updateApp(chat:Chat,args:any,turnId:string){
- let app:SavedApp;
- try{
-  const root=chat.parentChatId?store.get<Chat>('chat',chat.parentChatId):chat,project=projectFor(root),mode=project.mode,directory=workingDirectory(project);
-  if(mode==='plan')throw Error('Plan mode permits inspection and proposals only.');
-  if(!args||typeof args.id!=='string'||!args.id)throw Error('Choose an existing app ID from list_apps.');
-  store.get<SavedApp>('saved-app',args.id);
-  if(args.name===undefined&&args.icon_path===undefined)throw Error('Provide a name or icon_path.');
-  const patch:Partial<SavedApp>={id:args.id};
-  if(args.name!==undefined)patch.name=typeof args.name==='string'?redactPastedKeys(backend.scrubber.text(args.name)):args.name;
-  if(args.icon_path!==undefined){
-   if(!project.folder)throw Error('Choose a working folder in Settings first.');
-   patch.icon=await appIcon(await fs.realpath(directory),args.icon_path);
-  }
-  const current=projectFor(root);
-  if(current.mode!==mode||workingDirectory(current)!==directory)throw Error('The permission mode or working folder changed. Review the app request again.');
-  app=saveApp(store,patch);
- }catch(error){
-  const name=store.get<Turn>('turn',turnId).model.startsWith('claude-code:')?'mcp__ghidorah__update_app':'update_app';
-  coordination.denied(turnId,name+'\n'+JSON.stringify(args),undefined,'App update failed without saved changes.');throw error;
- }
- emit();void refreshAppLights();return {id:app.id,app:app.name,icon:app.icon};
-}
-const startingAppTasks=new Map<string,Promise<{chatId:string;warning?:string}>>();
-const createAppLocks=new Map<string,Promise<unknown>>();
-async function createApp(chat:Chat,args:any,turnId:string){
-  const key=typeof args?.name==='string'?args.name.trim().slice(0,80).toLowerCase():'';
-  const root=chat.parentChatId?store.get<Chat>('chat',chat.parentChatId):chat,mode=projectFor(root).mode;
-  const previous=createAppLocks.get(key)||Promise.resolve();
-  let effectsStarted=false;
-  const operation=previous.catch(()=>{}).then(()=>createAppRecord(chat,args,mode,()=>{effectsStarted=true;}));createAppLocks.set(key,operation);
-  try{return await operation;}catch(error){
-    if(!effectsStarted){
-      const name=store.get<Turn>('turn',turnId).model.startsWith('claude-code:')?'mcp__ghidorah__create_app':'create_app';
-      coordination.denied(turnId,name+'\n'+JSON.stringify(args),undefined,'App request refused before any files or saved apps changed: '+String(error));
-    }
-    throw error;
-  }finally{if(createAppLocks.get(key)===operation)createAppLocks.delete(key);}
-}
-async function createAppRecord(chat:Chat,args:any,expectedMode:Mode,startEffects:()=>void){
-  const root=chat.parentChatId?store.get<Chat>('chat',chat.parentChatId):chat,project=projectFor(root);
-  if(project.mode!==expectedMode)throw Error('The permission mode changed. Review the app request again.');
-  if(project.mode==='plan')throw Error('Plan mode permits inspection and proposals only.');
-  const name=typeof args?.name==='string'?args.name.trim().slice(0,80):'';
-  if(!name)throw Error('Enter an app name.');
-  if(args?.register_only!==undefined&&typeof args.register_only!=='boolean')throw Error('Choose whether to register the app without creating a folder.');
-  for(const [key,max] of [['stage',40],['description',2000]] as const)if(args?.[key]!==undefined&&(typeof args[key]!=='string'||args[key].length>max))throw Error('Invalid app '+key+'.');
-  const known=store.all<SavedApp>('saved-app').find(app=>app.name.toLowerCase()===name.toLowerCase());
-  if(args?.register_only&&args.repositories===undefined&&args.icon_path===undefined){
-    startEffects();
-    const app=saveApp(store,{id:known?.id,name:known?.name||name,stage:args.stage??known?.stage??'',current:args.description??known?.current??'',chatIds:[...new Set([...(known?.chatIds||[]),root.id])]});
-    emit();return {id:app.id,app:app.name,folder:app.repositories?.[0]||null,repositories:app.repositories,createdFolder:false,linkedChat:root.title};
-  }
-  if(!project.folder)throw Error('Choose a working folder in Settings first.');
-  const folderName=appFolderName(name);
-  if(!name||!folderName)throw Error('Give the app a name that works as a folder name.');
-  const directory=workingDirectory(project),base=await fs.realpath(directory);
-  const check=()=>{const current=projectFor(root);if(current.mode!==expectedMode||current.mode==='plan')throw Error('The permission mode changed. Review the app request again.');if(workingDirectory(current)!==directory)throw Error('The working folder changed. Review the app request again.');};
-  check();
-  const requested=args?.repositories??(known?.repositories?.length?known.repositories:undefined);
-  if(requested!==undefined&&(!Array.isArray(requested)||!requested.length||requested.length>30||requested.some(value=>typeof value!=='string'||value.length>500)))throw Error('Choose 1 to 30 existing repository folders.');
-  const repositories:string[]=[];
-  for(const value of requested||[]){const directory=await existingAppPath(base,value,data);if(!(await fs.stat(directory)).isDirectory())throw Error('An app repository must be a folder.');if(!repositories.includes(directory))repositories.push(directory);}
-  let icon=known?.icon||'';
-  if(args?.icon_path!==undefined){
-    icon=await appIcon(base,args.icon_path);
-  }
-  let createdFolder=false;
-  if(!repositories.length&&!args?.register_only){
-    const folder=path.join(base,folderName),existing=await fs.lstat(folder).catch(error=>{if(error.code==='ENOENT')return null;throw error;});
-    if(existing&&!existing.isDirectory())throw Error('Something that is not a folder already uses that name in the working folder.');
-    check();if(!existing){startEffects();await fs.mkdir(folder);createdFolder=true;}
-    repositories.push(workspacePath(base,path.relative(base,folder)));
-  }
-  check();
-  startEffects();
-  const app=saveApp(store,{id:known?.id,name:known?.name||name,icon,stage:args?.stage??known?.stage??'Started',current:args?.description??known?.current??'',ideas:known?.ideas||'',planned:known?.planned||'',questions:known?.questions||'',chatIds:[...new Set([...(known?.chatIds||[]),root.id])],repositories:[...new Set([...(known?.repositories||[]),...repositories])]});
-  emit();void refreshAppLights();return {id:app.id,app:app.name,folder:repositories[0]||null,repositories:app.repositories,createdFolder,linkedChat:root.title};
-}
-async function writePolicy(project?:Project){
-  const home=project?path.join(data,'hermes','profiles',project.profile):path.join(data,'hermes'),file=path.join(home,'trismegistus-policy.json'),temporary=file+'.'+randomUUID()+'.tmp';
-  try{await fs.writeFile(temporary,JSON.stringify({folder:project?.folder?workingDirectory(project):null,profile:project?.profile||'default',mode:project?.mode||'manual',secrets_root:data}));await fs.rename(temporary,file);}finally{await fs.rm(temporary,{force:true});}
-}
-async function changeProjectMode(projectId:string,requested:Mode,current?:()=>boolean){
-  if(!['manual','accept-edits','plan','auto','bypass'].includes(requested))throw Error('Invalid mode');
-  const pending=(modeChanges.get(projectId)||Promise.resolve()).catch(()=>{}).then(async()=>{
-    const previous=store.get<Project>('project',projectId),chats=store.all<Chat>('chat').filter(chat=>chat.projectId===projectId),mode=current&&!current()?previous.mode:requested;
-    if(chats.some(chat=>preparing.has(chat.id))){if(current)await native.setMode(chats.map(chat=>chat.id),previous.mode);throw Error('A message is starting. Try changing the mode again in a moment.');}
-    if(previous.mode!==mode)for(const chat of chats)pluginControllers.get(chat.id)?.abort();
-    await native.setMode(chats.map(chat=>chat.id),mode,async()=>{try{await writePolicy({...previous,mode});store.update<Project>('project',projectId,{mode});}catch(error){await writePolicy(previous);throw error;}});
-  });modeChanges.set(projectId,pending);
-  try{await pending;}finally{if(modeChanges.get(projectId)===pending)modeChanges.delete(projectId);emit();}
-}
-const taskScratchHint='Task scratch files: write temporary scripts and verification probes inside this task’s working directory. Create a temporary subfolder there only when needed. The Hermes profile cache is private app data; access still requires explicit approval.';
-async function configure(project?:Project) {
-  const home=project?path.join(data,'hermes','profiles',project.profile):path.join(data,'hermes');
-  await fs.mkdir(home,{recursive:true});
-  for(const dir of ['memories','sessions','logs','skills'])await fs.mkdir(path.join(home,dir),{recursive:true});
-  await fs.mkdir(path.join(home,'plugins'),{recursive:true});
-  await fs.cp(path.join(root,'plugins','trismegistus-permissions'),path.join(home,'plugins','trismegistus-permissions'),{recursive:true});
-  const plugins=store.all<NativePluginInstall>('native-plugin').filter(row=>row.hermes);
-  await verifyPlugins(plugins,path.join(data,'native-plugins'));
-  const pluginKeys=await hermesPluginCopies(plugins,home,true);
-  const mock=process.env.TRISMEGISTUS_TEST_PROVIDER_URL;
-  const config={model:{default:'deepseek-flash',provider:'deepseek',base_url:mock||'https://api.deepseek.com/v1'},agent:{scratch_hint:taskScratchHint},
-    compression:{threshold:0.85,codex_gpt55_autoraise:false,proactive_prune_tokens:48000,proactive_prune_min_result_chars:8000,proactive_prune_min_reclaim_tokens:4096},
-    auth:{adopt_external_logins:false},approvals:{mode:'manual',unattended_mode:'deny',timeout:24*60*60},security:{redact_secrets:true,allow_lazy_installs:false},
-    // Hermes's background skill and memory review is off: 33 runs on 10-13..20, 1.76M tokens, nothing saved (audit 5).
-    skills:{external_dirs:project?[path.join(data,'hermes','skills')]:[],creation_nudge_interval:0},memory:{nudge_interval:0},
-    browser:{backend:'off',agent_browser_path:toolPaths().browser||'',cloud_provider:'local',engine:'chrome',headed:false,use_real_profile:false},
-    plugins:{enabled:['trismegistus-permissions',...pluginKeys],entries:Object.fromEntries(plugins.filter(row=>row.enabled&&row.configuration).map(row=>[hermesPluginKey(row),{settings:row.configuration!.settings}]))},
-    secrets:{sources:['trismegistus_plugins'],profile_alias:false,trismegistus_plugins:{enabled:true}},updates:{check:false},desktop:{auto_continue:{enabled:false}},
-    // A message typed while Hermes answers is read after its current step, as in Claude Code; never an interrupt (TURN-REVIEW part 2).
-    display:{busy_input_mode:'steer'},
-    wake_word:{enabled:!project&&wakeSettings().enabled,surface:'gui',provider:'sherpa',phrase:wakeSettings().phrase,profile_routing:false,start_new_session:false,capture:'client',sherpa:{model_dir:path.join(data,'models','wake',wakeModel.sha256)},sensitivity:.5},
-    terminal:{cwd:project?workingDirectory(project):home},
-    tools:{tool_search:{eager:[...directAppTools,'preview_page','skills_list','skill_view','search_web','read_web_page','read_chat_history','query_chat_history','save_chat_output','goal_status','background_process','connected_tools']},desktop:{enabled:['file','terminal','memory','session_search','todo','clarify','trismegistus_mcp','skills',...toolAccess().on],disabled:['cronjob','delegation','messaging',...['browser','computer_use'].filter(name=>!toolAccess().on.includes(name))]}},
-    };
-  await fs.writeFile(path.join(home,'config.yaml'),JSON.stringify(config,null,2));
-  if(project&&!project.folder)await fs.mkdir(workingDirectory(project),{recursive:true});
-  await writePolicy(project);
-}
+export let gitOperation:{chatId:string;controller:AbortController}|null=null;
+export let worktreeChanging=false,folderChanging=false,creatingProjects=0,folderRecoveryRequired=false,checkpointChanging=false;
+export const startingAppTasks=new Map<string,Promise<{chatId:string;warning?:string}>>();
+export const createAppLocks=new Map<string,Promise<unknown>>();
+export const taskScratchHint='Task scratch files: write temporary scripts and verification probes inside this task’s working directory. Create a temporary subfolder there only when needed. The Hermes profile cache is private app data; access still requires explicit approval.';
 async function startBackend(){
   backend.status='starting';emit();
   try{
@@ -1023,32 +831,6 @@ async function checkAccount(key:string,signal?:AbortSignal){
     if(version===balanceCheckVersion&&Array.isArray(listed?.data)){if(ids.length)store.put('settings',{id:'deepseek-models',models:[...new Set<string>(ids)],checkedAt:Date.now()});emit();return [...new Set<string>(ids)];}
   }catch{/* Missing checks do not clear a known account failure or block an unverified account. */}
   emit();
-}
-async function session(chat:Chat,model=chat.model,signal?:AbortSignal){
-  signal?.throwIfAborted();
-  if(chat.runtimeId)return chat.runtimeId;
-  const p=projectFor(chat);let result:any;
-  if(chat.storedId){
-    try{result=await backend.rpc.request('session.resume',{profile:p.profile,session_id:chat.storedId,source:'desktop',close_on_disconnect:false},30000,signal);}
-    catch(error){
-      const turns=store.all<Turn>('turn').filter(t=>t.chatId===chat.id);
-      const hasWork=turns.some(t=>t.text||t.reasoning||t.usage||['completed','stopped'].includes(t.status))||store.all<ToolCall>('tool').some(tool=>turns.some(t=>t.id===tool.turnId));
-      if((error as any).code!==4007||hasWork)throw error;
-      // A failed first dispatch can leave a lazy session ID with no persisted Hermes row.
-      store.update<Chat>('chat',chat.id,{storedId:null,runtimeId:null});
-    }
-    if(result?.running)throw Error('This chat still has active work; reconcile it before submitting.');
-  }
-  if(!result)result=await backend.rpc.request('session.create',{profile:p.profile,source:'desktop',cwd:workingDirectory(p),model:wireModel(model),provider:providerFor(model),reasoning_effort:chat.efforts?.[model]||chat.effort,close_on_disconnect:false},30000,signal);
-  signal?.throwIfAborted();
-  if(p.folder)await backend.rpc.request('session.cwd.set',{profile:p.profile,session_id:result.session_id,cwd:workingDirectory(p)},30000,signal);
-  signal?.throwIfAborted();
-  store.update<Chat>('chat',chat.id,{runtimeId:result.session_id,storedId:result.stored_session_id||chat.storedId});
-  // A switch to the model the session already runs still adds Hermes's "model changed" note, which merges
-  // into the user's message and drops plugin context from that turn.
-  if(result.info?.model===wireModel(model)&&result.info?.provider===providerFor(model))hermesModels.set(result.session_id,model);
-  usageBaseline.set(result.session_id,result.info?.usage||{});
-  return result.session_id;
 }
 async function routeTurn(chat:Chat,turn:Turn){
   const controller=new AbortController();jevControllers.set(chat.id,controller);
@@ -3092,147 +2874,13 @@ export const handlers:Record<string,(args:any)=>any>={
   appMenu(){Menu.buildFromTemplate([{label:'Restart Ghidorah',click:()=>void requestAppExit(true)},{type:'separator'},{label:'Quit Ghidorah',click:()=>void requestAppExit(false)}]).popup({window:win,x:8,y:36});},
   window({action}){if(action==='minimize')win.minimize();if(action==='maximize')win.isMaximized()?win.unmaximize():win.maximize();if(action==='close')win.close();},
 };
-function chatSnapshot(chatId:string,state:ReturnType<typeof snapshot>=snapshot({tools:false})){
- const chats=sidebar.owned(chatId),owners=new Set(chats.map(c=>c.id)),turns=state.turns.filter(t=>owners.has(t.chatId)),ids=new Set(turns.map(t=>t.id));
- return {...state,savedApps:[],sidebar:undefined,chats,projects:state.projects.filter(p=>chats.some(c=>c.projectId===p.id)),turns,tools:store.whereIn<ToolCall>('tool','turnId',[...ids]),approvals:state.approvals.filter(a=>owners.has(a.chatId)),background:state.background.filter(row=>owners.has(row.chatId)),goals:state.goals.filter(goal=>goal.id===chatId),sideAnswers:state.sideAnswers.filter(row=>owners.has(row.chatId)),workReview:[]};
-}
-type SavedWorkspaceWindow={view:WorkspaceView;chatId:string;root:string|null;directory:string;file?:string;diff?:{file:string;staged:boolean};bounds?:WindowBounds;maximized?:boolean};
-type WorkspaceWindow={info:SavedWorkspaceWindow;window:BrowserWindow;preview:Previews};
+export type SavedWorkspaceWindow={view:WorkspaceView;chatId:string;root:string|null;directory:string;file?:string;diff?:{file:string;staged:boolean};bounds?:WindowBounds;maximized?:boolean};
+export type WorkspaceWindow={info:SavedWorkspaceWindow;window:BrowserWindow;preview:Previews};
 export const workspaceWindows=new Map<WorkspaceView,WorkspaceWindow>();
-function workspaceWindowState(entry:WorkspaceWindow,state:ReturnType<typeof snapshot>=snapshot({tools:false})){return {workspaceWindow:entry.info,...(['plan','tasks'].includes(entry.info.view)?{activity:chatActivity({...state,tools:toolsForChats(state,new Set([entry.info.chatId]))},entry.info.chatId)}:{}),defaultFolder:defaultFolder(),title:store.all<Chat>('chat').find(chat=>chat.id===entry.info.chatId)?.title||'Workspace'};}
-function saveWorkspaceWindows(){if(!quitting)store.put('settings',{id:'workspace-windows',windows:[...workspaceWindows.values()].filter(({window})=>!window.isDestroyed()&&!closingWindows.has(window)).map(({info,window})=>({...info,bounds:window.getNormalBounds(),maximized:window.isMaximized()||hiddenMaximizedChats.has(window)}))});}
-function openWorkspaceWindow(args:SavedWorkspaceWindow,hidden=false){
- if(!workspaceViews.includes(args?.view))throw Error('Choose a workspace view.');
- const chat=sidebar.root(args.chatId),existing=workspaceWindows.get(args.view);
- if(existing){if(existing.info.chatId!==chat.id)throw Error(workspaceTitle(args.view)+' is open for another chat. Return that window before opening this chat’s view.');existing.window.show();existing.window.focus();return;}
- if(worktreeChanging)throw Error('Wait for the working folder change to finish.');
- const directory=typeof args.directory==='string'?args.directory:'';if(defaultFolder())workspacePath(defaultFolder(),directory);else if(directory)throw Error('Choose the root working folder first.');
- if(args.view==='files'&&args.file!==undefined)readWorkspaceFile(defaultFolder(),args.file);
- if(args.view==='changes'&&args.diff){if(typeof args.diff.file!=='string'||typeof args.diff.staged!=='boolean')throw Error('Invalid diff selection.');workspacePath(defaultFolder(),path.join(directory,args.diff.file));}
- const rectangle=args.bounds,valid=rectangle&&['x','y','width','height'].every(key=>typeof rectangle[key as keyof WindowBounds]==='number'&&Number.isInteger(rectangle[key as keyof WindowBounds])&&Math.abs(rectangle[key as keyof WindowBounds])<=2147483647)&&rectangle.width>0&&rectangle.height>0;
- const bounds=visibleWindowBounds(rectangle,(valid?screen.getDisplayMatching(rectangle!):screen.getPrimaryDisplay()).workArea);
- const view=new BrowserWindow({...bounds,minWidth:450,minHeight:400,show:false,title:workspaceTitle(args.view)+' · '+chat.title,icon:nativeImage.createFromPath(path.join(app.getAppPath(),'assets/icon.png')),backgroundColor:'#141413',frame:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false}});
- const info:SavedWorkspaceWindow={view:args.view,chatId:chat.id,root:defaultFolder(),directory,...(args.view==='files'&&args.file?{file:args.file}:{}),...(args.view==='changes'&&args.diff?{diff:{file:args.diff.file,staged:args.diff.staged}}:{})};
- const entry={info,window:view,preview:new Previews(view,store,defaultFolder,[data],path.join(root,'runtime/poppler/Library/bin'),data,withOwner,openChatLink)};workspaceWindows.set(info.view,entry);
- view.webContents.setWindowOpenHandler(()=>({action:'deny'}));view.webContents.on('will-navigate',event=>event.preventDefault());
- if(info.view==='preview')(chatPreviews.get(chat.id)||previews).move(chat.id,entry.preview);
- let checking=false,discard=false;const owner=view.webContents.id;
- view.on('close',event=>{if(!quitting&&!discard&&workspaceDrafts.has(owner)){event.preventDefault();if(!checking){checking=true;void dialog.showMessageBox(view,{type:'question',message:'This workspace has unsaved edits.',detail:'Close this window and discard them?',buttons:['Keep editing','Discard and close'],defaultId:0,cancelId:0}).then(result=>{checking=false;if(result.response===1){discard=true;view.close();}});}}if(!event.defaultPrevented){recordClosingWindow(view,saveWorkspaceWindows);if(!quitting&&info.view==='preview')entry.preview.move(chat.id,chatPreviews.get(chat.id)||previews);entry.preview.closeAll();}});
- view.on('closed',()=>{workspaceDrafts.delete(owner);workspaceWindows.delete(info.view);saveWorkspaceWindows();emit();if(!quitting&&info.view==='files'&&info.file&&info.root===defaultFolder()&&store.all<Chat>('chat').some(row=>row.id===info.chatId)){win.webContents.send('open-file',{id:randomUUID(),chatId:info.chatId,root:info.root,path:info.file,directory:false,refresh:true});}if(!quitting)win.show();});
- view.on('move',saveWorkspaceWindows);view.on('resize',saveWorkspaceWindows);view.on('maximize',saveWorkspaceWindows);view.on('unmaximize',saveWorkspaceWindows);
- if(args.maximized){if(hidden){hiddenMaximizedChats.add(view);view.once('show',()=>{hiddenMaximizedChats.delete(view);view.maximize();});}else view.maximize();}
- saveWorkspaceWindows();emit();view.once('ready-to-show',()=>{if(!hidden)view.show();});void view.loadFile(path.join(__dirname,'index.html'),{hash:'workspace='+info.view});
-}
-async function workspaceWindowRequest(entry:WorkspaceWindow,method:string,args:any){
- const {info,window,preview}=entry;
- if(method==='state')return workspaceWindowState(entry);
- if(method==='openJob'&&info.view==='tasks'){if(!chatActivity(snapshot(),info.chatId).agents.some(turn=>turn.id===args?.id))throw Error('This agent belongs to another chat.');return openJob(args.id);}
- if(method==='chatFiles'&&['plan','tasks'].includes(info.view)){
-  const activity=chatActivity(snapshot(),info.chatId);
-  return turnFilesRequest([...activity.plans.map(row=>row.approval.turnId),...activity.agents.map(turn=>turn.id)],args);
- }
- if(['approve','chatLink','toolResult'].includes(method)&&['plan','tasks'].includes(info.view)){
-  const activity=chatActivity(snapshot(),info.chatId);
-  if(method==='approve'){if(info.view!=='plan'||!activity.plans.some(row=>row.approval.id===args?.id))throw Error('This plan belongs to another chat.');}
-  else if(!activity.plans.some(row=>row.approval.turnId===args?.turnId)&&!activity.agents.some(turn=>turn.id===args?.turnId))throw Error('This link belongs to another chat.');
-  return handlers[method](args);
- }
- if(method==='window'){if(args?.action==='close')window.close();else if(args?.action==='minimize')window.minimize();else if(args?.action==='maximize')window.isMaximized()?window.unmaximize():window.maximize();return;}
- if(method==='workspaceWindowOpen'){if(!workspaceViews.includes(args?.view))throw Error('Choose a workspace view.');return openWorkspaceWindow({...info,view:args.view});}
- if(method==='workspaceWindowReturn'){window.close();return;}
- if(method==='workspaceList'||method==='workspaceRead'||method==='workspaceSave'||method==='workspaceChanges'){
-  if(method==='workspaceSave'&&info.view!=='files')throw Error('Edit files in the Files window.');
-  const result=await handlers[method](args||{});
-  if(method==='workspaceRead')info.file=args.file;
-  if(method==='workspaceList')info.directory=args?.directory||'';
-  if(method==='workspaceChanges'&&args?.file)info.diff={file:args.file,staged:args.staged===true};
-  saveWorkspaceWindows();return result;
- }
- if(['terminalList','terminalOpen','terminalRead','terminalWrite','terminalResize','terminalClose','workspaceGit','workspaceGitCancel','reviewDraft','publishPreview','previewState','previewOpen','previewAction','previewLayout','previewBrowser'].includes(method)){
-  if(args?.chatId!==info.chatId)throw Error('This action belongs to another chat.');
-  if(method.startsWith('terminal')&&info.view!=='terminal')throw Error('Use the Terminal window.');
-  if(['reviewDraft','workspaceGit','workspaceGitCancel'].includes(method)&&info.view!=='changes')throw Error('Use the Changes window.');
-  if(method.startsWith('preview')){
-   if(method==='previewBrowser')return handlers.previewBrowser(args);
-   if(method==='previewLayout')return info.view==='preview'?preview.layout(info.chatId,args.bounds):undefined;
-   const controller=info.view==='preview'?preview:workspaceWindows.get('preview')?.info.chatId===info.chatId?workspaceWindows.get('preview')!.preview:chatPreviews.get(info.chatId)||previews;
-   if(method==='previewState')return controller.state(info.chatId);
-   if(method==='previewOpen')return controller.open(info.chatId,{url:args.url,file:args.file,chatFileId:args.chatFileId});
-   if(!['back','forward','reload','stop','close'].includes(args.action))throw Error('Invalid preview action.');return controller.action(info.chatId,args.action);
-  }
-  return handlers[method](args);
- }
- throw Error('This action is unavailable in a workspace window.');
-}
 
-type SavedChatWindow={chatId:string;bounds?:WindowBounds;maximized?:boolean};
-const hiddenMaximizedChats=new WeakSet<BrowserWindow>(),closingWindows=new WeakSet<BrowserWindow>();
-function recordClosingWindow(view:BrowserWindow,save:()=>void){if(!quitting){closingWindows.add(view);save();}}
-function saveChatWindows(){
- if(quitting)return;
- store.put('settings',{id:'chat-windows',windows:[...chatWindows].filter(([,view])=>!view.isDestroyed()&&!closingWindows.has(view)).map(([chatId,view])=>({chatId,bounds:view.getNormalBounds(),maximized:view.isMaximized()||hiddenMaximizedChats.has(view)}))});
-}
-function removeSavedPane(id:string){const saved=store.all<any>('settings').find(row=>row.id==='pane-layout');if(!saved?.tree)return;const tree=readTree(saved.tree,()=>true);if(tree){const next=removePane(tree,id);if(next)store.put('settings',{...saved,tree:next});}}
-function openChatWindow(chatId:string,saved?:SavedChatWindow,hidden=false){
- const chat=sidebar.root(chatId),existing=chatWindows.get(chatId);if(existing&&!existing.isDestroyed()){existing.show();existing.focus();return;}
- const rectangle=saved?.bounds;
- const valid=rectangle&&['x','y','width','height'].every(key=>typeof rectangle[key as keyof WindowBounds]==='number'&&Number.isInteger(rectangle[key as keyof WindowBounds])&&Math.abs(rectangle[key as keyof WindowBounds])<=2147483647)&&rectangle.width>0&&rectangle.height>0;
- const bounds=visibleWindowBounds(rectangle,(valid?screen.getDisplayMatching(rectangle!):screen.getPrimaryDisplay()).workArea);
- const view=new BrowserWindow({icon:nativeImage.createFromPath(path.join(app.getAppPath(),'assets/icon.png')),...bounds,minWidth:450,minHeight:400,show:false,title:chat.title,backgroundColor:'#141413',frame:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false}});
- chatWindows.set(chatId,view);removeSavedPane('chat:'+chatId);view.webContents.setWindowOpenHandler(()=>({action:'deny'}));view.webContents.on('will-navigate',event=>event.preventDefault());
- previews.close(chatId);chatPreviews.set(chatId,new Previews(view,store,defaultFolder,[data],path.join(root,'runtime/poppler/Library/bin'),data,withOwner,openChatLink));
- const editorOwner=view.webContents.id;let checkingClose=false,discardOnClose=false;
- view.on('close',event=>{if(!quitting&&!discardOnClose&&workspaceDrafts.has(editorOwner)){event.preventDefault();if(!checkingClose){checkingClose=true;void dialog.showMessageBox(view,{type:'question',message:'This file has an unsaved draft.',detail:'Close this window and discard the file draft?',buttons:['Keep editing','Discard and close'],defaultId:0,cancelId:0}).then(result=>{checkingClose=false;if(result.response===1){discardOnClose=true;view.close();}});}}if(!event.defaultPrevented){recordClosingWindow(view,saveChatWindows);chatPreviews.get(chatId)?.closeAll();}});
- view.on('closed',()=>{workspaceDrafts.delete(editorOwner);chatPreviews.delete(chatId);chatWindows.delete(chatId);saveChatWindows();emit();});view.on('move',saveChatWindows);view.on('resize',saveChatWindows);view.on('maximize',saveChatWindows);view.on('unmaximize',saveChatWindows);
- if(saved?.maximized){if(hidden){hiddenMaximizedChats.add(view);view.once('show',()=>{hiddenMaximizedChats.delete(view);view.maximize();});}else view.maximize();}
- saveChatWindows();emit();view.once('ready-to-show',()=>{if(!hidden)view.show();});void view.loadFile(path.join(__dirname,'index.html'),{hash:'chat='+chatId});
-}
-function jobSnapshot(chatId:string,state:ReturnType<typeof snapshot>=snapshot({tools:false})){
-  const chat=store.get<Chat>('chat',chatId),turns=state.turns.filter(t=>t.chatId===chatId),ids=new Set(turns.map(t=>t.id));
-  return {...state,sidebar:undefined,goals:[],background:state.background.filter(row=>row.chatId===chatId),workReview:[],chats:[{...chat,pool:store.get<Chat>('chat',chat.parentChatId!).pool}],projects:state.projects.filter(p=>p.id===chat.projectId),turns:[...turns,store.get<Turn>('turn',chat.groupTurnId!)],tools:store.whereIn<ToolCall>('tool','turnId',[...ids]),approvals:state.approvals.filter(a=>a.chatId===chatId)};
-}
-function agentSnapshot(id:string,state:ReturnType<typeof snapshot>=snapshot({tools:false})){
- const turn=store.get<Turn>('turn',id),chat=store.get<Chat>('chat',turn.chatId);if(turn.automatic?.kind!=='agent')throw Error('This is not a native agent.');
- return {...state,savedApps:[],sidebar:undefined,goals:[],jobChats:[],workReview:[],chats:[chat],projects:state.projects.filter(project=>project.id===chat.projectId),turns:[turn],tools:store.where<ToolCall>('tool','turnId',id),approvals:state.approvals.filter(approval=>approval.turnId===id),background:state.background.filter(row=>row.chatId===chat.id&&row.engine==='claude'&&row.processId===turn.automatic!.taskId&&row.generation===turn.automatic!.runtimeId)};
-}
-function turnFilesRequest(turnIds:string[],args:any){
- const allowed=new Set(turnIds),rows=chatFiles(store,args?.chatId).filter(row=>row.turnId&&allowed.has(row.turnId));
- if(!args?.action||args.action==='list')return rows.map(({blob,...row})=>row);
- const row=findChatFile(store,args?.chatId,args?.id);if(!rows.some(file=>file.id===row.id))throw Error('This file belongs to another task.');
- return handlers.chatFiles(args);
-}
-function agentWindowRequest(id:string,method:string,args:any){
- const state=agentSnapshot(id),view=jobWindows.get('agent:'+id)!;
- if(method==='state')return state;
- if(method==='chatFiles')return turnFilesRequest([id],args);
- if(method==='window'){if(args?.action==='close')view.close();else if(args?.action==='minimize')view.minimize();else if(args?.action==='maximize')view.isMaximized()?view.unmaximize():view.maximize();return;}
- if(['approve','answer'].includes(method)){if(!state.approvals.some(row=>row.id===args?.id))throw Error('This approval belongs to another agent.');}
- else if(['chatLink','toolResult','openParent'].includes(method)){if(args?.turnId!==id)throw Error('This action belongs to another agent.');}
- else if(method==='backgroundStop'){if(!state.background.some(row=>row.id===args?.id))throw Error('This task belongs to another agent.');}
- else throw Error('This action is unavailable in an agent window.');
- return handlers[method](args);
-}
-function modelWindowHash(key:string){return key.startsWith('agent:')?'agent='+key.slice(6):'job='+key;}
-type SavedJobWindow={turnId:string;bounds?:WindowBounds;maximized?:boolean};
-function saveJobWindows(){if(!quitting)store.put('settings',{id:'job-windows',windows:[...jobWindows].filter(([,view])=>!view.isDestroyed()&&!closingWindows.has(view)).map(([chatId,view])=>({turnId:chatId.startsWith('agent:')?chatId.slice(6):store.all<Turn>('turn').findLast(turn=>turn.chatId===chatId)?.id,bounds:view.getNormalBounds(),maximized:view.isMaximized()||hiddenMaximizedChats.has(view)}))});}
-function openJob(id:string,saved?:SavedJobWindow,hidden=false){
-  const turn=store.get<Turn>('turn',id),chat=store.get<Chat>('chat',turn.chatId);
-  const agent=turn.automatic?.kind==='agent',key=agent?'agent:'+turn.id:chat.id;
-  if(!agent&&(!turn.parentTurnId||!chat.parentChatId))throw Error('This is not a parallel job.');
-  const existing=jobWindows.get(key);if(existing&&!existing.isDestroyed()){existing.show();existing.focus();return;}
-  const rectangle=saved?.bounds;
-  const valid=rectangle&&['x','y','width','height'].every(key=>typeof rectangle[key as keyof WindowBounds]==='number'&&Number.isInteger(rectangle[key as keyof WindowBounds])&&Math.abs(rectangle[key as keyof WindowBounds])<=2147483647)&&rectangle.width>0&&rectangle.height>0;
-  const bounds=visibleWindowBounds(rectangle||{width:540,height:640},(valid?screen.getDisplayMatching(rectangle!):screen.getPrimaryDisplay()).workArea);
-  const window=new BrowserWindow({icon:nativeImage.createFromPath(path.join(app.getAppPath(),'assets/icon.png')),...bounds,minWidth:450,minHeight:400,show:false,title:modelLabel(turn.model,claude.models),backgroundColor:'#141413',frame:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false}});
-  jobWindows.set(key,window);removeSavedPane(agent?key:'job:'+chat.id);
-  window.webContents.setWindowOpenHandler(()=>({action:'deny'}));window.webContents.on('will-navigate',event=>event.preventDefault());
-  window.on('close',()=>recordClosingWindow(window,saveJobWindows));
-  window.on('closed',()=>{jobWindows.delete(key);saveJobWindows();emit();});
-  window.on('move',saveJobWindows);window.on('resize',saveJobWindows);window.on('maximize',saveJobWindows);window.on('unmaximize',saveJobWindows);
-  if(saved?.maximized){if(hidden){hiddenMaximizedChats.add(window);window.once('show',()=>{hiddenMaximizedChats.delete(window);window.maximize();});}else window.maximize();}
-  saveJobWindows();emit();window.once('ready-to-show',()=>{if(!hidden)window.showInactive();});
-  void window.loadFile(path.join(__dirname,'index.html'),{hash:modelWindowHash(key)});
-}
+export type SavedChatWindow={chatId:string;bounds?:WindowBounds;maximized?:boolean};
+export const hiddenMaximizedChats=new WeakSet<BrowserWindow>(),closingWindows=new WeakSet<BrowserWindow>();
+export type SavedJobWindow={turnId:string;bounds?:WindowBounds;maximized?:boolean};
 function window(){
   win=new BrowserWindow({show:!process.argv.includes('--hidden'),icon:nativeImage.createFromPath(path.join(app.getAppPath(),'assets/icon.png')),width:1280,height:850,minWidth:650,minHeight:500,title:appName,backgroundColor:'#141413',titleBarStyle:'hidden',titleBarOverlay:{color:'#141413',symbolColor:'#e8e6dc',height:36},webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false}});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
