@@ -262,7 +262,7 @@ export async function sendClaude(chat:Chat,turn:Turn,project:Project,step:(name:
     const busy=native.busyRuntime(chat.id),into={...options,sessionId:busy?.sessionId};
     const picked=busy&&busy.compatible(into)?{session:busy,options:into}:await native.acquire(chat,options,()=>{
       const fresh=handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),turn,undefined,chat.context,chat.contextInstructions,'',false);
-      return {...options,sessionId:undefined,prompt:backend.scrubber.text(parallelContext(store,turn)+(turn.parentTurnId?'Current user message:\n':'')+fresh.prompt)};
+      return {...options,sessionId:undefined,prompt:backend.scrubber.text(parallelContext(store,turn)+fresh.prompt)};
     });
     step('Sending');preparation.removeEventListener('abort',link);
     const answer=native.submit(picked);
@@ -369,7 +369,7 @@ export async function prepareClaude(chat:Chat,turn:Turn,project:Project,controll
     step('Loading project memory');
     const snapshot=memoryContext(await memoryCache.get(project.profile,controller.signal));
     step('Reading attachments');
-    const base={chrome:screenSettings().screen&&screenSettings().ownChrome,env:claudeScreenEnv(),executable:claudeExecutable,prefixArgs:fixtureClaudeArgs(),python:backend.python,worker:path.join(root,'backend','claude_worker.py'),directory:workingDirectory(project),planDirectory:project.folder?path.join(await fs.realpath(workingDirectory(project)),'.trismegistus','plans',chat.id):undefined,dataRoot:data,exchangeRoot,model:turn.model.slice(12),effort:turn.effort||'high',mode:project.mode,sessionId:transfer.sessionId||undefined,prompt:backend.scrubber.text(parallelContext(store,turn)+(turn.parentTurnId?'Current user message:\n':'')+transfer.prompt),projectMemory:managementText(appChatContext(store,chat)+'\n'+rlmContext(store,chat)+screenContext())+'\n\n'+backend.scrubber.text(snapshot)+'\n\n'+background.context(chat)+native.context(chat)+goals.context(turn),attachments:await attachmentContent(path.join(data,'attachments'),chat.parentChatId||chat.id,transfer.attachments,true),hasFolder:!!project.folder,trustedProject,projectSettingsHash,projectSourceGrant,projectAgents,scrubber:backend.scrubber,pluginDirectories} as ClaudeRun;
+    const base={chrome:screenSettings().screen&&screenSettings().ownChrome,env:claudeScreenEnv(),executable:claudeExecutable,prefixArgs:fixtureClaudeArgs(),python:backend.python,worker:path.join(root,'backend','claude_worker.py'),directory:workingDirectory(project),planDirectory:project.folder?path.join(await fs.realpath(workingDirectory(project)),'.trismegistus','plans',chat.id):undefined,dataRoot:data,exchangeRoot,model:turn.model.slice(12),effort:turn.effort||'high',mode:project.mode,sessionId:transfer.sessionId||undefined,prompt:backend.scrubber.text(parallelContext(store,turn)+transfer.prompt),projectMemory:managementText(appChatContext(store,chat)+'\n'+rlmContext(store,chat)+screenContext())+'\n\n'+backend.scrubber.text(snapshot)+'\n\n'+background.context(chat)+native.context(chat)+goals.context(turn),attachments:await attachmentContent(path.join(data,'attachments'),chat.parentChatId||chat.id,transfer.attachments,true),hasFolder:!!project.folder,trustedProject,projectSettingsHash,projectSourceGrant,projectAgents,scrubber:backend.scrubber,pluginDirectories} as ClaudeRun;
     return bindClaude(chat,turn,project,controller,base);
 }
 export function request(request:any){
