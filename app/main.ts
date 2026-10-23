@@ -27,7 +27,7 @@ import {readAlwaysOn,loginItem,keepAwake} from './always-on';
 import {existsSync,appendFileSync,writeFileSync,copyFileSync,rmSync} from 'node:fs';
 import {appSummarySources,summaryRevision,summaryBatches,validateSummary,applyTodoTitles,appSummaryError,type AppSummary,type SummaryItem} from './app-summary';
 import {changeAppGroup,saveApp,removeApp,appTool,appFolderName,appTodo,listAppsTool,appTodoTool,appLinkTool,appUpdateTodoTool,appUpdateTool,directAppTools,updateAppTodo,linkAppChat,appChatContext,type AppTodo,type SavedApp} from './saved-apps';
-import {app,BrowserWindow,ipcMain,dialog,Tray,Menu,Notification,nativeImage,shell,powerMonitor,powerSaveBlocker,protocol,screen} from 'electron';
+import {app,BrowserWindow,ipcMain,dialog,Tray,Menu,Notification,nativeImage,shell,powerMonitor,powerSaveBlocker,protocol,screen,globalShortcut} from 'electron';
 import fs from 'node:fs/promises';
 import {RepoMaps} from './repo-map-service';
 import {defaultWatch,readWatch,readIdeas,ideasPrompt,nextWatchRun,updateModel,type AppWatch,type AppIdea} from './app-watch';
@@ -63,7 +63,8 @@ import {readInbound,parseRequest,readRemote,gateChannel,GatewaySupervisor,Remote
 import {pair,pairingUri,checkCode,bindingDigest,type RemoteCodeState} from './remote-code';
 import {toDataURL} from 'qrcode';
 import {readRoutine,nextFiring,tick,firingId,type Routine} from './routines';
-import {readBrowserChoice,installedProgram,installProgram,installedChrome,programs,type ToolProgram} from './browser-tools';
+import {readScreenSettings,installedProgram,installedChrome,programs,type ToolProgram} from './browser-tools';
+import {ScreenDriver,screenTarget,hermesScreenTarget,screenActions,sendsEscape,processName,sameApp,screenGuidance,screenInstructions,screenBarPage,type ScreenTarget} from './screen-control';
 import {workspacePath,listWorkspace,readWorkspaceFile,saveWorkspaceFile} from './workspace-files';
 import {createParallel,settleParallel,terminalJobStates,parallelContext} from './parallel';
 import {WorkCoordination,parallelTool,inspectionTool} from './work-coordination';
@@ -452,7 +453,7 @@ function dockableJobChats(turns:Turn[]){const latest=new Map<string,Turn>();for(
 // Shows an approval. Its action steps out of the work lock until the user answers, so other chats' work goes on
 // (Koan 2026-10-15: one chat waiting for Allow stalled another chat's command for ten minutes).
 function askApproval(row:Approval){store.put('approval',row);if(row.method==='approval')coordination.ask(row.turnId,row.params.description,row.params.command);}
-function snapshot(options:{tools?:boolean}={}){const base=store.snapshot(options),summaryUsage=store.all<{chatId:string;model:string;tokens:number|null}>('context-usage');base.chats=base.chats.map(chat=>({...chat,compacting:contextJobs.has(chat.id)?{done:contextJobs.get(chat.id)!.done,total:contextJobs.get(chat.id)!.total}:undefined,summarizationUsage:summaryUsage.filter(row=>row.chatId===chat.id).map(({model,tokens})=>({model,tokens}))}));const shareChats=base.chats.filter(chat=>!chat.archived&&!chat.sideSourceId),shareTargets=[...new Set(shareChats.map(chat=>chat.projectId))].map(projectId=>({projectId,title:shareChats.filter(chat=>chat.projectId===projectId).map(chat=>chat.title).join(" · ")}));return {...base,shareTargets,workspaceWindows:[...workspaceWindows.keys()],agentWindows:[...jobWindows.keys()].filter(id=>id.startsWith('agent:')).map(id=>id.slice(6)),jobWindows:[...jobWindows.keys()].filter(id=>!id.startsWith('agent:')),jobChats:dockableJobChats(base.turns),chatWindows:[...chatWindows.keys()],providerUrls:providerUrls(),chatLayout:store.all<any>('settings').find(row=>row.id==='chat-layout')||null,paneLayout:store.all<any>('settings').find(row=>row.id==='pane-layout')?.tree||null,paneWorkspace:readPaneWorkspace(store.all<any>('settings').find(row=>row.id==='pane-layout')?.workspace),publishing:publishing(),updates:{current:app.getVersion(),dev,mode:updateSettings().mode,status:appUpdates?.status||'',available:appUpdates?.available||null,downloaded:!!appUpdates?.downloaded,checking:!!appUpdates?.checking,downloading:!!appUpdates?.downloading,percent:appUpdates?.percent??null,failed:appUpdates?.failed||'',rolledBack:updateRolledBack,show:updateShow,history:(whatsNew as WhatsNew[]).filter(entry=>compareVersions(entry.version,app.getVersion())<=0).reverse(),discovery:{...discoverySettings(),status:discoveryStatus,running:!!discoveryRun,result:store.all<any>('discovery').at(-1)?.result||null},hermes:{pinned:hermesPin().version,fork:hermesPin().fork,status:hermesStatus,releases:store.all<any>('hermes-release').sort((a,b)=>b.published.localeCompare(a.published)).map(({id,...row})=>row)}},browserTools:{choice:browserChoice(),chrome:!!installedChrome(),on:toolAccess().on,programs:Object.fromEntries((Object.keys(programs) as ToolProgram[]).map(program=>[program,{version:programs[program].version,installed:!!(program==='agent-browser'?toolPaths().browser:toolPaths().computer),installing:toolInstalls.has(program),status:toolStatus[program]||''}]))},alwaysOn:{...alwaysOn(),awake:awakeBlocker!==null},routines:store.all<Routine>('routine'),voice:{...voiceSettings(),wake:wakeSettings(),speech:speechInstalled(),ready:speechReady(),installing:!!speechInstall,progress:speechProgress},wizard:{show:wizardOpen,pending:!wizardDecided,steps:wizardRow().steps||{},start:wizardStart},remote:{...remoteSettings(),paired:!!remoteSecret,waiting:remoteShown()?.kind||null,target:remoteChats().find(chat=>chat.id===remoteSettings().chatId)?.title||remoteChats()[0]?.title||null,alerts:store.all<any>('remote-alert').slice(-10).reverse(),tokenSaved:!!remoteRow()?.tokenSaved,installed:telegramInstalled(),installing:!!telegramInstall,status:remoteGateway?.status||'off',message:(remoteGateway?.message||'').replace(/\d{5,}:[\w-]{30,}/g,'[token]'),...(namespace.startsWith('Trismegistus/Test/')?{pid:remoteGateway?.pid}:{})},keyRotation:store.all<any>('settings').find(row=>row.id==='key-rotation')?.done||{},decisionEngine:{selected:decisionEngine(),connected:classifierActive(),status:pickerStatus(decisionEngine()),pickers:pickers.map(row=>({id:row.id,label:row.label,connected:pickerConnected(row.id),status:pickerStatus(row.id)}))},gliner:gliner?.state(),pickerSettings:Object.fromEntries(pickers.filter(row=>row.id!=='jev').map(row=>[row.id,pickerSettings(row.id)])),pluginChanges:pluginChanges.rows(),savedApps:savedAppRows(base),savedAppGroups:store.all<import('./saved-apps').SavedAppGroup>('saved-app-group'),sidebar:{groups:sidebar.groups(),preferences:sidebar.preferences()},goals:goals?.rows()||[],background:[...(background?.rows()||[]),...(native?.rows()||[])],workReview:[],jev:{connected:!!jevKey,status:jevStatus,summaryModel:jevSettings().summaryModel,confidence:jevSettings().confidence,timeoutMs:jevSettings().timeoutMs},connected,backend:backend.status,defaultMode:store.defaultMode(),providerStatus,balance,balanceCheckedAt,defaultFolder:defaultFolder(),codex,claude,apiProviders:apiProviders?.rows()||[],availability:health.rows(),availableModels:availableModels(),modelPrices,deepseekModels:deepseekModels(),defaultModels:defaultModels(),favouriteModels:favouriteModels(),mcp:mcpRows.map(row=>({...row,signingIn:mcpLogins.has(row.id)})),mcpError,commands:[{name:'/compact',description:'Summarize older messages and continue in this chat. Add a focus after the command.',plugin:'Ghidorah',kind:'Command'},...reviewCommands,...sharedCommands(store.all<NativePluginInstall>('native-plugin')),...pluginHandlers.map(({name,description,plugin,kind})=>({name,description,plugin,kind}))].sort((a,b)=>a.name.localeCompare(b.name))};}
+function snapshot(options:{tools?:boolean}={}){const base=store.snapshot(options),summaryUsage=store.all<{chatId:string;model:string;tokens:number|null}>('context-usage');base.chats=base.chats.map(chat=>({...chat,compacting:contextJobs.has(chat.id)?{done:contextJobs.get(chat.id)!.done,total:contextJobs.get(chat.id)!.total}:undefined,summarizationUsage:summaryUsage.filter(row=>row.chatId===chat.id).map(({model,tokens})=>({model,tokens}))}));const shareChats=base.chats.filter(chat=>!chat.archived&&!chat.sideSourceId),shareTargets=[...new Set(shareChats.map(chat=>chat.projectId))].map(projectId=>({projectId,title:shareChats.filter(chat=>chat.projectId===projectId).map(chat=>chat.title).join(" · ")}));return {...base,shareTargets,workspaceWindows:[...workspaceWindows.keys()],agentWindows:[...jobWindows.keys()].filter(id=>id.startsWith('agent:')).map(id=>id.slice(6)),jobWindows:[...jobWindows.keys()].filter(id=>!id.startsWith('agent:')),jobChats:dockableJobChats(base.turns),chatWindows:[...chatWindows.keys()],providerUrls:providerUrls(),chatLayout:store.all<any>('settings').find(row=>row.id==='chat-layout')||null,paneLayout:store.all<any>('settings').find(row=>row.id==='pane-layout')?.tree||null,paneWorkspace:readPaneWorkspace(store.all<any>('settings').find(row=>row.id==='pane-layout')?.workspace),publishing:publishing(),updates:{current:app.getVersion(),dev,mode:updateSettings().mode,status:appUpdates?.status||'',available:appUpdates?.available||null,downloaded:!!appUpdates?.downloaded,checking:!!appUpdates?.checking,downloading:!!appUpdates?.downloading,percent:appUpdates?.percent??null,failed:appUpdates?.failed||'',rolledBack:updateRolledBack,show:updateShow,history:(whatsNew as WhatsNew[]).filter(entry=>compareVersions(entry.version,app.getVersion())<=0).reverse(),discovery:{...discoverySettings(),status:discoveryStatus,running:!!discoveryRun,result:store.all<any>('discovery').at(-1)?.result||null},hermes:{pinned:hermesPin().version,fork:hermesPin().fork,status:hermesStatus,releases:store.all<any>('hermes-release').sort((a,b)=>b.published.localeCompare(a.published)).map(({id,...row})=>row)}},browserTools:{...screenSettings(),apps:screenApps(),chrome:!!installedChrome(),on:toolAccess().on,programs:Object.fromEntries((Object.keys(programs) as ToolProgram[]).map(program=>[program,{version:programs[program].version,installed:!!(program==='agent-browser'?toolPaths().browser:toolPaths().computer)}]))},alwaysOn:{...alwaysOn(),awake:awakeBlocker!==null},routines:store.all<Routine>('routine'),voice:{...voiceSettings(),wake:wakeSettings(),speech:speechInstalled(),ready:speechReady(),installing:!!speechInstall,progress:speechProgress},wizard:{show:wizardOpen,pending:!wizardDecided,steps:wizardRow().steps||{},start:wizardStart},remote:{...remoteSettings(),paired:!!remoteSecret,waiting:remoteShown()?.kind||null,target:remoteChats().find(chat=>chat.id===remoteSettings().chatId)?.title||remoteChats()[0]?.title||null,alerts:store.all<any>('remote-alert').slice(-10).reverse(),tokenSaved:!!remoteRow()?.tokenSaved,installed:telegramInstalled(),installing:!!telegramInstall,status:remoteGateway?.status||'off',message:(remoteGateway?.message||'').replace(/\d{5,}:[\w-]{30,}/g,'[token]'),...(namespace.startsWith('Trismegistus/Test/')?{pid:remoteGateway?.pid}:{})},keyRotation:store.all<any>('settings').find(row=>row.id==='key-rotation')?.done||{},decisionEngine:{selected:decisionEngine(),connected:classifierActive(),status:pickerStatus(decisionEngine()),pickers:pickers.map(row=>({id:row.id,label:row.label,connected:pickerConnected(row.id),status:pickerStatus(row.id)}))},gliner:gliner?.state(),pickerSettings:Object.fromEntries(pickers.filter(row=>row.id!=='jev').map(row=>[row.id,pickerSettings(row.id)])),pluginChanges:pluginChanges.rows(),savedApps:savedAppRows(base),savedAppGroups:store.all<import('./saved-apps').SavedAppGroup>('saved-app-group'),sidebar:{groups:sidebar.groups(),preferences:sidebar.preferences()},goals:goals?.rows()||[],background:[...(background?.rows()||[]),...(native?.rows()||[])],workReview:[],jev:{connected:!!jevKey,status:jevStatus,summaryModel:jevSettings().summaryModel,confidence:jevSettings().confidence,timeoutMs:jevSettings().timeoutMs},connected,backend:backend.status,defaultMode:store.defaultMode(),providerStatus,balance,balanceCheckedAt,defaultFolder:defaultFolder(),codex,claude,apiProviders:apiProviders?.rows()||[],availability:health.rows(),availableModels:availableModels(),modelPrices,deepseekModels:deepseekModels(),defaultModels:defaultModels(),favouriteModels:favouriteModels(),mcp:mcpRows.map(row=>({...row,signingIn:mcpLogins.has(row.id)})),mcpError,commands:[{name:'/compact',description:'Summarize older messages and continue in this chat. Add a focus after the command.',plugin:'Ghidorah',kind:'Command'},...reviewCommands,...sharedCommands(store.all<NativePluginInstall>('native-plugin')),...pluginHandlers.map(({name,description,plugin,kind})=>({name,description,plugin,kind}))].sort((a,b)=>a.name.localeCompare(b.name))};}
 // Window refreshes carry only the tools of the chats a window shows (RUN-PLAN 3b): every tool ever recorded was
 // 276 ms to build and 65 MB per window per refresh on Koan's data. A direct 'state' request still gets everything.
 function toolsForChats(state:{turns:Turn[]},chatIds:Set<string>){
@@ -879,17 +880,75 @@ async function wakeRequest(method:string,args:any){
 
 function speechInstalled(){return featureInstalled('speech');}
 function speechReady(){const voice=voiceSettings();return speechInstalled()&&voice.installed.includes(voice.sttModel);}
-// Chrome and computer use (4e). Each Hermes toolset is on only when Hermes's tools are chosen and its pinned
-// program is installed; agent-browser drives the installed Chrome, so it never fetches a browser or itself.
-const toolStatus:Partial<Record<ToolProgram,string>>={},toolInstalls=new Map<ToolProgram,AbortController>();
-function browserChoice(){return readBrowserChoice(store.all<any>('settings').find(row=>row.id==='browser-tools'));}
-function toolPaths(){const test=namespace.startsWith('Trismegistus/Test/');return {browser:installedProgram(data,'agent-browser'),computer:(test&&process.env.TRISMEGISTUS_TEST_CUA_DRIVER)||installedProgram(data,'cua-driver')};}
+// Screen control (FEATURE-SPECS 1, was 4e). The two programs ship inside the app (runtime\tools); an older install in
+// the data folder still works. agent-browser drives the installed Chrome on a profile kept in this app.
+function screenSettings(){return readScreenSettings(store.all<any>('settings').find(row=>row.id==='browser-tools'));}
+function toolPaths(){const test=namespace.startsWith('Trismegistus/Test/'),bundled=path.join(root,'runtime');return {browser:installedProgram(bundled,'agent-browser')||installedProgram(data,'agent-browser'),computer:(test&&process.env.TRISMEGISTUS_TEST_CUA_DRIVER)||installedProgram(bundled,'cua-driver')||installedProgram(data,'cua-driver')};}
+const cuaEnv={CUA_DRIVER_RS_TELEMETRY_ENABLED:'0',CUA_TELEMETRY_ENABLED:'false'};
+const browserEnv=(browser:string,chrome:string,profile:string)=>({PATH:path.dirname(browser)+path.delimiter+(process.env.PATH||process.env.Path||''),AGENT_BROWSER_EXECUTABLE_PATH:chrome,AGENT_BROWSER_PROFILE:profile});
 function toolAccess(){
-  const {browser,computer}=toolPaths(),hermes=browserChoice()==='hermes',chrome=installedChrome();
-  const on=[...(hermes&&browser&&chrome?['browser']:[]),...(hermes&&computer?['computer_use']:[])];
-  return {on,env:{...(on.includes('browser')?{PATH:path.dirname(browser!)+path.delimiter+(process.env.PATH||process.env.Path||''),AGENT_BROWSER_EXECUTABLE_PATH:chrome!,AGENT_BROWSER_PROFILE:path.join(data,'hermes','browser-profile')}:{}),
-    ...(on.includes('computer_use')?{HERMES_CUA_DRIVER_CMD:computer!,CUA_DRIVER_RS_TELEMETRY_ENABLED:'0',CUA_TELEMETRY_ENABLED:'false'}:{})} as Record<string,string>};
+  const {browser,computer}=toolPaths(),on=screenSettings().screen,chrome=installedChrome();
+  const active=[...(on&&browser&&chrome?['browser']:[]),...(on&&computer?['computer_use']:[])];
+  return {on:active,env:{...(active.includes('browser')?browserEnv(browser!,chrome!,path.join(data,'hermes','browser-profile')):{}),...(active.includes('computer_use')?{HERMES_CUA_DRIVER_CMD:computer!,...cuaEnv}:{})} as Record<string,string>};
 }
+// Claude models run agent-browser from their terminal, on a Chrome profile of their own.
+function claudeScreenEnv(){const {browser}=toolPaths(),chrome=installedChrome();return screenSettings().screen&&browser&&chrome?browserEnv(browser,chrome,path.join(data,'claude-browser-profile')):undefined;}
+// FEATURE-SPECS 1.4 and 1.6: Koan approves each app the first time a model touches it (this chat, or always) and the
+// whole screen on its own; while a model works on screen a bar says so and Esc stops it (Koan 10-10: "esc key like claude").
+const screenDriver=new ScreenDriver(()=>screenSettings().screen?toolPaths().computer:null,{...claudeEnvironment(),...cuaEnv} as Record<string,string>);
+function screenApps():string[]{const apps=store.all<any>('settings').find(row=>row.id==='screen-apps')?.apps;return Array.isArray(apps)?apps.filter((name:unknown):name is string=>typeof name==='string'):[];}
+function screenContext(){return screenSettings().screen&&toolPaths().computer?'\n'+screenGuidance:'';}
+async function screenStep(turn:Turn,tool:string,args:any,target:ScreenTarget,signal:AbortSignal){
+  const chat=store.get<Chat>('chat',turn.chatId);
+  if(store.get<Project>('project',projectFor(chat).id).mode==='plan'&&screenActions.has(tool==='computer_use'?String(args?.action):tool))throw Error('Plan mode permits looking at the screen only.');
+  if(target.kind==='none')return;
+  const app=target.kind==='screen'?'Whole screen':target.kind==='named'?target.name:await processName(target.pid);
+  if(![...screenApps(),...(store.get<Chat>('chat',chat.id).screenApps||[])].some(name=>sameApp(name,app))){
+    const choice=await screenAsk(turn,app,signal);
+    if(choice==='deny')throw Error((app==='Whole screen'?'Koan did not allow the whole screen':'Koan did not allow '+app)+'. Ask him in the chat before trying again.');
+    if(choice==='always')store.put('settings',{id:'screen-apps',apps:[...screenApps(),app]});
+    else store.update<Chat>('chat',chat.id,{screenApps:[...(store.get<Chat>('chat',chat.id).screenApps||[]),app]});
+  }
+  screenShow(turn,app);
+  if(sendsEscape(tool,args))screenEscPause();
+}
+function screenAsk(turn:Turn,app:string,signal:AbortSignal){
+  return new Promise<string>(resolve=>{
+    const id='screen:'+turn.id+':'+randomUUID(),model=modelLabel(turn.model,claude.models);
+    const description=app==='Whole screen'?'Let '+model+' see and control the whole screen?':'Let '+model+' control '+app+'?';
+    const finish=(choice:string)=>{signal.removeEventListener('abort',abort);requests.delete(id);resolve(choice);};
+    const abort=()=>{if(requests.has(id)){store.update<Approval>('approval',id,{status:'expired'});if(store.get<Turn>('turn',turn.id).status==='waiting')store.update<Turn>('turn',turn.id,{status:'running'});emit();}finish('deny');};
+    if(signal.aborted){resolve('deny');return;}
+    signal.addEventListener('abort',abort,{once:true});requests.set(id,{respond:(answer:any)=>finish(answer.choice)});
+    store.put('approval',{id,chatId:turn.chatId,turnId:turn.id,method:'approval',params:{description,screenApp:app},status:'pending'});
+    store.update<Turn>('turn',turn.id,{status:'waiting'});emit();
+  });
+}
+let screenBar:BrowserWindow|null=null,screenTurn:string|null=null,screenText='',screenEsc:NodeJS.Timeout|null=null;
+const screenEscOn=()=>{if(screenTurn&&!screenEsc&&!globalShortcut.isRegistered('Escape'))globalShortcut.register('Escape',()=>void screenStop());};
+function screenShow(turn:Turn,app:string){
+  screenTurn=turn.id;const text=modelLabel(turn.model,claude.models)+' is controlling '+app;
+  if(!screenBar||screenBar.isDestroyed()){
+    const area=screen.getPrimaryDisplay().workArea,width=480;
+    screenBar=new BrowserWindow({width,height:40,x:Math.round(area.x+(area.width-width)/2),y:area.y+12,frame:false,transparent:true,resizable:false,minimizable:false,maximizable:false,skipTaskbar:true,focusable:false,alwaysOnTop:true,show:false,title:'Screen control',webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
+    screenBar.setAlwaysOnTop(true,'screen-saver');screenText='';
+    screenBar.on('page-title-updated',(_event,title)=>{if(title==='stop')void screenStop();});
+  }
+  if(text!==screenText){screenText=text;void screenBar.loadURL(screenBarPage(text));}
+  screenBar.showInactive();screenEscOn();
+}
+// An Esc the model sends to an app must not stop it: the global Esc steps aside for 2 s.
+function screenEscPause(){globalShortcut.unregister('Escape');clearTimeout(screenEsc!);screenEsc=setTimeout(()=>{screenEsc=null;screenEscOn();},2000);}
+// The bar and Esc end the moment their turn does (checked on every state change).
+function screenSettle(){if(screenTurn&&!['running','waiting','dispatching','stopping'].includes(store.find<Turn>('turn',screenTurn)?.status||''))screenEnd();}
+function screenEnd(){if(screenTurn||screenEsc)globalShortcut.unregister('Escape');clearTimeout(screenEsc!);screenEsc=null;screenTurn=null;screenText='';if(screenBar&&!screenBar.isDestroyed())screenBar.destroy();screenBar=null;}
+async function screenStop(){const id=screenTurn;screenEnd();const t=id?store.find<Turn>('turn',id):null;if(t&&['running','waiting','dispatching'].includes(t.status))await handlers.stop({chatId:t.chatId}).catch(()=>{});}
+// Claude models reach the desktop tools as mcp__screen__*, each action checked first.
+function screenServer(turn:Turn){
+  if(!screenSettings().screen||!toolPaths().computer)return undefined;
+  return {instructions:screenInstructions(!!claudeScreenEnv()),tools:(signal:AbortSignal)=>screenDriver.tools(signal),call:async(name:string,args:any,signal:AbortSignal)=>{await screenStep(turn,name,args,screenTarget(name,args),signal);return screenDriver.call(name,args,signal);}};
+}
+app.on('will-quit',()=>{screenEnd();screenDriver.stop();});
 // Publishing (4c): settings, and one publish path the preview button and the publish_page tool share.
 function publishing(){return readPublishing(store.all<any>('settings').find(row=>row.id==='publishing'));}
 async function publish(file:string,signal?:AbortSignal,settings=publishing()){
@@ -992,7 +1051,7 @@ function emit(){
   wizardOffer();
   goals?.schedule();
   if(!store||!backend)return;
-  askPrices();
+  screenSettle();askPrices();
   settleRemote();
   for(const chatId of settleParallel(store)){const id=commandTurns.get(chatId);if(id&&['completed','partial','failed','stopped','interrupted'].includes(store.get<Turn>('turn',id).status)){commandTurns.delete(chatId);wake(chatId);}}
   wakeWaiting();
@@ -1483,7 +1542,7 @@ async function dispatch(chat:Chat,turn:Turn){
       const busy=hermesTurns.has(chatId)||hermesWaiting(chatId)>0,sessionRows=chat.runtimeId?hermesSessionRows.get(chat.runtimeId):undefined;
       const rows=store.all<Turn>('turn').filter(t=>t.chatId===chatId),through=busy&&sessionRows?rows.slice(0,rows.findIndex(t=>t.id===turn.id)).reverse().find(t=>sessionRows.has(t.id))?.id:undefined;
       step('Checking plugins: history');const stored=store.beginEngine(chatId,'hermes'),position=through?{...stored,sessionId:chat.storedId||chat.runtimeId,throughTurnId:through,uncertain:false}:stored;
-      const transfer=handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),turn,position,chat.context,chat.contextInstructions,appChatContext(store,chat)+'\n'+rlmContext(store,chat));
+      const transfer=handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),turn,position,chat.context,chat.contextInstructions,appChatContext(store,chat)+'\n'+rlmContext(store,chat)+screenContext());
       if(!transfer.sessionId){releaseHermesSession(chat);store.update<Chat>('chat',chatId,{runtimeId:null,storedId:null});chat.runtimeId=null;chat.storedId=null;}
       preparingStep('Opening model session');const sid=await session(chat,turn.model,signal);
       if(store.get<Turn>('turn',turn.id).status==='stopping'){store.update<Turn>('turn',turn.id,{status:'stopped'});return;}
@@ -1506,7 +1565,7 @@ async function dispatch(chat:Chat,turn:Turn){
       // Resumed sessions keep their cached system prompt; current task guidance
       // also travels in the new message without rewriting earlier context.
       // Fixed text (scratch hint, memory, jobs, goals, rules) goes once per session and again only when it changed (Koan, 2026-10-08).
-      const appText=appChatContext(store,chat)+'\n'+rlmContext(store,chat),fixedText=taskScratchHint+'\n\n'+backend.scrubber.text(memory)+'\n\n'+background.context(chat)+native.context(chat)+parallelContext(store,turn)+goals.context(turn);
+      const appText=appChatContext(store,chat)+'\n'+rlmContext(store,chat)+screenContext(),fixedText=taskScratchHint+'\n\n'+backend.scrubber.text(memory)+'\n\n'+background.context(chat)+native.context(chat)+parallelContext(store,turn)+goals.context(turn);
       const resend=resendFixed(!transfer.sessionId,busy,hermesFixed.get(sid),fixedText+appText);
       const prompt=resend?fixedText+transfer.prompt:handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),turn,position,chat.context,chat.contextInstructions,appText,false).prompt;
       // From here the row is Hermes's. Idle: it starts now and its events name it. Busy: Hermes has it, not started.
@@ -1599,7 +1658,7 @@ async function continueNative(chat:Chat,origin:Turn,task:{id:string;model:string
   emit();
   const complete=(value:ClaudeResult|Error)=>{if(value instanceof Error)store.update<Turn>('turn',turn.id,{status:controller.signal.aborted?'stopped':'interrupted',error:backend.scrubber.text(value.message)});else finishNative(chat,turn,value,task.runtimeId,started);cleanupNative(chat,turn);};
   try{
-    const transfer=handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),turn,native.position(task.runtimeId),chat.context,chat.contextInstructions,appChatContext(store,chat)+'\n'+rlmContext(store,chat));
+    const transfer=handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),turn,native.position(task.runtimeId),chat.context,chat.contextInstructions,appChatContext(store,chat)+'\n'+rlmContext(store,chat)+screenContext());
     // Worker configuration retains the parent effort. A native agent resolves
     // its own effort; its saved record stays unknown until native reports it.
     const options=await prepareClaude(chat,{...turn,effort:origin.effort},projectFor(chat),controller,transfer,projectSourceGrant);return {options,complete};
@@ -1652,7 +1711,7 @@ async function prepareClaude(chat:Chat,turn:Turn,project:Project,controller:Abor
     step('Loading project memory');
     const snapshot=memoryContext(await memoryCache.get(project.profile,controller.signal));
     step('Reading attachments');
-    const base={chrome:browserChoice()==='claude',executable:claudeExecutable,prefixArgs:fixtureClaudeArgs(),python:backend.python,worker:path.join(root,'backend','claude_worker.py'),directory:workingDirectory(project),planDirectory:project.folder?path.join(await fs.realpath(workingDirectory(project)),'.trismegistus','plans',chat.id):undefined,dataRoot:data,exchangeRoot,model:turn.model.slice(12),effort:turn.effort||'high',mode:project.mode,sessionId:transfer.sessionId||undefined,prompt:backend.scrubber.text(parallelContext(store,turn)+(turn.parentTurnId?'Current user message:\n':'')+transfer.prompt),projectMemory:managementText(appChatContext(store,chat)+'\n'+rlmContext(store,chat))+'\n\n'+backend.scrubber.text(snapshot)+'\n\n'+background.context(chat)+native.context(chat)+goals.context(turn),attachments:await attachmentContent(path.join(data,'attachments'),chat.parentChatId||chat.id,transfer.attachments,true),hasFolder:!!project.folder,trustedProject,projectSettingsHash,projectSourceGrant,projectAgents,scrubber:backend.scrubber,pluginDirectories} as ClaudeRun;
+    const base={chrome:screenSettings().screen&&screenSettings().ownChrome,env:claudeScreenEnv(),executable:claudeExecutable,prefixArgs:fixtureClaudeArgs(),python:backend.python,worker:path.join(root,'backend','claude_worker.py'),directory:workingDirectory(project),planDirectory:project.folder?path.join(await fs.realpath(workingDirectory(project)),'.trismegistus','plans',chat.id):undefined,dataRoot:data,exchangeRoot,model:turn.model.slice(12),effort:turn.effort||'high',mode:project.mode,sessionId:transfer.sessionId||undefined,prompt:backend.scrubber.text(parallelContext(store,turn)+(turn.parentTurnId?'Current user message:\n':'')+transfer.prompt),projectMemory:managementText(appChatContext(store,chat)+'\n'+rlmContext(store,chat)+screenContext())+'\n\n'+backend.scrubber.text(snapshot)+'\n\n'+background.context(chat)+native.context(chat)+goals.context(turn),attachments:await attachmentContent(path.join(data,'attachments'),chat.parentChatId||chat.id,transfer.attachments,true),hasFolder:!!project.folder,trustedProject,projectSettingsHash,projectSourceGrant,projectAgents,scrubber:backend.scrubber,pluginDirectories} as ClaudeRun;
     return bindClaude(chat,turn,project,controller,base);
 }
 function bindClaude(chat:Chat,turn:Turn,project:Project,controller:AbortController,base:ClaudeRun):ClaudeRun{
@@ -1746,7 +1805,7 @@ function bindClaude(chat:Chat,turn:Turn,project:Project,controller:AbortControll
       const value=name==='inspect_action'?await coordination.inspectAction(turn.id,directory||workingDirectory(project),backend.scrubber.value(args)):await coordination.board(turn.parentTurnId!,turn.id,directory||workingDirectory(project),backend.scrubber.value(args));
       return {content:[{type:'text',text:JSON.stringify(value)}]};
     }};
-    return {...base,turnId:turn.id,work,signal:controller.signal,mcp:mcpExchange(mcp,mcpRows,localTools),controls:controls=>{if(!turn.automatic)claudeControls.set(chat.id,controls);},beforePrompt:model=>model?(availableModels().includes('claude-code:'+model)?undefined:unavailableMessage('claude-code:'+model)):checkDispatch(chat,turn)?undefined:unavailableMessage(turn.model),
+    return {...base,turnId:turn.id,work,signal:controller.signal,mcp:mcpExchange(mcp,mcpRows,localTools,screenServer(turn)),controls:controls=>{if(!turn.automatic)claudeControls.set(chat.id,controls);},beforePrompt:model=>model?(availableModels().includes('claude-code:'+model)?undefined:unavailableMessage('claude-code:'+model)):checkDispatch(chat,turn)?undefined:unavailableMessage(turn.model),
       adoptProjectSources:grant=>{projectSourceGrant=grant;},
       wakeUps:()=>store.get<Chat>('chat',chat.parentChatId||chat.id).wakeUps!==false,
       delegation:task=>continueNative(chat,turn,task,projectSourceGrant),
@@ -1932,6 +1991,7 @@ function request(request:any){
       if(request.params.operation==='begin'){
         const {name,arguments:args}=request.params;
         if(typeof name!=='string'||!args||typeof args!=='object'||Array.isArray(args))throw Error('Invalid action request.');
+        if(name==='computer_use'&&screenSettings().screen)await screenStep(turn,name,args,hermesScreenTarget(args),controller.signal);
         await background.recoverReceipts();
         const lease=await coordination.begin(turn.parentTurnId||turn.id,turn.id,workingDirectory(projectFor(chat)),name,backend.scrubber.value(args),controller.signal,request.params.patch_paths??undefined);
         if(lease)store.update<import('./work-coordination').WorkAction>('work-action',lease,{toolId:typeof request.params.request_id==='string'?turn.id+':'+request.params.request_id:undefined,owner:{generation:backend.generation,sessionId:request.params.session_id,chatId:chat.id,profile:projectFor(chat).profile}});
@@ -2917,17 +2977,12 @@ const handlers:Record<string,(args:any)=>any>={
     const result=await backend.host('project_memory',{profile:target.profile,name:'update_project_memory',arguments:{action:'add',target:'memory',content}});
     if(result?.success===false)throw Error(result.error||'The memory could not be saved.');emit();
   },
-  async browserToolsSave({choice}){if(hasWork())throw Error('Wait for active work before changing browser tools.');store.put('settings',{id:'browser-tools',choice:readBrowserChoice({choice})});emit();await handlers.restart({});},
-  async toolInstall({program}){
-    if(hasWork())throw Error('Wait for active work before installing browser tools.');
-    if(!Object.hasOwn(programs,program))throw Error('Unknown program.');if(toolInstalls.has(program))throw Error('This install is already running.');
-    const controller=new AbortController();toolInstalls.set(program,controller);emit();
-    try{await installProgram(data,program,status=>{toolStatus[program as ToolProgram]=status;emit();},controller.signal);}
-    catch(error){toolStatus[program as ToolProgram]=String(error).replace(/^Error: /,'');throw error;}
-    finally{toolInstalls.delete(program);emit();}
-    if(browserChoice()==='hermes'&&!hasWork())await handlers.restart({});
+  async screenSettingsSave(patch){
+    if(hasWork())throw Error('Wait for active work before changing screen control.');
+    const next={...screenSettings(),...(typeof patch?.screen==='boolean'?{screen:patch.screen}:{}),...(typeof patch?.ownChrome==='boolean'?{ownChrome:patch.ownChrome}:{})};
+    store.put('settings',{id:'browser-tools',...next});if(!next.screen){screenDriver.stop();screenEnd();}emit();await handlers.restart({});
   },
-  toolInstallCancel({program}){toolInstalls.get(program)?.abort();},
+  screenAppRemove({app}){store.put('settings',{id:'screen-apps',apps:screenApps().filter(name=>!sameApp(name,String(app)))});emit();},
   updateSettings({mode}){if(!['manual','automatic'].includes(mode))throw Error('Choose Manual or Automatic.');store.put('settings',{id:'updates',...updateSettings(),mode});emit();},
   async updateCheck(){await appUpdates?.check();},
   async updateDownload(){await appUpdates?.download();},
@@ -3153,7 +3208,7 @@ const handlers:Record<string,(args:any)=>any>={
     }else if(!queue&&current.automatic?.kind==='agent'){for(const item of claudeAutomatic.values())if(item.chatId===chatId)item.controller.abort();await native.stopChat(chatId);}
     wake(chatId);emit();return id;
   },
-  async approve({id,choice,expectedRemote}){if(!['once','deny'].includes(choice))throw Error('Invalid approval');const a=store.get<Approval>('approval',id);if(a.status!=='pending')return;const req=requests.get(id);if(!req){store.update<Approval>('approval',id,{status:'expired'});emit();throw Error('Approval expired. Send a message to request it again.');}let refusal;try{if(choice==='once')await coordination.checkApproval(a.turnId,a.params.description,a.params.command,()=>{store.update<Approval>('approval',id,{waiting:'Allowed. Waiting for a related command to finish first.'});emit();});}catch(error){choice='deny';refusal=error;}const currentApproval=store.get<Approval>('approval',id);if(currentApproval.status!=='pending')return;if(expectedRemote&&(expectedRemote.epoch!==remoteEpoch||expectedRemote.digest!==bindingDigest(remoteBinding(currentApproval))))throw Error('Remote approval changed before dispatch.');store.update<Approval>('approval',id,{status:choice==='deny'?'denied':'approved'});if(choice==='deny')coordination.denied(a.turnId,a.params.description,a.params.command);requests.delete(id);req.respond({choice});store.update<Turn>('turn',a.turnId,{status:'running'});emit();if(refusal)throw refusal;},
+  async approve({id,choice,expectedRemote}){if(!['once','deny','always'].includes(choice))throw Error('Invalid approval');const a=store.get<Approval>('approval',id);if(choice==='always'&&!a.params?.screenApp)throw Error('Invalid approval');if(a.status!=='pending')return;const req=requests.get(id);if(!req){store.update<Approval>('approval',id,{status:'expired'});emit();throw Error('Approval expired. Send a message to request it again.');}let refusal;try{if(choice!=='deny')await coordination.checkApproval(a.turnId,a.params.description,a.params.command,()=>{store.update<Approval>('approval',id,{waiting:'Allowed. Waiting for a related command to finish first.'});emit();});}catch(error){choice='deny';refusal=error;}const currentApproval=store.get<Approval>('approval',id);if(currentApproval.status!=='pending')return;if(expectedRemote&&(expectedRemote.epoch!==remoteEpoch||expectedRemote.digest!==bindingDigest(remoteBinding(currentApproval))))throw Error('Remote approval changed before dispatch.');store.update<Approval>('approval',id,{status:choice==='deny'?'denied':'approved'});if(choice==='deny')coordination.denied(a.turnId,a.params.description,a.params.command);requests.delete(id);req.respond({choice});store.update<Turn>('turn',a.turnId,{status:'running'});emit();if(refusal)throw refusal;},
   async vertexImport({projectId,region,adc,file}){
     if(hasWork()||backend.loginChild)throw Error('Wait for active work or sign-in to finish before changing a connection.');
     if(typeof projectId!=='string'||typeof region!=='string')throw Error('Enter a Cloud project and region.');

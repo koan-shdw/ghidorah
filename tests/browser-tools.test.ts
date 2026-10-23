@@ -5,10 +5,11 @@ import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import {installProgram,installedProgram,programs,readBrowserChoice,windowsTar} from '../app/browser-tools';
+import {installProgram,installedProgram,programs,readScreenSettings,windowsTar} from '../app/browser-tools';
 
-test('browser choice: Hermes tools by default; pins are complete',()=>{
- assert.equal(readBrowserChoice(undefined),'hermes');assert.equal(readBrowserChoice({choice:'claude'}),'claude');assert.equal(readBrowserChoice({choice:'x'}),'hermes');
+test('screen control: on by default, his own Chrome carries over from the old choice; pins are complete',()=>{
+ assert.deepEqual(readScreenSettings(undefined),{screen:true,ownChrome:false});assert.deepEqual(readScreenSettings({choice:'claude'}),{screen:true,ownChrome:true});
+ assert.deepEqual(readScreenSettings({screen:false,ownChrome:false,choice:'claude'}),{screen:false,ownChrome:false});
  for(const pin of Object.values(programs)){assert.match(pin.url,/^https:\/\//);assert.ok(pin.hash.value.length>40);}
 });
 

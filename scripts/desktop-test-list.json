@@ -142,5 +142,6 @@
   "chat-export",
   "artifacts",
   "chat-coordination",
-  "app-page"
+  "app-page",
+  "screen-control"
 ]

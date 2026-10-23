@@ -15,8 +15,9 @@ export const programs:Record<ToolProgram,{version:string;url:string;size:number;
  'agent-browser':{version:'0.38.2',url:'https://registry.npmjs.org/agent-browser/-/agent-browser-0.38.2.tgz',size:0,hash:{algorithm:'sha512',encoding:'base64',value:'b/7hvo2RrqocvybjB9kwpX12kGkxkFvtdJ4XPDoott5TLK2n3aPX+lYg7ALd+2YvPi2LrTKGzQYu/rxZC2Y7ZA=='},binary:'package/bin/agent-browser-win32-x64.exe',name:'agent-browser.exe'},
  'cua-driver':{version:'0.32.0',url:'https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.32.0/cua-driver-rs-0.32.0-windows-x86_64.zip',size:30885377,hash:{algorithm:'sha256',encoding:'hex',value:'6d70b45c8c901db773010dd720c8bb9d58c59bb301e9891c58ca1d3860e75652'},binary:'cua-driver.exe',name:'cua-driver.exe'},
 };
-export type BrowserChoice='hermes'|'claude';
-export const readBrowserChoice=(row:any):BrowserChoice=>row?.choice==='claude'?'claude':'hermes';
+// Settings, Screen control (FEATURE-SPECS 1): one switch, on unless Koan turns it off. Claude models can use his
+// own Chrome instead (the Claude in Chrome extension); the older "Claude · Chrome link" choice carries over.
+export const readScreenSettings=(row:any)=>({screen:row?.screen!==false,ownChrome:typeof row?.ownChrome==='boolean'?row.ownChrome:row?.choice==='claude'});
 
 // Installed programs live in the data folder; each one's folder holds the program under a fixed name on PATH.
 export const programFolder=(data:string,program:ToolProgram)=>path.join(data,'tools',program,programs[program].version);
@@ -47,6 +48,9 @@ export async function installProgram(data:string,program:ToolProgram,progress:(s
   const bytes=(await run(windowsTar,['-xOf',archive,'--',members[0]],{windowsHide:true,signal,encoding:'buffer',maxBuffer:200*1024*1024})).stdout;
   if(bytes.length<2||bytes.subarray(0,2).toString()!=='MZ')throw Error(program+' archive has no Windows executable.');
   await fs.mkdir(path.join(stage,'bin'));await fs.writeFile(path.join(stage,'bin',pin.name),bytes,{flag:'wx'});
+  // The program's licence travels with it: Tris ships both programs inside its installer (Koan 2026-10-10).
+  const licence=list.filter(name=>/(^|\/)LICEN[CS]E(\.(md|txt))?$/i.test(name)&&!/[?*\[\]\x00-\x1f]/.test(name)).sort((a,b)=>a.length-b.length)[0];
+  if(licence)await fs.writeFile(path.join(stage,'LICENSE.txt'),(await run(windowsTar,['-xOf',archive,'--',licence],{windowsHide:true,signal,encoding:'buffer',maxBuffer:4*1024*1024})).stdout,{flag:'wx'});
   await fs.writeFile(path.join(stage,'installed.json'),JSON.stringify({version:pin.version,archiveHash:pin.hash,binarySha256:createHash('sha256').update(bytes).digest('hex')},null,2)+'\n');
   await fs.rm(archive);signal?.throwIfAborted();
   if(before){await fs.rename(folder,backup);moved=true;}

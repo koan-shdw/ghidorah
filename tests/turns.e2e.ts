@@ -61,7 +61,9 @@ try{
  const follow=bodies.find(b=>b.tools?.length&&b.messages.at(-1)?.content?.endsWith('Current user message:\nFOLLOWUP_AFTER_RESTART'));
  assert.ok(bravo);assert.ok(follow);assert.doesNotMatch(JSON.stringify(bravo),/ALPHA_PRIVATE_CONTEXT|ALPHA_MEMORY_PRIVATE_VALUE/);
  assert.match(JSON.stringify(follow),/ALPHA_PRIVATE_CONTEXT/);assert.doesNotMatch(JSON.stringify(follow),/BRAVO_PRIVATE_CONTEXT/);
- const toolNames=bodies[0].tools.map((t:any)=>t.function.name);assert.ok(!toolNames.some((n:string)=>/cron|delegate|browser|web_search/.test(n)),JSON.stringify(toolNames));
+ const toolNames=bodies[0].tools.map((t:any)=>t.function.name);assert.ok(!toolNames.some((n:string)=>/cron|delegate|web_search/.test(n)),JSON.stringify(toolNames));
+ // Screen control is on by default with its programs bundled (batch 7), so Hermes models get the browser tools.
+ assert.ok(toolNames.some((n:string)=>n.startsWith('browser_')),'screen control gives Hermes models the browser');
  console.log('PASS project isolation, resumed history and restricted tool surface');
  const projectId=(await get()).chats.find((c:any)=>c.id===chatId).projectId;
  for(const mode of ['plan','accept-edits','auto','bypass']){

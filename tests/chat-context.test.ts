@@ -37,9 +37,10 @@ test('stale, active, foreign and invalid compaction cannot replace active contex
 });
 
 test('history retrieval pages complete results, refuses other chats and excludes future messages',()=>{
- const f=fixture(),first=f.turn('Earlier decision'),current=f.turn('Current request');f.store.put<ToolCall>('tool',{id:'large-tool',turnId:first.id,name:'Read',args:{},result:'abc'.repeat(25000),status:'completed'});
+ const f=fixture(),first=f.turn('Earlier decision'),current=f.turn('Current request');f.store.put<ToolCall>('tool',{id:'large-tool',turnId:first.id,name:'Read',args:{},result:'qrs'.repeat(25000),status:'completed'});
  const other=f.store.chat(f.chat.projectId),foreign=f.store.accept('foreign',other.id,'Private');f.store.put<ToolCall>('tool',{id:'foreign-tool',turnId:foreign.id,name:'Write',args:{},result:'Private',status:'completed'});f.turn('Future queued request');
- const matches=readChatHistory(f.store,current,{query:'abc'});assert.equal(matches.total,1);let offset=0,result='';do{const part=readChatHistory(f.store,current,{toolId:'large-tool',offset});result+=part.text;offset=part.nextOffset!;}while(offset!==null);assert.equal(JSON.parse(result).result,'abc'.repeat(25000));
+ // q, r and s are not hex digits, so no random record id can match the search (the 1-in-6 flake, TRIS-TODO 1.9).
+ const matches=readChatHistory(f.store,current,{query:'qrs'});assert.equal(matches.total,1);let offset=0,result='';do{const part=readChatHistory(f.store,current,{toolId:'large-tool',offset});result+=part.text;offset=part.nextOffset!;}while(offset!==null);assert.equal(JSON.parse(result).result,'qrs'.repeat(25000));
  assert.throws(()=>readChatHistory(f.store,current,{turnId:'foreign'}),/not available/);assert.throws(()=>readChatHistory(f.store,current,{toolId:'foreign-tool'}),/not available/);assert.equal(readChatHistory(f.store,current,{query:'Future'}).total,0);assert.throws(()=>readChatHistory(f.store,current,{offset:-1}),/Invalid/);f.store.db.close();
 });
 

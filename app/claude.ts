@@ -95,6 +95,8 @@ export async function nativePlanFile(name:string,input:any,planDirectory?:string
 export interface ClaudeRun {
   // Settings, Browser and computer: Claude's own Chrome link (claude --chrome) when Claude is chosen (4e).
   chrome?:boolean;
+  // Screen control (FEATURE-SPECS 1): agent-browser on PATH and its Chrome settings, for Claude's terminal.
+  env?:Record<string,string>;
   executable:string;python:string;worker:string;directory:string;dataRoot:string;exchangeRoot:string;
   prefixArgs?:string[];
   inspectUsage?:boolean;
@@ -141,7 +143,7 @@ type Sent={id:string;options:ClaudeRun;state:'sent'|'queued'|'started'|'complete
 // joined = messages Claude read mid-reply; a turn Claude started itself has no owner and an automatic row instead.
 type EngineTurn={id:string;scope:Scope;owner?:string;joined:Set<string>;automatic?:{complete:(result:ClaudeResult|Error)=>void};stopping?:boolean};
 type NativeTask={id:string;toolId:string;owner:Scope;status:string;type:string;description:string;background:boolean;execution?:Scope};
-const configuration=(o:ClaudeRun)=>JSON.stringify([o.executable,o.python,o.worker,o.prefixArgs,o.directory,o.dataRoot,o.planDirectory,o.effort,o.trustedProject,o.projectSourceGrant?.sourceHash||o.projectSettingsHash,o.pluginDirectories,o.mcp?.names,o.mcp?.managedTools,!!o.work,o.inspectUsage,o.inspectMcp,o.inspectCapabilities,!!o.chrome]);
+const configuration=(o:ClaudeRun)=>JSON.stringify([o.executable,o.python,o.worker,o.prefixArgs,o.directory,o.dataRoot,o.planDirectory,o.effort,o.trustedProject,o.projectSourceGrant?.sourceHash||o.projectSettingsHash,o.pluginDirectories,o.mcp?.names,o.mcp?.managedTools,!!o.work,o.inspectUsage,o.inspectMcp,o.inspectCapabilities,!!o.chrome,o.env||null]);
 const finished=(status:string)=>['completed','failed','killed','stopped','lost'].includes(status);
 const wakeUpTools=new Set(['ScheduleWakeup','CronCreate']);
 
@@ -216,7 +218,7 @@ export class ClaudeSession {
     await fs.writeFile(mcpConfig,JSON.stringify({mcpServers:Object.fromEntries((o.mcp?.names||[]).map(name=>[name,{type:'sdk',name}]))}));
     const args=['-p','--model',o.model,'--effort',o.effort==='none'?'low':o.effort,'--input-format','stream-json','--output-format','stream-json','--verbose','--include-partial-messages','--replay-user-messages','--permission-prompt-tool','stdio','--permission-mode','manual','--allow-dangerously-skip-permissions','--setting-sources',o.trustedProject&&!o.inspectUsage&&!o.inspectMcp&&!o.inspectCapabilities?'project':'','--settings',settings,'--strict-mcp-config','--mcp-config',mcpConfig,...(o.pluginDirectories||[]).flatMap(dir=>['--plugin-dir',dir]),...(o.inspectUsage||o.inspectMcp||o.inspectCapabilities?['--tools','']:[]),...(o.chrome?['--chrome']:[]),...(o.sessionId?['--resume',o.sessionId]:[])];
     // CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: Claude reports running and idle itself (SDK docs; proven on 2.1.283).
-    this.child=spawn(o.python,[o.worker],{env:{...claudeEnvironment(),CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS:'1'},windowsHide:true,stdio:'pipe'});
+    this.child=spawn(o.python,[o.worker],{env:{...claudeEnvironment(),...o.env,CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS:'1'},windowsHide:true,stdio:'pipe'});
     const stderr=o.scrubber.stream();this.child.stderr!.setEncoding('utf8');this.child.stdout!.setEncoding('utf8');
     this.child.stderr!.on('data',chunk=>{this.stderr=(this.stderr+stderr(chunk)).slice(-4000);});this.child.stdin!.on('error',()=>{});
     this.closed=new Promise<void>(resolve=>{

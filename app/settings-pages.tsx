@@ -9,7 +9,6 @@ import {PRESETS,type Schedule} from './routines';
 import {healthOf} from './availability';
 import {rotationRows} from './key-rotation';
 import {destinations} from './publishing-names';
-import {browserChoices} from './browser-names';
 
 type Call=(method:string,args?:any)=>Promise<any>;
 
@@ -77,21 +76,22 @@ export function PublishingSettings({state,call}:{state:Snapshot;call:Call}){
  </section>;
 }
 
-// Settings, Browser and computer (4e). Hermes's tools drive his Chrome and desktop by default; Claude's own Chrome
-// link is the other choice. Both follow the permission modes.
-const toolNotes:Record<string,{title:string;note:string}>={'agent-browser':{title:'Chrome control · agent-browser',note:'118 MB · drives your installed Chrome on a profile kept in this app'},'cua-driver':{title:'Computer use · cua-driver',note:'31 MB · trycua, pinned release checked by hash · telemetry off'}};
+// Settings, Browser and computer: Screen control (FEATURE-SPECS 1). One switch for every model; the two programs ship
+// with the app. Koan approves each app the first time a model touches it; the apps he allowed always are listed here.
 export function BrowserSettings({state,call}:{state:Snapshot;call:Call}){
  const tools=state.browserTools,[error,setError]=React.useState('');
  const run=(method:string,args:any)=>{setError('');void call(method,args).catch(problem=>setError(String(problem).replace(/^Error invoking remote method 'app': (?:Error: )?/,'')));};
- return <section className="browser-settings"><h3>Browser and computer</h3><SettingsCard title="Web research"><p>Every connected model can search and read public pages through Exa. Queries and requested URLs are sent to Exa; fetched text stays with the chat for citations and later reading.</p><p className="hint">Included without sign-in · rate limits apply. Browser and desktop control are configured below.</p></SettingsCard><SettingsCard title="Control method">
-  <div className="connection-field"><span>Use</span><ChoiceMenu label="Browser and computer" value={tools?.choice||'hermes'} options={browserChoices} onChange={choice=>run('browserToolsSave',{choice})}/></div>
-  </SettingsCard>{tools?.choice==='claude'?<p>Claude turns start with Claude Code's own Chrome link. Hermes models get no browser or computer tools.</p>:<SettingsCard title="Installed tools">
-   {!tools?.chrome&&<p className="hint">Install Google Chrome first: the browser tools drive it.</p>}
-   {Object.entries(tools?.programs||{}).map(([program,row])=><div className="connection-field" key={program}><span>{toolNotes[program]?.title||program}</span><span className="supplier-status">{row.installing?row.status||'Installing…':row.installed?'Installed · '+row.version:row.status||'Not installed'}</span>
-    <div className="actions">{row.installing?<button onClick={()=>run('toolInstallCancel',{program})}>Cancel</button>:<button onClick={()=>run('toolInstall',{program})}>{row.installed?'Repair':'Install'}</button>}</div><small>{toolNotes[program]?.note}</small></div>)}
-  </SettingsCard>}
+ const missing=Object.values(tools?.programs||{}).some(row=>!row.installed);
+ return <section className="browser-settings"><h3>Browser and computer</h3><SettingsCard title="Web research"><p>Every connected model can search and read public pages through Exa. Queries and requested URLs are sent to Exa; fetched text stays with the chat for citations and later reading.</p><p className="hint">Included without sign-in · rate limits apply.</p></SettingsCard>
+  <SettingsCard title="Screen control"><div className="connection-field"><span>Screen control</span><Switch checked={!!tools?.screen} ariaLabel="Screen control" label={tools?.screen?'On':'Off'} onChange={()=>run('screenSettingsSave',{screen:!tools?.screen})}/></div>
+   <p className="hint">Models can see and use apps on this PC and drive Chrome. The first time a model touches an app, it asks you. While it works on screen a bar at the top says so: press Esc or Stop to end it.</p>
+   {!tools?.chrome&&<p className="hint">Install Google Chrome for the browser part.</p>}
+   {missing&&<p className="hint">This install is missing its screen control programs ({Object.entries(tools?.programs||{}).filter(([,row])=>!row.installed).map(([name])=>name).join(', ')}).</p>}
+   <div className="connection-field"><span>Claude models use my own Chrome</span><Switch checked={!!tools?.ownChrome} ariaLabel="Claude models use my own Chrome" label={tools?.ownChrome?'On':'Off'} onChange={()=>run('screenSettingsSave',{ownChrome:!tools?.ownChrome})}/></div>
+   <p className="hint">Needs the Claude in Chrome extension; it lets Claude use sites you are signed in to.</p>
+  </SettingsCard>
+  <SettingsCard title="Apps you always allow">{tools?.apps?.length?tools.apps.map(app=><div className="connection-field" key={app}><span>{app}</span><button onClick={()=>run('screenAppRemove',{app})}>Remove</button></div>):<p className="hint">None yet. When a model asks to use an app, choose Always to add it here.</p>}</SettingsCard>
   {error&&<p className="error" role="alert">{error}</p>}
-  <p className="hint">Every browser and desktop action follows the chat's permission mode.</p>
  </section>;
 }
 

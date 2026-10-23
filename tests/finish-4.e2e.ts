@@ -18,11 +18,10 @@ const remote=path.join(data,'pages.git'),folder=await fs.mkdtemp(path.join(root,
 const site=createServer((req,res)=>{try{const file=decodeURIComponent((req.url||'').slice(1));res.end(execFileSync('git',['--git-dir',remote,'show','main:'+file],{windowsHide:true,stdio:['ignore','pipe','ignore']}));}catch{res.writeHead(404).end();}});
 const siteUrl=await new Promise<string>(resolve=>site.listen(0,'127.0.0.1',()=>resolve('http://127.0.0.1:'+(site.address() as any).port)));
 const env={...process.env,TRISMEGISTUS_TEST_DATA:data,TRISMEGISTUS_TEST_PROVIDER_URL:JSON.parse(dline).url,GIT_AUTHOR_NAME:'Test',GIT_AUTHOR_EMAIL:'test@example.invalid',GIT_COMMITTER_NAME:'Test',GIT_COMMITTER_EMAIL:'test@example.invalid'};
-// agent-browser from the scratch folder (section 4's download), placed where the app's own install puts it.
-const scratch=path.join(root,'work','agent-browser-scratch','node_modules','agent-browser','bin','agent-browser-win32-x64.exe');
-await fs.access(scratch).catch(()=>{throw Error('Missing '+scratch+': npm install --ignore-scripts agent-browser@0.38.2 into work/agent-browser-scratch first.');});
-assert.equal(createHash('sha256').update(await fs.readFile(scratch)).digest('hex'),'a6a9a3654c41ee19c05961b73489db98cff9eae88a77436986df08a7a7a73786','the fixture executable must match the independently verified npm package');
-await fs.mkdir(path.join(data,'tools','agent-browser','0.38.2','bin'),{recursive:true});await fs.copyFile(scratch,path.join(data,'tools','agent-browser','0.38.2','bin','agent-browser.exe'));
+// agent-browser ships inside the app (runtime\tools, staged by scripts/stage-tools.ts; Koan 2026-10-10).
+const bundled=path.join(root,'runtime','tools','agent-browser','0.38.2','bin','agent-browser.exe');
+await fs.access(bundled).catch(()=>{throw Error('Missing '+bundled+': run node --import tsx scripts/stage-tools.ts first.');});
+assert.equal(createHash('sha256').update(await fs.readFile(bundled)).digest('hex'),'a6a9a3654c41ee19c05961b73489db98cff9eae88a77436986df08a7a7a73786','the bundled executable must match the independently verified npm package');
 const pageServer=createServer((_req,res)=>{res.setHeader('Content-Type','text/html');res.end('<title>Fixture Page</title><h1>Fixture heading</h1>');});
 const pageUrl=await new Promise<string>(resolve=>pageServer.listen(0,'127.0.0.1',()=>resolve('http://127.0.0.1:'+(pageServer.address() as any).port+'/')));
 Object.assign(env,{TRISMEGISTUS_TEST_CUA_DRIVER:path.join(root,'tests','fixtures','fake-cua-driver.cmd'),TRISMEGISTUS_TEST_CLAUDE:path.join(root,'tests','fixtures','claude-cli.mjs'),TRISMEGISTUS_TEST_CLAUDE_NODE:process.execPath});
@@ -52,7 +51,7 @@ try{
  const shared=await memory(b);assert.match(shared,/Shared fact: the build listens on port 8080\./);assert.match(shared,/From \\"Source project\\" in another project, \d{4}-\d{2}-\d{2}:/);
  assert.doesNotMatch(shared,/ALPHA_PRIVATE_HISTORY/,'nothing else from the source project moves');
  assert.doesNotMatch(await memory(a),/Shared fact/,'the source project keeps its own memory');
- const selectionBox=await page.evaluate(()=>{const target=[...document.querySelectorAll('article.turn .user-message')].at(-1)!.firstChild!;const range=document.createRange();range.setStart(target,0);range.setEnd(target,21);const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);const rect=range.getBoundingClientRect();return {x:rect.left+Math.min(20,rect.width/2),y:rect.top+rect.height/2};});
+ const selectionBox=await page.evaluate(()=>{const box=[...document.querySelectorAll('article.turn .user-message')].at(-1)!,walk=document.createTreeWalker(box,NodeFilter.SHOW_TEXT);let target=walk.nextNode()!;while(!target.textContent!.includes('ALPHA_PRIVATE_HISTORY'))target=walk.nextNode()!;const start=target.textContent!.indexOf('ALPHA_PRIVATE_HISTORY'),range=document.createRange();range.setStart(target,start);range.setEnd(target,start+21);const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);const rect=range.getBoundingClientRect();return {x:rect.left+Math.min(20,rect.width/2),y:rect.top+rect.height/2};});
  await page.mouse.click(selectionBox.x,selectionBox.y,{button:'right'});await page.getByRole('menuitem',{name:'Share with…',exact:true}).click();
  assert.equal(await dialog.getByLabel('Shared text').inputValue(),'ALPHA_PRIVATE_HISTORY','the selected text fills the dialog');
  await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
@@ -99,9 +98,9 @@ try{
  const told=(await wait(s=>s.turns.some((t:any)=>t.id===tool&&t.status==='completed'))).turns.find((t:any)=>t.id===tool);assert.match(told.text,/page-[0-9a-f]{6}\/page\.html/);
  console.log('PASS 4c publishing: the preview button and the publish_page tool (after approval) push the page and its linked files, never a key file, and the link comes back');
 
- let s=await call('state');assert.deepEqual(s.browserTools.on.sort(),['browser','computer_use']);assert.equal(s.browserTools.choice,'hermes');
+ let s=await call('state');assert.deepEqual(s.browserTools.on.sort(),['browser','computer_use']);assert.equal(s.browserTools.screen,true);
  const act=async(text:string,approve:'once'|'deny'|null)=>{const id=crypto.randomUUID();await call('submit',{id,chatId:b,text});
-  if(approve){const asking=await wait(s=>{const turn=s.turns.find((row:any)=>row.id===id);assert.ok(!turn||!['completed','failed','interrupted'].includes(turn.status),'Expected approval before completion: '+JSON.stringify(turn));return s.approvals.some((row:any)=>row.turnId===id&&row.status==='pending');});await assert.rejects(call('browserToolsSave',{choice:'claude'}),/active work/);assert.equal((await call('state')).browserTools.choice,'hermes');await call('approve',{id:asking.approvals.find((row:any)=>row.turnId===id&&row.status==='pending').id,choice:approve});}
+  if(approve){const asking=await wait(s=>{const turn=s.turns.find((row:any)=>row.id===id);assert.ok(!turn||!['completed','failed','interrupted'].includes(turn.status),'Expected approval before completion: '+JSON.stringify(turn));return s.approvals.some((row:any)=>row.turnId===id&&row.status==='pending');});await assert.rejects(call('screenSettingsSave',{screen:false}),/active work/);assert.equal((await call('state')).browserTools.screen,true);await call('approve',{id:asking.approvals.find((row:any)=>row.turnId===id&&row.status==='pending').id,choice:approve});}
   const done=(await wait(s=>s.turns.some((t:any)=>t.id===id&&['completed','failed','interrupted'].includes(t.status)))).turns.find((t:any)=>t.id===id);assert.equal(done.status,'completed',done.error);
   return {done,asked:(await call('state')).approvals.filter((row:any)=>row.turnId===id).length};};
  await call('modelSelection',{chatId:b,model:'deepseek-flash',selected:true});
@@ -111,12 +110,18 @@ try{
  result=await act('MCP_FIXTURE '+JSON.stringify({name:'browser_navigate',arguments:{url:pageUrl}}),null);assert.match(result.done.text,/Fixture/);assert.equal(result.asked,0,'Bypass runs');
  await call('mode',{projectId:project,mode:'manual'});
  result=await act('MCP_FIXTURE '+JSON.stringify({name:'computer_use',arguments:{action:'capture'}}),'deny');assert.equal(result.asked,1,'computer use reaches the approval card under Manual');
+ // Screen control (FEATURE-SPECS 1.4): even in Bypass, Koan is asked before a model sees the whole screen.
+ await call('mode',{projectId:project,mode:'bypass'});
+ result=await act('MCP_FIXTURE '+JSON.stringify({name:'computer_use',arguments:{action:'capture'}}),'deny');assert.equal(result.asked,1,'Bypass still asks about the whole screen');
+ assert.equal((await call('state')).approvals.filter((row:any)=>row.turnId===result.done.id).at(-1).params.screenApp,'Whole screen');
+ await call('mode',{projectId:project,mode:'manual'});
  console.log('PASS 4e Hermes drives the installed Chrome on the app\'s own profile: Manual asks, Bypass runs; computer use reaches the approval card');
- await call('browserToolsSave',{choice:'claude'});s=await wait(s=>s.backend==='ready'&&s.browserTools.choice==='claude');assert.deepEqual(s.browserTools.on,[]);
+ await call('screenSettingsSave',{ownChrome:true});s=await wait(s=>s.backend==='ready'&&s.browserTools.ownChrome===true);assert.deepEqual(s.browserTools.on.sort(),['browser','computer_use'],'his own Chrome is for Claude models only');
  await call('addModel',{chatId:b,model:'claude-code:haiku'});await call('modelSelection',{chatId:b,model:'deepseek-flash',selected:false});await call('modelSelection',{chatId:b,model:'claude-code:haiku',selected:true});
  await act(JSON.stringify({action:'reply'}),null);
  const launched=JSON.parse((await fs.readFile(path.join(data,'claude-requests.jsonl'),'utf8')).trim().split('\n').at(-1)!);assert.ok(launched.args.includes('--chrome'));
- console.log('PASS 4e the Claude choice turns the Hermes tools off and starts Claude Code with --chrome');
+ await call('screenSettingsSave',{screen:false});s=await wait(s=>s.backend==='ready'&&s.browserTools.screen===false);assert.deepEqual(s.browserTools.on,[]);
+ console.log('PASS 4e Claude models on his own Chrome start Claude Code with --chrome; the Screen control switch turns the Hermes tools off');
 }finally{
  pageServer.closeAllConnections();pageServer.close();site.closeAllConnections();site.close();await instance.close().catch(()=>{});ds.stdin.end();ds.kill();
  await host.host('delete_key',{provider:'deepseek'}).catch(()=>{});

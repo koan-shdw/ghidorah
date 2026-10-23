@@ -10,7 +10,7 @@
     "test": "node scripts/unit-tests.mjs",
     "typecheck": "tsc --noEmit",
     "test:e2e": "node --import tsx tests/desktop.e2e.ts",
-    "pack": "node scripts/stage-runtime.mjs && node scripts/stage-poppler.mjs && npm run build && electron-builder --dir --publish never",
+    "pack": "node scripts/stage-runtime.mjs && node scripts/stage-poppler.mjs && node --import tsx scripts/stage-tools.ts && npm run build && electron-builder --dir --publish never",
     "release": "node scripts/release.mjs",
     "harden": "node scripts/harden.mjs",
     "scan:release": "node scripts/scan-release.mjs",
@@ -109,6 +109,9 @@
           "office-manifest.json",
           "hermes-manifest.json",
           "python/cpython-3.12.10-windows-x86_64-none/**/*",
+          "tools/*/*/bin/*.exe",
+          "tools/*/*/LICENSE.txt",
+          "tools/*/*/installed.json",
           "!**/__pycache__/**/*",
           "!**/*.pyc",
           "!hermes/skills/software-development/repo-map/**/*"
