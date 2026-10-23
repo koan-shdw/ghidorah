@@ -1284,9 +1284,24 @@ function emitStream(id:string){
     }
   },50);
 }
+// Pushed window states carry tool results with long strings cut (TRIS-TODO 0.14): whole results made every refresh
+// heavy. A row that opens asks for its whole result (toolResult); a direct 'state' request still gets everything.
+const RESULT_CUT=10000;
+function cutLong(value:any,depth=0):{value:any;cut:boolean}{
+  if(typeof value==='string')return value.length>RESULT_CUT?{value:value.slice(0,RESULT_CUT)+'\n… [cut here: open the row for the whole result]',cut:true}:{value,cut:false};
+  if(!value||typeof value!=='object'||depth>20)return {value,cut:false};
+  let cut=false;const next:any=Array.isArray(value)?[]:{};
+  for(const [key,item] of Object.entries(value)){const part=cutLong(item,depth+1);next[key]=part.value;cut||=part.cut;}
+  return cut?{value:next,cut}:{value,cut:false};
+}
+function windowTools(state:any){
+  if(!Array.isArray(state?.tools))return state;
+  let changed=false;const tools=state.tools.map((tool:ToolCall)=>{const part=cutLong(tool.result);if(!part.cut)return tool;changed=true;return {...tool,result:part.value,resultCut:true};});
+  return changed?{...state,tools}:state;
+}
 function sendState(window:BrowserWindow,state:any){
   streamWindows.set(window,new Set((state.turns||[]).map((turn:Turn)=>turn.id)));
-  window.webContents.send('state',state);
+  window.webContents.send('state',windowTools(state));
 }
 function emit(){
   if(store&&backend)pluginChanges.poke();
@@ -2799,6 +2814,8 @@ const handlers:Record<string,(args:any)=>any>={
     const destination=path.join(await fs.realpath(path.dirname(choice.filePath)),path.basename(choice.filePath)),relative=path.relative(data,destination);if(!relative||!path.isAbsolute(relative)&&relative!=='..'&&!relative.startsWith('..'+path.sep))throw Error('Choose a location outside Ghidorah’s private data folder.');
     const bytes=await readChatFile(data,row),temp=destination+'.'+randomUUID()+'.tmp';try{await fs.writeFile(temp,bytes,{flag:'wx'});await fs.rename(temp,destination);}finally{await fs.unlink(temp).catch(()=>{});}return {saved:true};
   },
+  // The whole result of one action row; pushed states carry it cut (windowTools).
+  toolResult({turnId,id}){const tool=store.get<ToolCall>('tool',id);if(tool.turnId!==turnId)throw Error('This result belongs to another message.');return tool.result;},
   async chatLink({turnId,href,icon=false,inline=false,external=false}){
     const sourceTurn=store.get<Turn>('turn',turnId);
     if(inline==='close'){inlinePreviews.close(sourceTurn.id,href);return;}
@@ -3618,7 +3635,7 @@ async function workspaceWindowRequest(entry:WorkspaceWindow,method:string,args:a
   const activity=chatActivity(snapshot(),info.chatId);
   return turnFilesRequest([...activity.plans.map(row=>row.approval.turnId),...activity.agents.map(turn=>turn.id)],args);
  }
- if(['approve','chatLink'].includes(method)&&['plan','tasks'].includes(info.view)){
+ if(['approve','chatLink','toolResult'].includes(method)&&['plan','tasks'].includes(info.view)){
   const activity=chatActivity(snapshot(),info.chatId);
   if(method==='approve'){if(info.view!=='plan'||!activity.plans.some(row=>row.approval.id===args?.id))throw Error('This plan belongs to another chat.');}
   else if(!activity.plans.some(row=>row.approval.turnId===args?.turnId)&&!activity.agents.some(turn=>turn.id===args?.turnId))throw Error('This link belongs to another chat.');
@@ -3694,7 +3711,7 @@ function agentWindowRequest(id:string,method:string,args:any){
  if(method==='chatFiles')return turnFilesRequest([id],args);
  if(method==='window'){if(args?.action==='close')view.close();else if(args?.action==='minimize')view.minimize();else if(args?.action==='maximize')view.isMaximized()?view.unmaximize():view.maximize();return;}
  if(['approve','answer'].includes(method)){if(!state.approvals.some(row=>row.id===args?.id))throw Error('This approval belongs to another agent.');}
- else if(method==='chatLink'||method==='openParent'){if(args?.turnId!==id)throw Error('This action belongs to another agent.');}
+ else if(['chatLink','toolResult','openParent'].includes(method)){if(args?.turnId!==id)throw Error('This action belongs to another agent.');}
  else if(method==='backgroundStop'){if(!state.background.some(row=>row.id===args?.id))throw Error('This task belongs to another agent.');}
  else throw Error('This action is unavailable in an agent window.');
  return handlers[method](args);
@@ -3841,7 +3858,7 @@ app.whenReady().then(async()=>{
       else if(method==='mode'){if(store.get<Chat>('chat',chatView).projectId!==args?.projectId)throw Error('This permission mode belongs to another chat.');}
       else if(['approve','answer'].includes(method)){if(!owns(store.get<Approval>('approval',args?.id).chatId))throw Error('This approval belongs to another chat.');}
       else if(['chooseTurnModel','cancelQueued','sendPaused'].includes(method)){if(!owns(store.get<Turn>('turn',args?.id).chatId))throw Error('This message belongs to another chat.');}
-      else if(method==='chatLink'){if(!owns(store.get<Turn>('turn',args?.turnId).chatId))throw Error('This link belongs to another chat.');}
+      else if(['chatLink','toolResult'].includes(method)){if(!owns(store.get<Turn>('turn',args?.turnId).chatId))throw Error('This link belongs to another chat.');}
       else if(method==='backgroundStop'){if(!owns(store.get<BackgroundProcess>('background',args?.id).chatId))throw Error('This process belongs to another chat.');}
       else if(method==='backgroundRefresh'){await background.refresh();return;}
       else if(method==='pageOpen'){if(!owns(typeof args?.chatId==='string'?args.chatId:store.get<Turn>('turn',args?.turnId).chatId))throw Error('This page belongs to another chat.');}
@@ -3855,7 +3872,7 @@ app.whenReady().then(async()=>{
       if(method==='cancelQueued'){if(store.get<Turn>('turn',args?.id).chatId!==job)throw Error('This message belongs to another job.');}
       else if(['stop','draft','correctJob','openParent'].includes(method)){if(args?.chatId!==job)throw Error('This action belongs to another job.');}
       else if(['shareSummary','shareToProject'].includes(method)){if(args?.chatId!==job)throw Error('This action belongs to another job.');}
-      else if(method==='chatLink'){if(store.get<Turn>('turn',args?.turnId).chatId!==job)throw Error('This link belongs to another job.');}
+      else if(['chatLink','toolResult'].includes(method)){if(store.get<Turn>('turn',args?.turnId).chatId!==job)throw Error('This link belongs to another job.');}
       else if(method==='backgroundStop'){if(store.get<BackgroundProcess>('background',args?.id).chatId!==job)throw Error('This process belongs to another job.');}
       else if(method==='backgroundRefresh'){await background.refresh();return;}
       else if(['approve','answer'].includes(method)){if(store.get<Approval>('approval',args?.id).chatId!==job)throw Error('This approval belongs to another job.');}

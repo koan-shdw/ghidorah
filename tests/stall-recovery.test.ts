@@ -123,3 +123,16 @@ test('a Hermes session the chat lets go of is closed (audit 2.5, batch 5, 7d)',(
  release(chats.a);release(chats.b);assert.deepEqual(calls,[['session.close',{session_id:'sid-1',profile:'p'}]]);
  backend.status='starting';release(chats.a);assert.equal(calls.length,1,'no backend, nothing to close');
 });
+
+test('pushed window states cut long tool results and mark them; the whole result stays for toolResult (TRIS-TODO 0.14)',()=>{
+ const cutLong=main('cutLong',{RESULT_CUT:10});
+ const windowTools=main('windowTools',{cutLong});
+ const long='x'.repeat(25),tool=(id:string,result:any)=>({id,turnId:'t',name:'Bash',args:{},status:'completed',result});
+ const state={turns:[],tools:[tool('small',{output:'ok',exit_code:0}),tool('big',{output:long,exit_code:1,content:[{type:'text',text:long}]})]};
+ const sent=windowTools(state);
+ assert.equal(sent.tools[0],state.tools[0],'a short result is sent as it is');
+ assert.equal(sent.tools[1].resultCut,true);assert.equal(sent.tools[1].result.exit_code,1,'numbers and fields that mark a failure stay');
+ assert.match(sent.tools[1].result.output,/^x{10}\n… \[cut here/);assert.match(sent.tools[1].result.content[0].text,/^x{10}\n…/);
+ assert.equal(state.tools[1].result.output,long,'the stored result is never changed');
+ assert.equal(windowTools({turns:[]}).tools,undefined);
+});

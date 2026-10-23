@@ -2,7 +2,7 @@
 // line ("Ran 12 actions · 1 failed", or the current action while it works), rows in plain words in one rounded box,
 // a row opens to its command and output, a read's lines or an edit's old and new lines. Tris's own internal steps
 // are not listed.
-import React,{useContext,useState} from 'react';
+import React,{useContext,useEffect,useState} from 'react';
 import {ChatViewContext} from './chat-view';
 import type {ToolCall} from './types';
 import {toolResultFailed} from './tool-result';
@@ -91,10 +91,13 @@ function Detail({row,fileLinks}:{row:Row;fileLinks:React.ReactNode}){
  return <div className="activity-io">{fileLinks}<span className="hint">{tool.name} · Input</span><pre>{typeof tool.args==='string'?tool.args:JSON.stringify(tool.args,null,2)}</pre>{tool.result!=null&&<><span className="hint">Output</span><pre className={failed?'failed':undefined}>{output}</pre></>}</div>;
 }
 function ActionRow({row,open:initial,fileLink}:{row:Row;open:boolean;fileLink:(file:string,tool:ToolCall)=>React.ReactNode}){
- const [open,setOpen]=useState(initial),{tool,state,counts,words,files}=row,time=took(tool);
+ const [open,setOpen]=useState(initial),[whole,setWhole]=useState<{result:any}|null>(null),{tool,state,counts,words,files}=row,time=took(tool);
+ // A pushed state carries long results cut; the open row shows the whole one.
+ useEffect(()=>{if(open&&tool.resultCut&&!whole)void window.desktop.invoke('toolResult',{turnId:tool.turnId,id:tool.id}).then(result=>setWhole({result}),()=>{});},[open,tool.resultCut,tool.id,whole]);
+ const shown=whole?{...activityInfo({...tool,result:whole.result}),tool:{...tool,result:whole.result}}:row;
  return <details className="activity" open={open} data-tool-id={tool.id} data-status={state} onToggle={event=>setOpen(event.currentTarget.open)}>
   <summary><span className="activity-words">{words}</span>{counts&&<span className="activity-counts" aria-label={`${counts.added} lines added, ${counts.removed} lines removed`}><span>+{counts.added}</span> <span>−{counts.removed}</span></span>}{state==='running'&&<span className="activity-spin" role="status" aria-label="Running"/>}{state==='uncertain'&&<span className="activity-flag">needs checking</span>}{state==='stopped'&&<span className="activity-flag">stopped</span>}<span className="activity-chevron" aria-hidden="true">›</span>{time&&<span className="activity-time">{time}</span>}</summary>
-  {open&&<div className="activity-body"><Detail row={row} fileLinks={files.length?<div className="activity-files">{files.map(file=>fileLink(file,tool))}</div>:null}/></div>}
+  {open&&<div className="activity-body"><Detail row={shown} fileLinks={files.length?<div className="activity-files">{files.map(file=>fileLink(file,tool))}</div>:null}/></div>}
  </details>;
 }
 
