@@ -472,6 +472,21 @@ test('a multi-line Edit on a CRLF file keeps the read, as Claude Code writes CRL
  assert.equal(store.get<any>('work-action',second).status,'completed');store.db.close();
 });
 
+test('a Hermes V4A patch keeps the read of each file it wrote as the patch says; any other result needs a read (TRIS-TODO 1.4)',async()=>{
+ const directory=await fs.mkdtemp(path.join(os.tmpdir(),'tris-v4a-')),store=new Store(':memory:'),work=new WorkCoordination(store),signal=new AbortController().signal;
+ const file=(name:string)=>path.join(directory,name);
+ await fs.writeFile(file('a.py'),'one\ntwo\nthree\n');await fs.writeFile(file('b.py'),'alpha\r\nbeta\r\n');await fs.writeFile(file('c.py'),'x = 1\n');
+ for(const name of ['a.py','b.py','c.py']){const read=(await work.begin('turn','turn',directory,'read_file',{path:name},signal))!;await work.finish(read,'turn',{content:'...'});}
+ const patch=['*** Begin Patch','*** Update File: a.py','@@ def','one','-two','+TWO',' three','*** Update File: b.py','-beta','+BETA','*** Update File: c.py','-x = 1','+x = 2','*** Add File: d.py','+print(1)','*** End Patch'].join('\n');
+ const lease=(await work.begin('turn','turn',directory,'patch',{mode:'patch',patch},signal,['a.py','b.py','c.py','d.py']))!;
+ // Hermes writes a.py and d.py exactly, b.py with the file's own CRLF; something else rewrites c.py meanwhile.
+ await fs.writeFile(file('a.py'),'one\nTWO\nthree\n');await fs.writeFile(file('b.py'),'alpha\r\nBETA\r\n');await fs.writeFile(file('c.py'),'x = 3\n');await fs.writeFile(file('d.py'),'print(1)');
+ await work.finish(lease,'turn',{success:true,diff:'...',files_modified:['a.py','b.py','c.py'],files_created:['d.py']});
+ for(const name of ['a.py','b.py','d.py']){const edit=(await work.begin('turn','turn',directory,'patch',{mode:'replace',path:name,old_string:'X',new_string:'Y'},signal))!;assert.ok(edit,name+': the next edit is not refused');await work.finish(edit,'turn',{success:false,error:'not found'});}
+ await assert.rejects(work.begin('turn','turn',directory,'patch',{mode:'replace',path:'c.py',old_string:'x = 3',new_string:'x = 4'},signal),/has not been read by this job/,'a file that changed otherwise needs a fresh read');
+ store.db.close();
+});
+
 test('a command waiting for Allow holds no lock; Allow takes it back (Koan 2026-10-15)',async()=>{
  const directory=await fs.mkdtemp(path.join(os.tmpdir(),'tris-allow-')),store=new Store(':memory:'),work=new WorkCoordination(store),signal=new AbortController().signal;
  const later=(ms:number)=>new Promise(resolve=>setTimeout(()=>resolve('waiting'),ms));

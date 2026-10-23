@@ -11,7 +11,7 @@ import {appFolderName,type SavedApp} from './saved-apps';
 
 type Resource={kind:'path'|'service'|'port';value:string;access:'read'|'write'|'observe'};
 type Inspection={id:string;job:string;signature:string;summary:string;resources:Resource[];evidence:{path:string;hash:string}[]};
-export type WorkAction={toolId?:string;id:string;group:string;job:string;chatId?:string;name:string;args:any;resource:string;scope?:Resource[];files?:{path:string;before:string|null;after?:string|null}[];evidence?:Inspection['evidence'];access:'read'|'write'|'unknown';signature:string;before:string|null;after?:string|null;expectedAfter?:string;status:'running'|'background'|'completed'|'failed'|'blocked'|'uncertain'|'inspected';result?:unknown;inspection?:string;owner?:{generation:string;sessionId:string;chatId:string;profile:string};};
+export type WorkAction={toolId?:string;id:string;group:string;job:string;chatId?:string;name:string;args:any;resource:string;scope?:Resource[];files?:{path:string;before:string|null;after?:string|null;expected?:string[]}[];evidence?:Inspection['evidence'];access:'read'|'write'|'unknown';signature:string;before:string|null;after?:string|null;expectedAfter?:string;status:'running'|'background'|'completed'|'failed'|'blocked'|'uncertain'|'inspected';result?:unknown;inspection?:string;owner?:{generation:string;sessionId:string;chatId:string;profile:string};};
 type Action=WorkAction;
 const processTools=new Set(['process_manage','TaskOutput','TaskStop','background_process','mcp__ghidorah__background_process']);
 const fileReads=new Set(['Read','read_file']);
@@ -158,6 +158,49 @@ async function expectedWrite(name:string,args:any,file:string,before:string|null
  return hash(pieces.join(eol(args.new_string)));
 }
 
+// Hermes's V4A patch (TRIS-TODO 1.4): the Update File and Add File parts, parsed as Hermes's patch_parser does (CR
+// dropped, blank lines skipped, other unprefixed lines are context). Delete and Move map to null: no prediction.
+type PatchFile={kind:'update'|'add';hunks:{prefix:string;text:string}[][]}|null;
+export function v4aFiles(patch:string){
+ const files=new Map<string,PatchFile>(),lines=patch.split('\n').map(line=>line.endsWith('\r')?line.slice(0,-1):line);
+ const start=lines.findIndex(line=>/^\*\*\*\s*Begin\s+Patch\s*$/.test(line)),end=lines.findIndex(line=>/^\*\*\*\s*End\s+Patch\s*$/.test(line));
+ let current:PatchFile=null,hunk:{prefix:string;text:string}[]|null=null;
+ for(const line of lines.slice(start+1,end<0?undefined:end)){
+  const op=/^\*\*\*\s*(Update|Add|Delete|Move)\s+File:\s*(.+)$/.exec(line);
+  if(op){const name=op[1]==='Move'?op[2].split(/\s*->\s*/)[0].trim():op[2].trim();current=op[1]==='Update'||op[1]==='Add'?{kind:op[1]==='Add'?'add':'update',hunks:[]}:null;hunk=null;files.set(name,files.has(name)?null:current);continue;}
+  if(!current)continue;
+  if(line.startsWith('@@')){hunk=null;continue;}
+  if(!line||line[0]==='\\')continue;
+  if(!hunk){hunk=[];current.hunks.push(hunk);}
+  hunk.push('+- '.includes(line[0])?{prefix:line[0],text:line.slice(1)}:{prefix:' ',text:line});
+ }
+ return files;
+}
+// What Hermes writes for one file when each hunk is found exactly once, as hashes: with the patch's LF text, and with
+// the file's CRLF when it has them. A hunk Hermes would place by fuzzy match or by its hint gives no prediction, so
+// the read goes, as before.
+async function expectedPatchFile(change:PatchFile|undefined,file:string,before:string|null){
+ const hash=(value:string|Buffer)=>createHash('sha256').update(value).digest('hex');
+ if(!change)return undefined;
+ if(change.kind==='add')return before===null?[hash(change.hunks.flat().filter(line=>line.prefix==='+').map(line=>line.text).join('\n'))]:undefined;
+ let bytes:Buffer;try{bytes=await fs.readFile(file);}catch{return undefined;}
+ const source=bytes.toString('utf8');if(hash(bytes)!==before||!Buffer.from(source).equals(bytes))return undefined;
+ const results:string[]=[];
+ for(const eol of source.includes('\r\n')?['\n','\r\n']:['\n']){
+  let text:string|null=source;
+  for(const hunk of change.hunks){
+   const search=hunk.filter(line=>line.prefix!=='+').map(line=>line.text),replace=hunk.filter(line=>line.prefix!=='-').map(line=>line.text);
+   if(search.join('\n')===replace.join('\n'))continue;
+   if(!search.length){text=null;break;}
+   const from=search.join(eol),at=text.indexOf(from);
+   if(at<0||text.indexOf(from,at+1)>=0){text=null;break;}
+   text=text.slice(0,at)+replace.join(eol)+text.slice(at+from.length);
+  }
+  if(text!==null)results.push(hash(text));
+ }
+ return results.length?results:undefined;
+}
+
 // Main is the shared owner for both engine processes. File operations can overlap
 // on independent targets; unfamiliar commands/services obtain an exclusive lease.
 export class WorkCoordination {
@@ -270,11 +313,13 @@ export class WorkCoordination {
     }
    }
   }
+  const patchChanges=new Map<string,PatchFile>();
   // Paths come from Hermes's own V4A parser, outside the model's tool arguments.
   // Reserve the whole patch before checking any file; retain per-file baselines.
   if(patchPaths!==undefined){
    if(name!=='patch'||args?.mode!=='patch'||!Array.isArray(patchPaths)||!patchPaths.length||patchPaths.length>1000||patchPaths.some(file=>typeof file!=='string'||!file))throw Error('Invalid patch targets.');
    const targets=await Promise.all(patchPaths.map(async file=>{const full=await resolveWorkPath(path.resolve(directory,file));return process.platform==='win32'?full.toLowerCase():full;}));
+   for(const [name,change] of v4aFiles(String(args?.patch??''))){const full=await resolveWorkPath(path.resolve(directory,name)),key=process.platform==='win32'?full.toLowerCase():full;patchChanges.set(key,patchChanges.has(key)?null:change);}
    action.files=[...new Set(targets)].map(file=>({path:file,before:null}));action.resource='*';action.access='write';action.scope=action.files.map(file=>({kind:'path',value:file.path,access:'write'}));access='write';resource='*';
   }
   if(['generate_image','copy_chat_artifact','copy_chat_file','render_document','recalculate_spreadsheet'].includes(name.replace(/^mcp__ghidorah__/,''))&&typeof args?.destination==='string'){
@@ -307,6 +352,7 @@ export class WorkCoordination {
    for(const file of action.files||[]){
     file.before=await fingerprint(file.path);
     if(file.before!==null&&this.reads.get(this.readKey(job))?.get(file.path)!==file.before)throw Error('The file changed or has not been read by this job. Read its current contents and reconcile your edit before writing: '+file.path);
+    file.expected=await expectedPatchFile(patchChanges.get(file.path),file.path,file.before);
    }
    for(const file of action.files||[]){const existing=new Set(this.store.all<Claim>('work-claim').map(row=>row.id)),claim=await this.claim(group,job,directory,{path:file.path,task:'Patch '+path.relative(directory,file.path)});if(!existing.has(claim.id))patchClaims.push(claim.id);}
    if(resource!=='*'&&!processTools.has(name)){
@@ -334,7 +380,10 @@ export class WorkCoordination {
   try{
    if(action.files){
     const files=await Promise.all(action.files.map(async file=>({...file,after:await fingerprint(file.path)})));
-    this.store.update<Action>('work-action',id,{files});for(const file of files)if(!patchRejected||this.reads.get(this.readKey(job))?.get(file.path)!==file.after)this.reads.get(this.readKey(job))?.delete(file.path);
+    this.store.update<Action>('work-action',id,{files});
+    // A file the patch wrote exactly as predicted keeps its read (TRIS-TODO 1.4); any other result needs a fresh read.
+    const reads=this.reads.get(this.readKey(job))||new Map<string,string|null>();this.reads.set(this.readKey(job),reads);
+    for(const file of files){if(!patchRejected&&!uncertain&&file.after&&file.expected?.includes(file.after))reads.set(file.path,file.after);else if(!patchRejected||reads.get(file.path)!==file.after)reads.delete(file.path);}
    }
    if(!uncertain&&action.resource!=='*'&&!processTools.has(action.name)){
     const now=await fingerprint(action.resource);
