@@ -97,5 +97,12 @@
   {"version":"0.1.21","date":"2026-10-22","notes":[
     "Ghidorah is open source: the code, the README and the installer now live in one place, github.com/koan-shdw/ghidorah.",
     "Updates now come from that repository."
+  ]},
+  {"version":"0.1.22","date":"2026-10-23","notes":[
+    "Hovering a model shows its limits the same way as the Context window.",
+    "A command in one chat no longer holds up your other chats.",
+    "Text a model writes between its tool steps now stays in the reply.",
+    "In a job window, Stop and send correction stops the run and sends, as it says.",
+    "Long chat summaries pick up where they left off instead of starting over."
   ]}
 ]
