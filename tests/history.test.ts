@@ -81,7 +81,7 @@ test('large restart history stays bounded, preserves the latest correction and r
  assert.equal(transfer.sessionId,null);assert.ok(transfer.prompt.length<52000,transfer.prompt.length.toString());assert.ok(transfer.prompt.endsWith(current.prompt));
  assert.match(transfer.prompt,/Reject PDMD unless it supports img2vid/);assert.ok(transfer.prompt.includes(pins));assert.doesNotMatch(transfer.prompt,/PRIVATE_REASONING/);assert.match(transfer.prompt,/read_chat_history/);
  const window=JSON.parse(transfer.prompt.split('<conversation_history>\n')[1].split('\n</conversation_history>')[0]);assert.ok(window.omitted>0);assert.equal(window.records.at(-1).id,correction.id);
- const original=store.get<ToolCall>('tool','large-0:0');let offset=0,retrieved='';do{const page=readChatHistory(store,current,{toolId:original.id,offset});retrieved+=page.text;offset=page.nextOffset!;}while(offset!==null);
+ const {started,finished,...original}=store.get<ToolCall>('tool','large-0:0');assert.ok(started&&finished);let offset=0,retrieved='';do{const page=readChatHistory(store,current,{toolId:original.id,offset});retrieved+=page.text;offset=page.nextOffset!;}while(offset!==null);
  assert.deepEqual(JSON.parse(retrieved),original);assert.equal(store.all('turn').length,62);store.db.close();
 });
 

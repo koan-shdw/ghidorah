@@ -103,3 +103,5 @@ export class Sidebar {
   });
  }
 }
+// An app's most recently active chat (TRIS-TODO 4.2: it glows when the app page opens; "Back to" opens it).
+export function latestChat(ids:string[],chats:Chat[],turns:Turn[]){return chats.filter(c=>ids.includes(c.id)&&!c.archived&&!c.sideSourceId&&!c.parentChatId).sort((a,b)=>chatUpdated(b,turns)-chatUpdated(a,turns))[0]||null;}

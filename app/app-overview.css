@@ -130,3 +130,7 @@
 @keyframes app-watch-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.app-watch-spinner{animation:none;border-color:var(--info)}}
 .app-watch-checked{display:block;font-size:var(--fs-meta);color:var(--muted);margin-top:4px}
+/* "Back to <chat>" (TRIS-TODO 4.2, Koan's pick A2): a pill in the title bar that opens the app's latest chat. */
+.app-overview-titlebar{border-bottom:0}
+.app-overview .app-back-pill{-webkit-app-region:no-drag;min-height:var(--h-sm);padding:0 var(--space-5);border-radius:var(--r-pill);font-size:var(--fs-meta);color:var(--muted);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+.app-overview .app-back-pill:hover:not(:disabled){color:var(--text)}

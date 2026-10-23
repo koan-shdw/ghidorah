@@ -141,5 +141,6 @@
   "images",
   "chat-export",
   "artifacts",
-  "chat-coordination"
+  "chat-coordination",
+  "app-page"
 ]

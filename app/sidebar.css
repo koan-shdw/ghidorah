@@ -230,3 +230,9 @@
 .sidebar-group-heading>.group-label .sidebar-icon{width:var(--icon-sm);height:var(--icon-sm);flex-basis:var(--icon-sm)}
 .chat-state:empty{display:none}
 .unread-dot{width:7px;height:7px;flex:0 0 7px;margin-left:auto;border-radius:var(--r-round);background:var(--unread)}
+/* Opening an app page: that app's latest chat glows twice (TRIS-TODO 4.2, Koan's pick A2: teal, 1.6 s each,
+   strength 0.67). Reduced motion: one still highlight that fades. */
+.sidebar-chat.app-glow{animation:app-glow 1.6s ease-in-out 2}
+@keyframes app-glow{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 0 1px color-mix(in srgb,var(--glow) 67%,transparent),0 0 14px color-mix(in srgb,var(--glow) 67%,transparent);background:color-mix(in srgb,var(--glow) 17%,transparent)}}
+@keyframes app-glow-still{0%,60%{box-shadow:0 0 0 1px color-mix(in srgb,var(--glow) 67%,transparent);background:color-mix(in srgb,var(--glow) 17%,transparent)}100%{box-shadow:0 0 0 0 transparent}}
+@media(prefers-reduced-motion:reduce){.sidebar-chat.app-glow{animation:app-glow-still 3.2s ease-out 1!important}}

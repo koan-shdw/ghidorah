@@ -83,7 +83,8 @@ export class Store {
     });
   }
   get<T>(kind:string,id:string):T {const r:any=this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind,id);if(!r)throw Error(`${kind} not found`);return JSON.parse(r.data);}
-  put<T extends {id:string}>(kind:string,value:T) {this.db.prepare('INSERT INTO records(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind,value.id,JSON.stringify(value));return value;}
+  // A tool record keeps when it started and finished, for the action list's times (TRIS-TODO 4.1, A2).
+  put<T extends {id:string}>(kind:string,value:T) {if(kind==='tool'){const tool:any=value;tool.started??=Date.now();if(!tool.finished&&['completed','failed','stopped'].includes(tool.status))tool.finished=Date.now();}this.db.prepare('INSERT INTO records(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind,value.id,JSON.stringify(value));return value;}
   remove(kind:string,id:string){this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind,id);}
   update<T extends {id:string}>(kind:string,id:string,patch:Partial<T>):T {const previous:any=this.get<T>(kind,id),v:any={...previous,...patch};if(kind==='turn'){v.lastActivity=Date.now();if(['stopped','interrupted','failed'].includes(v.status)&&!v.stopReason)v.stopReason='unknown';if(v.status!==previous.status||v.preparation!==previous.preparation||v.activity!==previous.activity)v.stageSince=Date.now();}if(kind==='turn'&&!v.finished&&['completed','stopped','failed','interrupted'].includes(v.status))v.finished=Date.now();this.put(kind,v);return v;}
   transaction<T>(fn:()=>T):T {if(this.db.isTransaction)return fn();this.db.exec('BEGIN IMMEDIATE');try{const v=fn();this.db.exec('COMMIT');return v;}catch(e){this.db.exec('ROLLBACK');throw e;}}

@@ -29,6 +29,7 @@ import {ChatActions,ChatDock,BackendStatus,permissionModes} from './chat-chrome'
 import {ModelUsageTooltip} from './model-usage-tooltip';
 import {SidebarIcon} from './kit';
 import {AppOverview} from './app-overview';
+import {latestChat} from './sidebar';
 import {apiSuppliers} from './api-catalog';
 import {ApiConnectionSettings} from './api-settings';
 import {ImageSettings} from './image-settings';
@@ -249,7 +250,7 @@ function App(){
   const [fileRequest,setFileRequest]=useState<FileRequest|null>(null),[detachedViews,setDetachedViews]=useState<WorkspaceView[]>([]);
   useEffect(()=>api.onOpenFile(request=>{if(workspaceComment.current.dirty&&request.chatId!==workspaceComment.current.owner){setError('Save or cancel the line comment before switching chats.');return;}setFileRequest(request);setWorkspaceOwner(request.chatId||'');setWorkspaceView('files');setWorkspace(true);setSettings(false);}),[]);
   const [workspace,setWorkspace]=useState(false),[workspaceView,setWorkspaceView]=useState<WorkspaceView>('files'),[terminalRequest,setTerminalRequest]=useState(0);
-  const [appId,setAppId]=useState<string|null>(null),[appPage,setAppPage]=useState(false),[appRename,setAppRename]=useState(0);
+  const [appId,setAppId]=useState<string|null>(null),[appPage,setAppPage]=useState(false),[appRename,setAppRename]=useState(0),[appOpened,setAppOpened]=useState(0);
   const [state,setState]=useState(empty),[chatId,setChat]=useState(''),[draft,setDraft]=useState(''),[settings,setSettings]=useState<false|'general'|'models'|'chat-models'|'connections'|'plugins'|'skills'|'always-on'|'claude-code'|'security'|'publishing'|'browser'|'remote'|'routines'|'voice'|'images'>(false),[openSupplier,setOpenSupplier]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[details,setDetails]=useState(false);
   const editorRevision=useRef(0),selectionRequest=useRef(0),selectChat=useRef<(id:string)=>void>(()=>{}),[selecting,setSelecting]=useState(false);
   const viewMode=useChatView(chatId);
@@ -351,7 +352,7 @@ function App(){
   // The Hairline pick, once installed, turns the chat title into a /hairline-create draft.
   const artwork=state.commands?.find(command=>command.name.endsWith(':hairline-create'));
   return <div className="app-frame"><header className="app-titlebar" aria-label="Window title bar"><button className="app-menu-trigger" aria-label="Ghidorah menu" aria-haspopup="menu" title="Ghidorah · Restart or quit" onClick={()=>void call('appMenu')}><img className="app-mark" src={appIcon} alt="" aria-hidden="true" draggable={false}/><strong>Ghidorah</strong>{state.updates?.dev&&<span className="dev-tag">DEV</span>}<span className="app-menu-chevron" aria-hidden="true">⌄</span></button><UpdateChip state={state} call={call}/></header><div className={'shell '+(workspace?'workspace-open':'')}>{state.wizard?.show&&<Wizard state={state} call={call} appError={error} suppliers={<Connections state={state} call={call} setup/>} jev={<Connections state={state} call={call} setup only="typesafe"/>} openSettings={page=>setSettings(page as any)}/>}{share.element}{worktree.element}{state.updates?.show&&<UpdateWindow state={state} call={call} close={()=>void call('updateClose')}/>}
-    <SidebarPanel worktree={()=>void worktree.start()} worktreeKept={worktree.kept} appFilter={appId} selectApp={(id,rename)=>{setAppId(id);setAppPage(!!id);setAppRename(value=>rename?value+1:0);setSettings(false);}} state={state} selected={chatId} choose={choose} call={call} create={addProject} split={openSplit} pane={id=>void openPane(id)} terminal={id=>void openWorkspace('terminal',id)} settings={page=>{setSettings(page||false);if(!page){setAppPage(false);setAppId(null);}}}/>
+    <SidebarPanel worktree={()=>void worktree.start()} worktreeKept={worktree.kept} appFilter={appId} selectApp={(id,rename)=>{setAppId(id);setAppPage(!!id);setAppRename(value=>rename?value+1:0);setSettings(false);if(id)setAppOpened(value=>value+1);}} glow={appPage&&appId?(chat=>chat&&{chatId:chat.id,key:appOpened})(latestChat(state.savedApps?.find(a=>a.id===appId)?.chatIds||[],state.chats,state.turns)):null} state={state} selected={chatId} choose={choose} call={call} create={addProject} split={openSplit} pane={id=>void openPane(id)} terminal={id=>void openWorkspace('terminal',id)} settings={page=>{setSettings(page||false);if(!page){setAppPage(false);setAppId(null);}}}/>
 
     <PaneShell layout={paneLayout} change={arrange} arranged={!!customLayout} title={paneTitle} popOut={id=>void popPane(id)} hidden={[...(workspace?[]:['workspace']),...(state.workspaceWindows||[]).map(view=>'workspace:'+view)]} chatSplit={{size:splitSize,direction:splitDirection,setSize:setSplitSize}} panes={{
       main:<ChatViewContext.Provider value={viewMode}><section data-view-mode={viewMode} className="primary-chat-pane" aria-label="Main chat" onFocusCapture={()=>setFocusedChat(chatId)}>

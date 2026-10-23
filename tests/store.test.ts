@@ -103,3 +103,13 @@ test('a reader holding the database never makes Tris refuse a write (TURN-REVIEW
   reader.exec('COMMIT');
  }finally{reader.close();s.db.close();rmSync(dir,{recursive:true,force:true});}
 });
+test('a tool record keeps when it started and finished, for the action list times (TRIS-TODO 4.1, A2)',()=>{
+ const dir=mkdtempSync(path.join(tmpdir(),'trismegistus-tool-times-')),s=new Store(path.join(dir,'chat.sqlite'));
+ try{
+  s.put('tool',{id:'t',turnId:'x',name:'Bash',args:{},result:null,status:'running'});
+  const started=s.get<any>('tool','t').started;assert.ok(started>0);assert.equal(s.get<any>('tool','t').finished,undefined);
+  s.put('tool',{...s.get<any>('tool','t'),status:'running',result:'partial'});assert.equal(s.get<any>('tool','t').started,started,'a later write keeps the start');
+  s.update<any>('tool','t',{status:'completed',result:'done'});const done=s.get<any>('tool','t');assert.ok(done.finished>=started);
+  s.update<any>('tool','t',{result:'again'});assert.equal(s.get<any>('tool','t').finished,done.finished,'the finish is kept');
+ }finally{s.db.close();rmSync(dir,{recursive:true,force:true});}
+});

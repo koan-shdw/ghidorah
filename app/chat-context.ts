@@ -18,7 +18,7 @@ function ownedTurns(store:Store,chatId:string,through?:string){
  if(end<0)throw Error('There are no saved messages to compact.');
  const ids=new Set(roots.slice(0,end+1).map(t=>t.id));let changed=true;
  while(changed){changed=false;for(const turn of all)if(!ids.has(turn.id)&&(turn.parentTurnId&&ids.has(turn.parentTurnId)||turn.automatic&&ids.has(turn.automatic.originTurnId))){ids.add(turn.id);changed=true;}}
- return {chat,roots:roots.slice(0,end+1),turns:all.filter(t=>ids.has(t.id)),tools:store.all<ToolCall>('tool').filter(t=>ids.has(t.turnId))};
+ return {chat,roots:roots.slice(0,end+1),turns:all.filter(t=>ids.has(t.id)),tools:store.all<ToolCall>('tool').filter(t=>ids.has(t.turnId)).map(({started,finished,...tool})=>tool)};
 }
 
 export function contextSource(store:Store,chatId:string,options:{beforeTurnId?:string;concise?:boolean}={}){
