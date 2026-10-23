@@ -43,10 +43,11 @@ try{
  await wizard.locator('.wizard-steps [aria-current]').filter({hasText:'Remote'}).waitFor();
  await wizard.getByRole('switch',{name:'Remote',exact:true}).click();await wizard.getByRole('alert').filter({hasText:'user ID'}).waitFor();
  await wizard.getByRole('button',{name:'Skip',exact:true}).click();
- await wizard.locator('.wizard-summary li').nth(4).waitFor();
+ await wizard.locator('.wizard-steps [aria-current]').filter({hasText:'Share with clients'}).waitFor();await wizard.getByRole('button',{name:'Skip',exact:true}).click();
+ await wizard.locator('.wizard-summary li').nth(5).waitFor();
  const rows=await wizard.locator('.wizard-summary li').evaluateAll(items=>items.map(item=>[item.querySelector('strong')!.textContent,item.getAttribute('data-outcome')]));
- assert.deepEqual(rows,[['DeepSeek','connected'],['Claude Code','skipped'],['Jev','skipped'],['Start with Windows','skipped'],['Remote','skipped']]);
- let s=await call('state');assert.deepEqual(s.wizard.steps,{suppliers:'done',claude:'skipped',jev:'skipped','always-on':'skipped',remote:'skipped'});
+ assert.deepEqual(rows,[['DeepSeek','connected'],['Claude Code','skipped'],['Jev','skipped'],['Start with Windows','skipped'],['Remote','skipped'],['Share with clients','skipped']]);
+ let s=await call('state');assert.deepEqual(s.wizard.steps,{suppliers:'done',claude:'skipped',jev:'skipped','always-on':'skipped',remote:'skipped',sharing:'skipped'});
  await page.screenshot({path:path.join(data,'wizard-summary.png')});
  // A step's next action opens its page in Settings.
  await wizard.locator('.wizard-summary li').filter({hasText:'Remote'}).getByRole('button').click();
