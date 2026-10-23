@@ -103,16 +103,26 @@ import {redactPastedKeys} from './redaction';
 import {webTools,researchTool} from './web-research';
 import artFonts from '../third-party/taag/fonts.json';
 import type {Project,Chat,Turn,Approval,ToolCall,Mode,CodexConnection,ClaudeConnection,ModelPrice,Snapshot,SideAnswer} from './types';
+import {alwaysOn,fixtureClaudeArgs,projectSettingsReview,trustRecord} from './main/accounts';
+import {defaultFolder,defaultModels,dockableJobChats,favouriteModels,repositoryStatus,routingSummaryHost,runAppWatch,savedAppRows,summaryHost,watchApp,watchHost,watchModel,watchRow} from './main/apps';
+import {availableModels,checkDispatch,connectedModels,deepseekModels,fixtureClaude,inputMismatch,loadInputCapabilities,recordRoute,unavailableMessage,videoModel} from './main/models';
+import {chatSelector,classifierActive,decidePick,decisionEngine,jevSettings,jevUrl,kevAddress,pickerConnected,pickerSettings,pickerStatus} from './main/pickers';
+import {gatewayHome,launchGateway,remoteAlert,remoteBinding,remoteChats,remoteCode,remoteFallback,remoteInbound,remoteOutbox,remoteRow,remoteSave,remoteSend,remoteSent,remoteSettings,remoteShown,settleRemote,telegramInstalled} from './main/remote';
+import {cronNext,wizardRow} from './main/routines';
+import {claudeScreenEnv,screenApps,screenContext,screenEscOn,screenServer,screenSettings,screenSettle,screenStep,screenStop,toolAccess,toolPaths} from './main/screen';
+import {openChatLink,openPage,pageUrl,previewTool_,publish,publishing,shareCheck,shareDeploy,shareDraft,shareSettings,shareSite,shareTest,shareView,shareWithClient,withOwner} from './main/sharing';
+import {discoverySettings,hermesFeed,hermesPin,updateFeed,updateSettings} from './main/updates';
+import {freeVoiceKey,speechInstalled,speechReady,voiceRequest,voiceRow,voiceSettings,voiceTestEndpoint,wakeDetected,wakeSettings} from './main/voice';
 
 protocol.registerSchemesAsPrivileged(['tris-preview','tris-inline'].map(scheme=>({scheme,privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true,stream:true}})));
-const root=app.isPackaged?process.resourcesPath:path.resolve(__dirname,'..');
+export const root=app.isPackaged?process.resourcesPath:path.resolve(__dirname,'..');
 // Renamed Ghidorah 2026-10-16. The data folder, saved-key names (Credential Manager) and app ID keep the old name: his
 // chats, keys, notification settings and taskbar pin live under them.
 // Run from source (scripts/dev.cmd) it is Ghidorah Dev: its own data, keys, taskbar entry and window, so it runs beside
 // the installed copy and never touches its chats.
 const dev=!app.isPackaged&&!process.env.TRISMEGISTUS_TEST_DATA,appName=dev?'Ghidorah Dev':'Ghidorah';
-const data=process.env.TRISMEGISTUS_TEST_DATA || path.join(process.env.LOCALAPPDATA!,dev?'Ghidorah Dev':'Trismegistus');
-const namespace=process.env.TRISMEGISTUS_TEST_DATA?'Trismegistus/Test/'+path.basename(data):dev?'Ghidorah Dev':'Trismegistus';
+export const data=process.env.TRISMEGISTUS_TEST_DATA || path.join(process.env.LOCALAPPDATA!,dev?'Ghidorah Dev':'Trismegistus');
+export const namespace=process.env.TRISMEGISTUS_TEST_DATA?'Trismegistus/Test/'+path.basename(data):dev?'Ghidorah Dev':'Trismegistus';
 app.setPath('userData',path.join(data,'electron'));
 // After an install on quit, the update watcher starts the new version once with --update-check: it loads its window out
 // of sight, marks the install as opened and exits, so a version that cannot open is rolled back (scripts/update-watch.ps1).
@@ -123,9 +133,9 @@ if(!ownsInstance&&!updateCheck)app.quit();
 app.on('second-instance',(_event,argv)=>{const link=argv.find(arg=>arg.startsWith('trismegistus://'));if(link)openChatLink(link);else if(win){win.show();win.focus();}});
 let coordination:WorkCoordination;
 let background:BackgroundWork,native:NativeSessions,backgroundTimer:NodeJS.Timeout|undefined;
-let store:Store,backend:Backend,win:BrowserWindow, tray:Tray,sidebar:Sidebar;
+export let store:Store,backend:Backend,win:BrowserWindow, tray:Tray,sidebar:Sidebar;
 let workNotifications:WorkNotifications;
-const desktopNotices=new Set<Notification>();
+export const desktopNotices=new Set<Notification>();
 function showWorkNotice(notice:WorkNotice){
  if(quitting||namespace.startsWith('Trismegistus/Test/')&&process.env.TRISMEGISTUS_TEST_NOTIFICATIONS!=='1'||!Notification.isSupported())return;
  try{
@@ -155,58 +165,37 @@ let terminals:Terminals;
 let previews:Previews;
 let inlinePreviews:InlinePreviews;
 let browserPreviews:BrowserPreviews;
-let gliner:LocalPicker;
-let apiProviders:ApiProviders,apiChanging=false;
-let goals:Goals;
+export let gliner:LocalPicker;
+export let apiProviders:ApiProviders,apiChanging=false;
+export let goals:Goals;
 const submittingChats=new Map<string,number>();
 const workspaceDrafts=new Set<number>();
 let checkingWorkspaceQuit=false,discardWorkspaceOnQuit=false;
 let checkingAppExit=false;
-const jobWindows=new Map<string,BrowserWindow>();
-const chatWindows=new Map<string,BrowserWindow>();
+export const jobWindows=new Map<string,BrowserWindow>();
+export const chatWindows=new Map<string,BrowserWindow>();
 const sideChatOpening=new Map<string,Promise<string>>();
 const chatPreviews=new Map<string,Previews>();
-let health:AccountHealth,healthTimer:NodeJS.Timeout|undefined;
-let jevKey:string|null=null,jevStatus='Not connected';
+export let health:AccountHealth,healthTimer:NodeJS.Timeout|undefined;
+export let jevKey:string|null=null,jevStatus='Not connected';
 const uploading=new Set<string>();
-const visionModels:Record<string,boolean>={};
+export const visionModels:Record<string,boolean>={};
 const jevControllers=new Map<string,AbortController>();
-function jevSettings():JevSettings{return store.all<any>('settings').find(row=>row.id==='jev')||{summaryModel:'deepseek-flash',confidence:0.7,timeoutMs:500};}
-function decisionEngine():PickerId{const engine=store.all<any>('settings').find(row=>row.id==='decision-engine')?.engine;return isPicker(engine)?engine:'jev';}
-function chatSelector(chat:Chat){const model=chat.selector;return model&&(chat.pool||[]).includes(model)&&availableModels().includes(model)?model:null;}
-function classifierActive(){return pickerConnected(decisionEngine());}
-// One reader per picker: its settings, whether it can answer, its status line, and its decide call.
-function pickerSettings(id:PickerId):JevSettings{return id==='jev'?jevSettings():store.all<any>('settings').find(row=>row.id===id)||{summaryModel:'deepseek-flash',confidence:0.7,timeoutMs:picker(id)!.timeoutMs};}
-function kevAddress():string|undefined{return store.all<any>('settings').find(row=>row.id==='kev')?.address;}
-let kevStatus='';
+export let kevStatus='';
 // Pickers with their own key (GLiDE, Not Diamond): the vault name, the key read at start, its status.
-const pickerKeyNames:Partial<Record<PickerId,string>>={glide:'fastino',notdiamond:'notdiamond'};
-const pickerKeys:Partial<Record<PickerId,string|null>>={},pickerKeyStatus:Partial<Record<PickerId,string>>={};
-function testUrl(name:string){return namespace.startsWith('Trismegistus/Test/')?process.env[name]:undefined;}
-function pickerConnected(id:PickerId){return id==='jev'?!!jevKey:id==='kev'?!!kevAddress():id==='gliner'?!!gliner?.state().installed:id in pickerKeyNames?!!pickerKeys[id]:false;}
-function pickerStatus(id:PickerId){return id==='jev'?jevStatus:id==='kev'?(kevAddress()?kevStatus||'Unverified':'Not set up'):id==='gliner'?gliner?.state().status||'Not installed':id in pickerKeyNames?(pickerKeys[id]?pickerKeyStatus[id]||'Key saved · checked on first use':'Add key'):'Not set up';}
-async function decidePick(id:PickerId,state:JevState,settings:JevSettings,signal:AbortSignal):Promise<JevDecision>{
-  // GLiNER answers the main pick only, from the routing summary; Koan's own picks are kept as they are.
-  if(id==='gliner'){const picks=ownPicks(state);if(picks)return picks;const labels=glinerLabels(state),result=await gliner.classify(withLearning(state.summary,state.history),labels.map(row=>row.label),settings.timeoutMs,signal);return parseGliner(result.result,labels,settings,result.elapsedMs);}
-  if(id==='jev')return decideJev(jevUrl(),jevKey!,state,settings,signal);
-  if(id==='kev'&&kevAddress())return decideKev(kevAddress()!,state,settings,signal);
-  // Not Diamond answers the main pick only; Koan's own picks are kept as they are.
-  if(id==='notdiamond'&&pickerKeys.notdiamond)return ownPicks(state)||decideNotDiamond(notDiamondEndpoint(testUrl('TRISMEGISTUS_TEST_NOTDIAMOND_URL')),pickerKeys.notdiamond,state,settings,signal);
-  if(id==='glide'&&pickerKeys.glide)return decideGlide(glideEndpoint(testUrl('TRISMEGISTUS_TEST_GLIDE_URL')),pickerKeys.glide,state,settings,signal);
-  throw Error(picker(id)!.short+' is not set up.');
-}
-function jevUrl(){return jevEndpoint(namespace.startsWith('Trismegistus/Test/')?process.env.TRISMEGISTUS_TEST_JEV_URL:undefined);}
+export const pickerKeyNames:Partial<Record<PickerId,string>>={glide:'fastino',notdiamond:'notdiamond'};
+export const pickerKeys:Partial<Record<PickerId,string|null>>={},pickerKeyStatus:Partial<Record<PickerId,string>>={};
 let providerOwner:Awaited<ReturnType<typeof providerAccess>>|undefined;
 let resetTimer:NodeJS.Timeout|undefined,scheduledReset:number|null=null;
 let balanceCheckVersion=0;
 let mcp:McpOwner,mcpRows:McpConnection[]=[],mcpError='';
 const mcpLogins=new Map<string,AbortController>();
 const pluginReviews=new Map<string,NativePlugin>();
-let pluginsChanging=false;
+export let pluginsChanging=false;
 // A speech, wake-word or Telegram install: it excludes plugin changes and other installs, but never holds a chat
 // (TURN-REVIEW part 3: installs held every chat for up to 71 minutes).
-let installing=false;
-const pluginChanges=new PluginChanges(pluginChangeWait,()=>{emit();if(!pluginChanges.pending)wakeWaiting();});
+export let installing=false;
+export const pluginChanges=new PluginChanges(pluginChangeWait,()=>{emit();if(!pluginChanges.pending)wakeWaiting();});
 let pluginHandlers:PluginHandler[]=[];
 const pluginControllers=new Map<string,AbortController>();
 const pluginOwners=new Map<string,PluginProcessOwner>();
@@ -218,26 +207,26 @@ async function loadPluginCommands(){
   const commands=await pluginWorker(backend,{operation:'catalog',...pluginWorkerSettings()},AbortSignal.timeout(65000));
   for(const row of commands){const plugin=installed.find(item=>hermesPluginKey(item)===row.pluginKey);if(!plugin||typeof row.command!=='string'||!/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,79}$/.test(row.command))continue;pluginHandlers.push({...row,name:`/${plugin.name}:${row.command}`,plugin:plugin.name,pluginId:plugin.id,hash:plugin.hash,kind:'Plugin command'});}
 }
-function pluginRuntime(){return store.all<any>('settings').find(row=>row.id==='plugin-runtime')?.runtime||null;}
+export function pluginRuntime(){return store.all<any>('settings').find(row=>row.id==='plugin-runtime')?.runtime||null;}
 const mcpToolRequests=new Map<string,{chatId:string;controller:AbortController}>();
 const memoryCache=new MemoryCache(profile=>path.join(data,'hermes','profiles',profile),(profile,signal)=>backend.host('project_memory',{profile,name:'read_project_memory'},signal));
 let mcpRefresh:Promise<void>|null=null;
-let connected=false,providerStatus='Not connected',quitting=false;
+export let connected=false,providerStatus='Not connected',quitting=false;
 let balance:string|null=null;
 let balanceCheckedAt:string|null=null;
 // Supplier list prices for the model tooltips. Each model is asked once; failed asks retry with the 5-minute checks.
 let modelPrices:Record<string,ModelPrice>={};const pricesAsked=new Set<string>(),pricesFailed=new Set<string>();
-let codex:CodexConnection={connected:false,status:'Not connected',models:[]};
+export let codex:CodexConnection={connected:false,status:'Not connected',models:[]};
 let codexCheckVersion=0;
 let codexCheckController:AbortController|null=null,codexCheckTask:Promise<any>|null=null;
-let claude:ClaudeConnection={connected:false,status:'Not checked'};
+export let claude:ClaudeConnection={connected:false,status:'Not checked'};
 let checkingClaude=false,claudeSignIn:ChildProcess|undefined;
-let claudeExecutable:string|null=null;
+export let claudeExecutable:string|null=null;
 // Each Claude message row's controller (its preparation, approvals and his remove button), by row.
 const claudeControllers=new Map<string,AbortController>();
 const claudeAutomatic=new Map<string,{chatId:string;controller:AbortController}>();
 const claudeControls=new Map<string,{setMode:(mode:Mode)=>Promise<void>}>();
-const requests=new Map<string,any>();
+export const requests=new Map<string,any>();
 // The chat runner's records (TURN-REVIEW part 3). Claude's busy lives in its engine (native.processing); these are the
 // rows Tris runs itself or has handed to Hermes, each set by an action and cleared by its end event, never guessed.
 const preparing=new Map<string,{turnId:string;controller:AbortController}>(); // chat -> the message being prepared
@@ -355,90 +344,20 @@ const hermesFixed=new Map<string,string>(); // session id -> fixed text it last 
 // reply: there it buried his words (10-19: "are you done?" arrived as 10,615 characters). It waits for an idle message.
 function resendFixed(fresh:boolean,busy:boolean,last:string|undefined,next:string){return fresh||!busy&&last!==next;}
 let updateTimer:NodeJS.Timeout|null=null;
-function defaultFolder(){return store.all<{id:string,folder:string|null}>('settings').find(s=>s.id==='working-folder')?.folder||null;}
-function defaultModels():string[]{return store.all<{id:string,models:string[]}>('settings').find(s=>s.id==='default-models')?.models||['deepseek-flash'];}
-function favouriteModels():string[]{return store.all<{id:string,models:string[]}>('settings').find(s=>s.id==='favourite-models')?.models||[];}
-const appSummaryJobs=new Map<string,{controller:AbortController;promise:Promise<AppSummary>;revision:string;model:string}>();
-const appSummaryErrors=new Map<string,{revision:string;message:string}>();
-function savedAppRows(base:Pick<Snapshot,'chats'|'turns'|'approvals'>=store.snapshot({tools:false})){
- const state={...base,goals:goals?.rows()||[]},summaries=store.all<AppSummary>('app-summary');
- return store.all<SavedApp>('saved-app').map(app=>{const chatIds=app.chatIds.filter(id=>state.chats.some(c=>c.id===id)),value={...app,chatIds,todos:store.all<AppTodo>('app-todo').filter(todo=>todo.appId===app.id).sort((a,b)=>a.created-b.created||a.id.localeCompare(b.id))},revision=summaryRevision(appSummarySources(value,state));const watch={...watchRow(app.id),running:appWatchJobs.has(app.id),step:appWatchSteps.get(app.id)},ideas=store.all<AppIdea>('app-idea').filter(idea=>idea.appId===app.id&&idea.status!=='dismissed').sort((a,b)=>b.found-a.found);return {...value,watch,updates:ideas,watchUnread:ideas.some(idea=>idea.status==='new'&&idea.found>watch.seen),light:appLights.get(app.id),summary:summaries.find(row=>row.id===app.id&&row.sources.every(source=>!source.chatId||chatIds.includes(source.chatId))),summaryRevision:revision,summaryRunning:appSummaryJobs.has(app.id),summaryError:appSummaryErrors.get(app.id)?.revision===revision?appSummaryErrors.get(app.id)?.message:undefined};});
-}
+export const appSummaryJobs=new Map<string,{controller:AbortController;promise:Promise<AppSummary>;revision:string;model:string}>();
+export const appSummaryErrors=new Map<string,{revision:string;message:string}>();
 // Update watch (app-watch.ts): one app at a time in the background. Three host calls, because a model call
 // installs the provider guard that refuses other web requests in that process.
-const appWatchJobs=new Map<string,AbortController>(),appWatchSteps=new Map<string,string>();let appWatchTimer:NodeJS.Timeout|undefined;
-function watchRow(id:string){return store.all<AppWatch>('app-watch').find(row=>row.id===id)||defaultWatch(id);}
-function watchModel(watch:AppWatch){const model=updateModel(watch.model,availableModels(),jevSettings().summaryModel);if(!model)throw Error('Choose an available update model for this app.');return model;}
-function watchProfile(entry:SavedApp){const chats=store.all<Chat>('chat'),owner=chats.find(chat=>entry.chatIds.includes(chat.id))||chats.find(chat=>!chat.parentChatId);if(!owner)throw Error('Create a chat before checking for updates.');return projectFor(owner).profile;}
-function watchApp(entry:SavedApp){const clean=(text:string)=>redactPastedKeys(backend.scrubber.text(text||''));return {name:entry.name,stage:entry.stage,description:clean(entry.current),ideas:clean(entry.ideas),planned:clean(entry.planned)};}
-async function watchHost(stage:string,entry:SavedApp,model:string,context:any,signal?:AbortSignal){
- const request={stage,profile:watchProfile(entry),model,provider_access:backend.providerAccess,provider_urls:providerUrls(),context};
- if(model.startsWith('claude-code:')&&stage!=='gather'){
-  signal=AbortSignal.any([...(signal?[signal]:[]),AbortSignal.timeout(90000)]);
-  const prepared=await backend.host('app_watch',{...request,prepare:true},signal),cwd=path.join(data,'app-watch');
-  await fs.mkdir(cwd,{recursive:true});
-  const answer=await claudeOneShot(claudeExecutable!,model.slice(12),prepared.system,prepared.prompt,cwd,data,signal,60000,fixtureClaudeArgs()?.concat('--fixture-oneshot'));
-  return backend.scrubber.value(await backend.host('app_watch',{...request,response:answer.text,usage:answer.usage},signal));
- }
- return backend.scrubber.value(await backend.host('app_watch',request,signal));
-}
-// App summaries with a Claude model go through the background Claude runner, like the update watcher.
-// Routing summaries with a Claude model take the same route, so a subscription Claude can prepare the decision.
-async function routingSummaryHost(request:{model:string}&Record<string,unknown>,signal:AbortSignal){
- if(!request.model.startsWith('claude-code:'))return backend.host('routing_summary',request,signal);
- const prepared=await backend.host('routing_summary',{...request,prepare:true},signal),cwd=path.join(data,'routing-summary');
- await fs.mkdir(cwd,{recursive:true});
- const answer=await claudeOneShot(claudeExecutable!,request.model.slice(12),prepared.system,prepared.prompt,cwd,data,signal,30000,fixtureClaudeArgs()?.concat('--fixture-oneshot'));
- return backend.host('routing_summary',{...request,response:answer.text,usage:{total_tokens:claudeTurnUsage(answer).turn_total}},signal);
-}
-async function summaryHost(request:{model:string}&Record<string,unknown>,signal:AbortSignal){
- if(!request.model.startsWith('claude-code:'))return backend.host('app_summary',request,signal);
- const prepared=await backend.host('app_summary',{...request,prepare:true},signal),cwd=path.join(data,'app-summary');
- await fs.mkdir(cwd,{recursive:true});
- const answer=await claudeOneShot(claudeExecutable!,request.model.slice(12),prepared.system,prepared.prompt,cwd,data,signal,120000,fixtureClaudeArgs()?.concat('--fixture-oneshot'));
- return backend.host('app_summary',{...request,response:answer.text,usage:answer.usage},signal);
-}
-async function runAppWatch(id:string){
-  if(appWatchJobs.has(id))throw Error('This app is already checking for updates.');
-  const controller=new AbortController(),started=Date.now(),step=(text:string)=>{appWatchSteps.set(id,text);emit();};appWatchJobs.set(id,controller);step('Planning searches…');
-  try{
-    if(pluginsChanging||installing||pluginChanges.pending||apiChanging)throw Error('Wait for the current plugin or connection change to finish.');
-    const entry=store.get<SavedApp>('saved-app',id),watch=watchRow(id),model=watchModel(watch),existing=store.all<AppIdea>('app-idea').filter(idea=>idea.appId===id);
-    // The user's own words are the brief; app notes only help judge relevance.
-    const brief=redactPastedKeys(backend.scrubber.text(watch.topics)),app=watchApp(entry);
-    const planned=await watchHost('queries',entry,model,{brief,app,sources:watch.sources,today:new Date().toISOString().slice(0,10)},controller.signal);
-    const queries=(Array.isArray(planned.queries)?planned.queries:[]).filter((q:unknown)=>typeof q==='string').map((q:string)=>redactPastedKeys(backend.scrubber.text(q)));
-    step('Reading sources…');
-    // Links already shown to the model are skipped, which also covers feeds without dates.
-    const gathered=await watchHost('gather',entry,model,{sources:watch.sources,queries,since:watch.lastRun||started-14*86400000,reported:[...existing.flatMap(idea=>idea.sources.map(source=>source.url)).slice(-500),...watch.read||[]]},controller.signal);
-    const items=Array.isArray(gathered.items)?gathered.items:[];
-    step('Writing ideas…');
-    const reply=items.length?await watchHost('ideas',entry,model,{brief,app,previous:existing.slice(-40).map(idea=>idea.title),items},controller.signal):{ideas:[]};
-    controller.signal.throwIfAborted();
-    const ideas=readIdeas(reply.ideas,items,existing,id,Date.now());
-    store.transaction(()=>{store.get('saved-app',id);for(const idea of ideas)store.put('app-idea',idea);const current=watchRow(id);store.put<AppWatch>('app-watch',{...current,lastRun:started,nextRun:nextWatchRun(current.frequency,Date.now()),error:undefined,read:[...new Set([...current.read||[],...items.map((item:any)=>String(item?.url).slice(0,300))])].slice(-1000),unchecked:(Array.isArray(gathered.unchecked)?gathered.unchecked:[]).map(String).slice(0,60),checked:(Array.isArray(gathered.checked)?gathered.checked:[]).slice(0,40).map((row:any)=>({line:String(row?.line).slice(0,300),feed:String(row?.feed||'').slice(0,120),new:Number(row?.new)||0,...Number.isInteger(row?.captions)?{captions:row.captions}:{}}))});});
-    return ideas.length;
-  }catch(error){
-    const message=controller.signal.aborted?'Update check stopped.':backend.scrubber.text(String(error)).replace(/^Error: /,'').slice(0,300);
-    // A failed check retries after six hours instead of every minute.
-    if(store.all<SavedApp>('saved-app').some(row=>row.id===id)){const current=watchRow(id);store.put<AppWatch>('app-watch',{...current,error:message,nextRun:current.frequency==='off'?null:Date.now()+6*3600000});}
-    throw Error(message,{cause:error});
-  }finally{appWatchJobs.delete(id);appWatchSteps.delete(id);emit();}
-}
+export const appWatchJobs=new Map<string,AbortController>(),appWatchSteps=new Map<string,string>();let appWatchTimer:NodeJS.Timeout|undefined;
 function appWatchTick(){
   clearTimeout(appWatchTimer);if(quitting)return;
   const due=store.all<AppWatch>('app-watch').find(row=>row.frequency!=='off'&&row.nextRun!==null&&row.nextRun<=Date.now());
   if(due&&!appWatchJobs.size&&backend.status==='ready')void runAppWatch(due.id).catch(()=>{});
   appWatchTimer=setTimeout(appWatchTick,60000);appWatchTimer.unref();
 }
-// One linked repository's Git state. Unpushed counts commits on no remote branch, so a repository without a remote counts them all.
-async function repositoryStatus(relative:string){try{
-  const directory=await existingAppPath(defaultFolder(),relative,data);
-  return {path:relative,...await backend.host('workspace_status',{directory}),checkedAt:Date.now()};
-}catch(error){return {path:relative,error:backend.scrubber.text(String(error)).slice(0,350)};}}
 // Git light under each app icon: yellow while a linked repository has commits no remote has, green once all are pushed.
 // ponytail: refreshed at start, on window focus, on app saves and with the 5-minute checks; watch .git if lights lag.
-const appLights=new Map<string,NonNullable<SavedApp['light']>>();let lightsRefresh:Promise<void>|null=null;
+export const appLights=new Map<string,NonNullable<SavedApp['light']>>();let lightsRefresh:Promise<void>|null=null;
 function refreshAppLights(){return lightsRefresh??=(async()=>{
   for(const app of store.all<SavedApp>('saved-app')){
     const statuses=await Promise.all((app.repositories||[]).map(repositoryStatus));
@@ -450,8 +369,6 @@ function refreshAppLights(){return lightsRefresh??=(async()=>{
   }
   emit();
 })().finally(()=>{lightsRefresh=null;});}
-// Job chats of each chat's latest parallel group, so the main window can dock their panes.
-function dockableJobChats(turns:Turn[]){const latest=new Map<string,Turn>();for(const t of turns)if(t.jobs?.length)latest.set(t.chatId,t);const jobs=new Set([...latest.values()].flatMap(t=>t.jobs!)),ids=new Set(turns.filter(t=>jobs.has(t.id)).map(t=>t.chatId));return store.all<Chat>('chat').filter(c=>ids.has(c.id)&&c.parentChatId).map(c=>({...c,pool:store.get<Chat>('chat',c.parentChatId!).pool}));}
 // Shows an approval. Its action steps out of the work lock until the user answers, so other chats' work goes on
 // (Koan 2026-10-15: one chat waiting for Allow stalled another chat's command for ten minutes).
 function askApproval(row:Approval){store.put('approval',row);if(row.method==='approval')coordination.ask(row.turnId,row.params.description,row.params.command);}
@@ -478,36 +395,10 @@ function refreshMcp(){
   mcpRefresh=mcp.request('list').then(rows=>{mcpRows=rows;mcpError='';},error=>{mcpError=backend.scrubber.text(String(error));}).finally(()=>{mcpRefresh=null;emit();});
   return mcpRefresh;
 }
-// deepseek-flash stays listed: existing chats and defaults depend on it even if DeepSeek's list names it differently.
-function deepseekModels():string[]{const saved=store.all<any>('settings').find(row=>row.id==='deepseek-models')?.models;return [...new Set(['deepseek-flash',...(Array.isArray(saved)?saved:[])])];}
-function connectedModels(){return [...(connected?deepseekModels():[]),...(codex.connected?codex.models:[]),...(claude.connected?(claude.models||[]).map(model=>model.id):[]),...(apiProviders?.models()||[])];}
 function askPrices(){if(!apiProviders)return;const models=connectedModels().filter(model=>!model.startsWith('claude-code:')&&!pricesAsked.has(model));if(!models.length)return;for(const model of models)pricesAsked.add(model);void backend.host('model_prices',{models,urls:apiProviders.urls()}).then(rows=>{modelPrices={...modelPrices,...rows};emit();},()=>{for(const model of models)pricesFailed.add(model);});}
-function availableModels(){return connectedModels().filter(model=>!blockedFor(health.rows(),model)&&(providerFor(model)!=='claude-code'||claudeExecutable));}
-function unavailableMessage(model:string){const blocked=blockedFor(health.rows(),model);return modelLabel(model,claude.models)+': '+(blocked?availabilityMessage(blocked):'Not connected or available')+'. Choose another model or check account usage.';}
-function recordRoute(turnId:string,decision:{reason:string;[key:string]:unknown}){store.put('route',{...decision,id:randomUUID(),turnId,created:Date.now()});}
-function inputMismatch(turn:Turn){return attachmentMismatch(conversationAttachments(store.all<Turn>('turn'),turn),visionModels[turn.model]===true,turn.model);}
-// The Gemini model a video goes to: the one picked or already in the chat, else the newest connected.
-function videoModel(chat:Chat,turn?:Turn){
-  const gemini=availableModels().filter(readsVideo),created=new Map((apiProviders?.rows()||[]).flatMap(row=>row.models.map(model=>[model.id,model.created||null] as const)));
-  return [turn?.model,...(turn?.requestedModels||[]),...(chat.pool||[])].find(id=>!!id&&gemini.includes(id))||newestFirst(gemini.map(id=>({id,supplier:'gemini',created:created.get(id)||null})),id=>id)[0]?.id||null;
-}
-async function loadInputCapabilities(turn:Turn,signal?:AbortSignal){
-  if(!conversationAttachments(store.all<Turn>('turn'),turn).some(a=>a.kind!=='file'))return;
-  const missing=connectedModels().filter(model=>visionModels[model]===undefined);
-  if(missing.length)Object.assign(visionModels,await backend.host('attachment_capabilities',{models:missing},signal));
-}
-function checkDispatch(chat:Chat,turn:Turn){
-  const mismatch=inputMismatch(turn);
-  if(!mismatch&&availableModels().includes(turn.model)&&(chat.pool||['deepseek-flash']).includes(turn.model))return true;
-  const error=mismatch||unavailableMessage(turn.model);store.transaction(()=>{store.update<Turn>('turn',turn.id,{status:'needs-model',error});recordRoute(turn.id,{model:turn.model,reason:'unavailable',error});});emit();return false;
-}
-function fixtureClaude(){return namespace.startsWith('Trismegistus/Test/')?process.env.TRISMEGISTUS_TEST_CLAUDE:undefined;}
 // The update window (5c). What's new shows once per new version, never on a fresh profile; the update check runs
 // only once there is a feed (a test sets its own).
 let appUpdates:AppUpdates|undefined,updateShow=false;
-// skip: a version that did not open and was rolled back; automaticOnce: the old Manual default became Automatic once.
-function updateSettings(){const row=store.all<any>('settings').find(row=>row.id==='updates');return {mode:(row?.mode==='automatic'?'automatic':'manual') as UpdateMode,lastSeen:typeof row?.lastSeen==='string'?row.lastSeen:undefined,skip:typeof row?.skip==='string'?row.skip:undefined,automaticOnce:!!row?.automaticOnce};}
-function updateFeed():Feed{return (namespace.startsWith('Trismegistus/Test/')&&process.env.TRISMEGISTUS_TEST_UPDATE_FEED)||APP_FEED;}
 // Before an install: a copy of the chats, then the watcher that puts the version before back if the new one does not
 // open. It runs from the data folder, so the installer can replace every file of the app.
 let installPrepared=false,updateRolledBack:string|null=null;
@@ -527,7 +418,6 @@ function prepareInstall(restart:boolean){
 }
 // New-model check (5d): Manual by default; Once per session runs one check after start for all windows.
 let discoveryRun:AbortController|undefined,discoveryStatus='',discoveredThisSession=false;
-function discoverySettings(){const row=store.all<any>('settings').find(row=>row.id==='model-discovery');return {mode:row?.mode==='session'?'session':'manual',model:typeof row?.model==='string'?row.model:''};}
 async function runDiscovery(){
   if(apiChanging)throw Error('Wait for the connection update to finish.');
   if(discoveryRun)throw Error('A check is already running.');const settings=discoverySettings();
@@ -562,8 +452,6 @@ async function runDiscovery(){
 // Hermes release notice (5e): checked on launch and every six hours, backing off after a failure; one notice per
 // new release. Roll in marks it for a fork merge that ships as a new app build; the app never runs hermes update.
 let hermesStatus='',hermesTimer:NodeJS.Timeout|undefined,hermesBackoff=0,hermesChecking=false;
-function hermesPin(){try{const manifest=JSON.parse(readFileSync(path.join(root,'runtime','hermes-manifest.json'),'utf8'));return {tag:String(manifest.upstreamTag||''),version:String(manifest.upstreamVersion||'unknown'),published:String(manifest.upstreamPublished||''),fork:String(manifest.fork||'')};}catch{return {tag:'',version:'unknown',published:'',fork:''};}}
-function hermesFeed(){return namespace.startsWith('Trismegistus/Test/')?process.env.TRISMEGISTUS_TEST_HERMES_FEED:HERMES_RELEASES;}
 async function hermesCheck(){
   const feed=hermesFeed();if(!feed||hermesChecking)return;hermesChecking=true;clearTimeout(hermesTimer);
   try{
@@ -581,29 +469,9 @@ async function hermesCheck(){
 // Remote (6a). While Remote is on, main runs Hermes's gateway as a hidden child in its own Hermes home
 // (hermes-gateway), so it shares no sessions, memory or model keys with the serving backend. The gate plugin
 // talks to main over a private loopback channel. Remote is off until switched on, so a fresh profile starts nothing.
-let remoteChannel:Awaited<ReturnType<typeof gateChannel>>|undefined,remoteGateway:GatewaySupervisor|undefined,telegramInstall:AbortController|null=null;
-// A Telegram message becomes a turn through the normal submit handler; its mark is set as the turn is accepted, so
-// routing and the reply step see it. Only main sets it: a window cannot.
-function remoteSend(text:string,deny=false,approvalId?:string){
-  const owner=remoteSettings().owner;if(!owner)return;
-  const row=enqueueRemote(store,owner,backend.scrubber.text(text),approvalId,deny);remoteChannel?.notify();return row;
-}
-function remoteOutbox(after:number):OutRow[]{return claimRemoteOutbox(store,after,remoteSettings().owner);}
-function remoteSent(seq:number,ok:boolean,messageId?:string){
-  const row=recordRemoteReceipt(store,seq,ok,messageId),shown=remoteShown();
-  if(shown?.seq===seq&&row.approvalId===shown.approvalId){
-    if(row.status==='sent'&&row.messageId)store.put('settings',{...shown,id:'remote-shown',messageId:row.messageId});
-    else if(row.status==='uncertain'||!row.messageId){store.put('settings',{...shown,id:'remote-shown',kind:'desktop'});remoteAlert('Remote approval delivery unconfirmed','Review the pending approval on the desktop.');}
-  }
-}
+export let remoteChannel:Awaited<ReturnType<typeof gateChannel>>|undefined,remoteGateway:GatewaySupervisor|undefined,telegramInstall:AbortController|null=null;
 let remoteInboxRunning=false;
-async function remoteInbound(value:unknown){
-  const message=readInbound(value,remoteSettings().owner);if(!message||!remoteSettings().enabled)return;
-  if(parseRequest(message.text).kind==='code'){await remoteDesk.receive(message);return;}
-  if(backend.scrubber.text(message.text)!==message.text||redactPastedKeys(message.text)!==message.text){remoteSend('This looks like an API key. Save it in Settings.');return;}
-  enqueueRemoteInbound(store,message);void drainRemoteInbox();
-}
-async function drainRemoteInbox(){
+export async function drainRemoteInbox(){
   if(remoteInboxRunning)return;remoteInboxRunning=true;
   try{while(remoteSettings().enabled&&!quitting){
     const next=store.all<InRecord>('remote-in').find(row=>row.status==='pending');if(!next)break;
@@ -612,60 +480,11 @@ async function drainRemoteInbox(){
     catch{store.put<InRecord>('remote-in',{id:next.id,status:'uncertain'});remoteAlert('Remote message outcome unconfirmed','Check this chat before resending the task.');remoteSend('The app could not confirm the outcome. Check /status before resending.');}
   }}finally{remoteInboxRunning=false;}
 }
-// If the picker is unsure about a Telegram message, the chat's last model answers, else the first available one,
-// and the reply says so; a message from Telegram never waits for a choice at the desktop (section 5, call 13).
-function remoteFallback(turn:Pick<Turn,'remote'>,input:{eligible:string[];previous:string|null}){
-  if(!turn.remote)return null;
-  const model=input.previous&&input.eligible.includes(input.previous)?input.previous:input.eligible[0]||null;
-  if(model)turn.remote={...turn.remote,fallback:true};
-  return model;
-}
-// A desktop alert for every remote task, blocked and failed ones included (5.21 H6). Tests record them only.
-function remoteAlert(title:string,body:string){
-  const row={id:randomUUID(),title,body:backend.scrubber.text(body).slice(0,200),at:Date.now()};store.put('remote-alert',row);
-  for(const old of store.all<any>('remote-alert').slice(0,-30))store.remove('remote-alert',old.id);
-  if(alwaysOn().desktopNotifications&&!namespace.startsWith('Trismegistus/Test/')&&Notification.isSupported())new Notification({title,body:row.body}).show();
-  emit();
-}
 // The Remote code (6d): a counter-based one-time code for every approval a remote turn raises, and at no other
 // time. The seed lives in the vault and in memory; the counters live in the store and are saved before an approval
 // runs, so a used code stays refused after a restart. Codes never reach a chat, the model or a log.
-let remoteSecret:string|null=null,remoteEpoch=0,remoteConfigChanging=false;
-function remoteCounters(){const {id,...counters}=store.all<any>('settings').find(row=>row.id==='remote-code')||{};return counters as Omit<RemoteCodeState,'secret'>;}
-function remoteShown(){return store.all<any>('settings').find(row=>row.id==='remote-shown') as {approvalId:string;kind:'approval'|'question'|'desktop';digest:string;at:number;seq?:number;messageId?:string}|undefined;}
-function remoteBinding(approval:Approval){return {owner:remoteSettings().owner,origin:'telegram',chatId:approval.chatId,approvalId:approval.id,action:JSON.stringify([approval.turnId,approval.method,approval.params])};}
-async function remoteCode(code:string,replyTo?:string){
-  const shown=remoteShown();if(shown?.kind!=='approval')return 'No approval is waiting.';
-  const approval=store.all<Approval>('approval').find(row=>row.id===shown.approvalId);
-  if(!approval||approval.status!=='pending'){store.remove('settings','remote-shown');return 'That approval is no longer waiting.';}
-  if(!remoteSecret)return 'Pair an authenticator on the desktop first: Settings, Remote.';
-  const result=checkCode({secret:remoteSecret,...remoteCounters()},code,shown,remoteBinding(approval),Date.now(),replyTo);
-  const {secret,...counters}=result.state;store.put('settings',{id:'remote-code',...counters});
-  if(!result.ok){
-    if(['expired','changed'].includes(result.reason))store.remove('settings','remote-shown');emit();
-    return ({paused:'Too many wrong codes. Try again later.',wrong:'That code is not right.',changed:'The approval changed; here it is again.',expired:'That approval timed out; here it is again.','not-a-code':'Send the 6-digit code.','reply-required':'Reply to the current approval message with the code; a code without that reply cannot approve an action.'} as Record<string,string>)[result.reason];
-  }
-  const expectedRemote={digest:shown.digest,epoch:remoteEpoch};store.remove('settings','remote-shown');try{await handlers.approve({id:approval.id,choice:'once',expectedRemote});return 'Approved.';}finally{emit();}
-}
-// Approvals of remote turns go to Telegram one at a time, oldest first. One for the secrets list is refused, never
-// offered (5.21 H6). Without a paired authenticator an approval waits on the desktop.
-function settleApprovals(){
-  const shown=remoteShown();
-  if(shown&&store.all<Approval>('approval').find(row=>row.id===shown.approvalId)?.status!=='pending')store.remove('settings','remote-shown');
-  if(remoteShown()||!remoteSettings().enabled)return;
-  const remote=new Set(store.all<Turn>('turn').filter(turn=>turn.remote).map(turn=>turn.id));
-  const next=store.all<Approval>('approval').find(row=>row.status==='pending'&&remote.has(row.turnId));if(!next)return;
-  if(next.method!=='clarify'&&secretApproval(next.params)){void handlers.approve({id:next.id,choice:'deny'}).catch(()=>{});remoteSend('Refused: a message from Telegram cannot open the protected credentials. Use the desktop.');remoteAlert('Remote task blocked','Protected credentials were refused.');return;}
-  const question=next.method==='clarify',description=String(question?(next.params?.question||next.params?.questions?.[0]?.question||'The AI has a question.'):(next.params?.description||next.params?.command||'An action needs your approval.'));
-  const kind=description.length>3600||question&&next.params?.questions?.length>1||!question&&!remoteSecret?'desktop':question?'question':'approval';
-  store.transaction(()=>{
-    const text=kind==='desktop'?'An approval is waiting on the desktop. Open the app to review it.':question?'Question:\n'+description+'\n\nReply to this message with your answer.':approvalPrompt(description);
-    const row=remoteSend(text,kind==='approval',next.id);
-    store.put('settings',{id:'remote-shown',approvalId:next.id,kind,digest:bindingDigest(remoteBinding(next)),at:Date.now(),seq:row?.seq});
-  });
-}
-function remoteChats(){return store.all<Chat>('chat').filter(chat=>!chat.archived&&!chat.parentChatId).sort((a,b)=>(b.updated??b.created??0)-(a.updated??a.created??0)).map(({id,title})=>({id,title}));}
-const remoteDesk=new RemoteDesk({
+export let remoteSecret:string|null=null,remoteEpoch=0,remoteConfigChanging=false;
+export const remoteDesk=new RemoteDesk({
   settings:()=>remoteSettings(),save:patch=>{remoteSave(patch);emit();},
   seen:id=>store.all<InRecord>('remote-in').some(row=>row.id===id&&['done','uncertain'].includes(row.status)),done:id=>finishRemoteInbound(store,id),send:remoteSend,alert:remoteAlert,chats:remoteChats,newChat:()=>handlers.newChat({}),
   submit:async(id,chatId,text)=>{await submitTurn({id,chatId,text},{remote:{chatId:remoteSettings().owner,messageId:id}});},
@@ -675,25 +494,6 @@ const remoteDesk=new RemoteDesk({
   deny:async(replyTo,seq)=>{const shown=remoteShown();if(shown?.kind!=='approval'||!(shown.messageId&&replyTo===shown.messageId||seq&&seq===String(shown.seq)))return 'Reply to the current approval or use its Deny button.';store.remove('settings','remote-shown');await handlers.approve({id:shown.approvalId,choice:'deny'});return 'Denied.';},
   answer:async(text,replyTo)=>{const shown=remoteShown();if(shown?.kind!=='question'||!shown.messageId||replyTo!==shown.messageId)return 'Reply to the current question message with your answer.';const approval=store.get<Approval>('approval',shown.approvalId);if(approval.status!=='pending'||bindingDigest(remoteBinding(approval))!==shown.digest)return 'That question changed. Answer it on the desktop.';store.remove('settings','remote-shown');handlers.answer({id:shown.approvalId,answers:Object.fromEntries((approval.params.questions||[{qid:'single'}]).map((q:any)=>[q.qid,text]))});return 'Answered.';},
 });
-// The reply to each finished remote turn, sent once; called in emit(), the way settleParallel works.
-function settleRemote(){
-  settleApprovals();
-  for(const turn of store.all<Turn>('turn'))if(turn.remote&&!turn.remote.replied&&!turn.parentTurnId&&!turn.automatic&&['completed','partial','failed','stopped','interrupted'].includes(turn.status)){
-    const models=turn.jobs?.length?turn.jobs.map(id=>store.get<Turn>('turn',id)).filter(job=>!job.automatic):[turn];
-    const text=models.map(job=>replyFor(job,modelLabel(job.model,claude.models))).join('\n\n')+(turn.remote.fallback?'\nThe picker was unsure; an available model answered.':'');
-    enqueueRemoteReply(store,turn.id,backend.scrubber.text(clip(text)));remoteChannel?.notify();
-    if(turn.status!=='completed')remoteAlert('Remote task '+(turn.status==='stopped'?'stopped':'failed'),turn.error||turn.prompt);
-  }
-}
-function remoteRow(){return store.all<any>('settings').find(row=>row.id==='remote');}
-function remoteSettings(){return readRemote(remoteRow());}
-function remoteSave(patch:any){store.put('settings',{...remoteRow(),id:'remote',...patch});}
-function featureInstalled(feature:'telegram'|'speech'){
-  const runtime=pluginRuntime() as any,pins=featureWheels.packages as Record<string,{version:string}>;
-  return !!runtime?.features?.includes(feature)&&featureWheels.features[feature].every(name=>runtime.packages?.some((pkg:any)=>pkg.name.toLowerCase().replace(/[-_.]+/g,'-')===name&&pkg.version===pins[name].version));
-}
-function telegramInstalled(){return featureInstalled('telegram');}
-function gatewayHome(){return path.join(data,'hermes-gateway');}
 let remoteStarting:Promise<void>|null=null;
 function remoteStart(){return remoteStarting??=startRemote().finally(()=>{remoteStarting=null;});}
 async function startRemote(){
@@ -710,20 +510,11 @@ async function startRemote(){
   remoteGateway??=new GatewaySupervisor(launchGateway,child=>{child.stdin?.end();if(child.pid)void promisify(execFile)('taskkill',['/PID',String(child.pid),'/T','/F'],{windowsHide:true}).catch(()=>{});},()=>{remoteOn=!!remoteGateway?.running;applyAlwaysOn(false);emit();});
   if(!remoteSettings().enabled){remoteChannel?.close();remoteChannel=undefined;return;}remoteGateway.start();void drainRemoteInbox();
 }
-function launchGateway():ChildProcess{
-  const uncertain=recoverRemoteOutbox(store);if(uncertain.length)remoteAlert('Remote delivery unconfirmed',uncertain.length+' outgoing messages need review; none will be sent again automatically.');
-  const home=gatewayHome(),child=spawn(backend.python,[path.join(root,'backend','host.py')],{windowsHide:true,stdio:'pipe',env:{...backend.environment(),HERMES_HOME:home,HERMES_SHARED_AUTH_DIR:path.join(home,'shared')}});
-  child.stdin.on('error',()=>{});child.stdout.on('data',()=>{});
-  // The open stdin is the lease: main's end closing ends the gateway. The bot token never leaves the vault here.
-  child.stdin.write(JSON.stringify({operation:'gateway',credential_namespace:namespace,owner:remoteSettings().owner,channel:remoteChannel!.rotate(),runtime:pluginRuntime()})+'\n');
-  return child;
-}
 function remoteStop(){remoteEpoch++;remoteGateway?.stop();remoteChannel?.close();remoteChannel=undefined;remoteOn=false;applyAlwaysOn(false);}
 // Routines (6e). The app keeps the schedule; Hermes's own cron stays off (section 5, call 3). Each firing goes
 // through the normal dispatcher with a firing id, so it runs once even across a restart; times missed while the
 // app was closed fire once at the next start. A firing waits while no model can take it yet.
 let routineTimer:NodeJS.Timeout|undefined;
-const cronNext=async(line:string,after:number)=>Number((await backend.host('cron_next',{line,after})).next);
 let routineTicking:Promise<void>|null=null;
 async function routinesTick(now=Date.now()){
   const running=(routineTicking||Promise.resolve()).catch(()=>{}).then(()=>runRoutinesTick(now));routineTicking=running;
@@ -755,7 +546,6 @@ async function runRoutinesTick(now:number){
 // Setup wizard (W). Offered once the backend is up, on a profile with no connected supplier and no conversation,
 // until finished; under the test profile only when the test asks (rule 13). An empty chat opens it again.
 let wizardOpen=false,wizardDecided=false,wizardConnectionsChecked=false,wizardStart:string|null=null;
-function wizardRow(){return store.all<any>('settings').find(row=>row.id==='wizard')||{id:'wizard',completed:false,steps:{}};}
 function wizardOffer(){
   if(wizardDecided||backend?.status!=='ready')return;
   if(wizardRow().completed||namespace.startsWith('Trismegistus/Test/')&&process.env.TRISMEGISTUS_TEST_WIZARD!=='1'){wizardDecided=true;return;}
@@ -766,26 +556,11 @@ function wizardOffer(){
 // Speech (R4; section 8 adds the voice). One install puts the speech packages into the runtime folder (rule 12) and
 // fetches the chosen whisper model, pinned and hash-checked. Large v3 is the default and Small the faster choice;
 // Tiny exists for tests only. It runs on the CPU.
-let voiceWindow:BrowserWindow|null=null,voiceDesk:LiveVoiceDesk|null=null,voiceListenOnOpen=false;
+export let voiceWindow:BrowserWindow|null=null,voiceDesk:LiveVoiceDesk|null=null,voiceListenOnOpen=false;
 let speechInstall:AbortController|null=null,speechProgress:number|null=null;
 // ponytail: one CPU transcription at a time; use a bounded queue if simultaneous dictation is needed.
 const dictations=new Map<string,{owner:number;chatId:string;controller:AbortController}>();
-function voiceRow(){return store.all<any>('settings').find(row=>row.id==='voice')||{id:'voice'};}
-function voiceSettings(){
-  const models=Object.entries(whisperModels as Record<string,{test?:boolean}>).filter(([,model])=>!model.test||namespace.startsWith('Trismegistus/Test/')).map(([name])=>name),row=voiceRow();
-  const helperModels=availableModels().filter(model=>providerFor(model)!=='claude-code');
-  return {...liveVoiceSettings(row),helperModel:helperModels.includes(row.helperModel)?row.helperModel:helperModels.includes('deepseek-flash')?'deepseek-flash':helperModels[0]||'',helperModels,...savedSpeechVoices(row),echoDelay:Number.isFinite(row.echoDelay)?Math.max(300,Math.min(3000,row.echoDelay)):800,threshold:Number.isFinite(row.threshold)?Math.max(.001,Math.min(.2,row.threshold)):.015,silenceMs:Number.isFinite(row.silenceMs)?Math.max(240,Math.min(2000,row.silenceMs)):640,sttModel:models.includes(row.sttModel)?row.sttModel as string:'large-v3',installed:(Array.isArray(row.installed)?row.installed:[]).filter((name:string)=>models.includes(name)) as string[],models};
-}
-async function freeVoiceKey(){
-  const settings=voiceSettings();if(!settings.freeKeySaved||!settings.freeTierConfirmed)throw Error('Add a Google Free tier key in Settings → Voice.');
-  const saved=await backend.host('read_key',{provider:'gemini-voice-free'});if(!saved.key)throw Error('Add a Google Free tier key in Settings → Voice.');
-  backend.scrubber.register(saved.key);return saved.key as string;
-}
-function voiceTestEndpoint(name:string){
-  const value=namespace.startsWith('Trismegistus/Test/')?process.env[name]:undefined;if(!value)return undefined;
-  const url=new URL(value);if(url.hostname!=='127.0.0.1'||!['ws:','http:'].includes(url.protocol))throw Error('Invalid voice test endpoint.');return value;
-}
-function openVoice(chatId:string,parent:BrowserWindow=win,listen=false){
+export function openVoice(chatId:string,parent:BrowserWindow=win,listen=false){
   requireStableFolder();const chat=store.get<Chat>('chat',chatId);if(chat.archived||chat.parentChatId)throw Error('Open voice from an available chat.');
   if(voiceWindow&&!voiceWindow.isDestroyed()){if(voiceDesk!.state().chatId!==chatId){voiceDesk!.select(chatId);voiceWindow.webContents.send('select-chat',chatId);}voiceWindow.show();voiceWindow.focus();return;}
   const memory=new Map<string,unknown>();
@@ -805,31 +580,12 @@ function openVoice(chatId:string,parent:BrowserWindow=win,listen=false){
   voiceWindow.webContents.setWindowOpenHandler(()=>({action:'deny'}));voiceWindow.webContents.on('will-navigate',event=>event.preventDefault());voiceWindow.webContents.on('did-start-navigation',()=>{if(voiceDesk?.state().phase==='sending')voiceDesk.close();else voiceDesk?.interrupt();});
   void syncWake();voiceWindow.on('closed',()=>{voiceDesk?.close();voiceWindow=null;voiceDesk=null;setTimeout(()=>{if(!quitting)void syncWake();},voiceSettings().echoDelay);});voiceWindow.once('ready-to-show',()=>voiceWindow?.show());void voiceWindow.loadFile(path.join(__dirname,'index.html'),{hash:'voice'});
 }
-const voiceMethods=new Set(['voiceState','voiceSelect','voiceEdit','voiceRead','voiceLiveStart','voiceLiveFeed','voiceCaptureStart','voiceConfirm','voicePlaybackEnd','voiceInterrupt','voicePoll','voiceSize','voiceClose']);
-function voiceRequest(method:string,args:any){
-  if(!voiceDesk||!voiceWindow||!voiceMethods.has(method))throw Error('This action is unavailable in voice.');
-  switch(method){
-    case 'voiceState':return {state:voiceDesk.state(),settings:{...voiceSettings(),autoListen:voiceListenOnOpen}};
-    case 'voiceSelect':return voiceDesk.select(args.chatId);
-    case 'voiceEdit':return voiceDesk.edit(args.identity,args.text);
-    case 'voiceRead':return voiceDesk.read();
-    case 'voiceLiveStart':return voiceDesk.start();
-    case 'voiceLiveFeed':return voiceDesk.feed(args.id,args.bytes);
-    case 'voiceCaptureStart':return voiceDesk.begin();
-    case 'voiceConfirm':return voiceDesk.confirm(args.ticket,args.bytes);
-    case 'voicePlaybackEnd':return voiceDesk.finished(args.id,args.ticket,args.completed);
-    case 'voiceInterrupt':return voiceDesk.interrupt();
-    case 'voicePoll':return voiceDesk.poll();
-    case 'voiceSize':{if(typeof args.large!=='boolean')throw Error('Invalid window size.');const bounds=voiceWindow.getBounds(),next=visibleWindowBounds({...bounds,width:args.large?780:440,height:args.large?780:560},screen.getDisplayMatching(bounds).workArea);voiceWindow.setBounds(next);return;}
-    case 'voiceClose':voiceWindow.close();return;
-  }
-}
-let wakeWindow:BrowserWindow|null=null,wakeInstall:AbortController|null=null,wakeEpoch=0,wakeSaveVersion=0,wakeStatus='Off';
-let wakeOperation:Promise<void>=Promise.resolve(),wakeArmed=false,wakeBackend='',wakeFailure=false;
-let voiceFront:BrowserWindow|null=null,voiceMainChat='';
-function wakeSettings(){const row=voiceRow();return {enabled:row.wakeEnabled===true,phrase:typeof row.wakePhrase==='string'?row.wakePhrase:'Hey Hermes',installed:row.wakeInstalled===true,installing:!!wakeInstall,status:wakeStatus};}
-function closeWakeCapture(){const current=wakeWindow;wakeWindow=null;if(current&&!current.isDestroyed())current.destroy();}
-function wakeFault(error:unknown){wakeFailure=true;closeWakeCapture();wakeStatus=backend.scrubber.text(String(error)).replace(/^Error: /,'').slice(0,500);emit();void syncWake();}
+export const voiceMethods=new Set(['voiceState','voiceSelect','voiceEdit','voiceRead','voiceLiveStart','voiceLiveFeed','voiceCaptureStart','voiceConfirm','voicePlaybackEnd','voiceInterrupt','voicePoll','voiceSize','voiceClose']);
+export let wakeWindow:BrowserWindow|null=null,wakeInstall:AbortController|null=null,wakeEpoch=0,wakeSaveVersion=0,wakeStatus='Off';
+export let wakeOperation:Promise<void>=Promise.resolve(),wakeArmed=false,wakeBackend='',wakeFailure=false;
+export let voiceFront:BrowserWindow|null=null,voiceMainChat='';
+export function closeWakeCapture(){const current=wakeWindow;wakeWindow=null;if(current&&!current.isDestroyed())current.destroy();}
+export function wakeFault(error:unknown){wakeFailure=true;closeWakeCapture();wakeStatus=backend.scrubber.text(String(error)).replace(/^Error: /,'').slice(0,500);emit();void syncWake();}
 function syncWake(){
  const epoch=++wakeEpoch;closeWakeCapture();
  const operation=wakeOperation.catch(()=>{}).then(async()=>{
@@ -860,15 +616,6 @@ function syncWake(){
  wakeOperation=operation.catch(error=>{if(epoch===wakeEpoch){wakeFailure=true;closeWakeCapture();wakeStatus=backend.scrubber.text(String(error)).replace(/^Error: /,'').slice(0,500);emit();if(wakeArmed&&backend.status==='ready')void backend.rpc.request('wake.stop',{}).catch(()=>{});wakeArmed=false;}});
  return wakeOperation;
 }
-function wakeDetected(){
- if(!wakeSettings().enabled||wakeFailure||voiceWindow||!wakeArmed||backend.status!=='ready')return;
- closeWakeCapture();
- const owner=voiceFront&&!voiceFront.isDestroyed()?voiceFront:win;
- const chat=[...chatWindows].find(([,window])=>window===owner)?.[0],job=[...jobWindows].find(([,window])=>window===owner)?.[0],workspace=[...workspaceWindows.values()].find(entry=>entry.window===owner)?.info.chatId;
- let id=chat||workspace||(job?.startsWith('agent:')?store.get<Turn>('turn',job.slice(6)).chatId:job)||voiceMainChat||readChatLayout(JSON.stringify(store.all<any>('settings').find(row=>row.id==='chat-layout')||{})).chatId;
- if(!id)id=store.all<Chat>('chat').find(chat=>!chat.archived&&!chat.parentChatId)?.id||'';
- try{const target=store.get<Chat>('chat',id);openVoice(target.parentChatId||id,owner,true);}catch(error){wakeFault(error);}
-}
 async function wakeRequest(method:string,args:any){
  if(!wakeWindow||!wakeSettings().enabled||voiceWindow||wakeFailure||backend.status!=='ready')throw Error('Wake-word capture stopped.');
  if(method==='wakeFeed'){
@@ -879,56 +626,12 @@ async function wakeRequest(method:string,args:any){
  if(method==='wakeFailure'){wakeFault(typeof args.message==='string'?args.message:'Microphone failed.');return;}
  throw Error('This action is unavailable in wake-word capture.');
 }
-
-function speechInstalled(){return featureInstalled('speech');}
-function speechReady(){const voice=voiceSettings();return speechInstalled()&&voice.installed.includes(voice.sttModel);}
-// Screen control (FEATURE-SPECS 1, was 4e). The two programs ship inside the app (runtime\tools); an older install in
-// the data folder still works. agent-browser drives the installed Chrome on a profile kept in this app.
-function screenSettings(){return readScreenSettings(store.all<any>('settings').find(row=>row.id==='browser-tools'));}
-function toolPaths(){const test=namespace.startsWith('Trismegistus/Test/'),bundled=path.join(root,'runtime');return {browser:installedProgram(bundled,'agent-browser')||installedProgram(data,'agent-browser'),computer:(test&&process.env.TRISMEGISTUS_TEST_CUA_DRIVER)||installedProgram(bundled,'cua-driver')||installedProgram(data,'cua-driver')};}
-const cuaEnv={CUA_DRIVER_RS_TELEMETRY_ENABLED:'0',CUA_TELEMETRY_ENABLED:'false'};
-const browserEnv=(browser:string,chrome:string,profile:string)=>({PATH:path.dirname(browser)+path.delimiter+(process.env.PATH||process.env.Path||''),AGENT_BROWSER_EXECUTABLE_PATH:chrome,AGENT_BROWSER_PROFILE:profile});
-function toolAccess(){
-  const {browser,computer}=toolPaths(),on=screenSettings().screen,chrome=installedChrome();
-  const active=[...(on&&browser&&chrome?['browser']:[]),...(on&&computer?['computer_use']:[])];
-  return {on:active,env:{...(active.includes('browser')?browserEnv(browser!,chrome!,path.join(data,'hermes','browser-profile')):{}),...(active.includes('computer_use')?{HERMES_CUA_DRIVER_CMD:computer!,...cuaEnv}:{})} as Record<string,string>};
-}
-// Claude models run agent-browser from their terminal, on a Chrome profile of their own.
-function claudeScreenEnv(){const {browser}=toolPaths(),chrome=installedChrome();return screenSettings().screen&&browser&&chrome?browserEnv(browser,chrome,path.join(data,'claude-browser-profile')):undefined;}
+export const cuaEnv={CUA_DRIVER_RS_TELEMETRY_ENABLED:'0',CUA_TELEMETRY_ENABLED:'false'};
 // FEATURE-SPECS 1.4 and 1.6: Koan approves each app the first time a model touches it (this chat, or always) and the
 // whole screen on its own; while a model works on screen a bar says so and Esc stops it (Koan 10-10: "esc key like claude").
-const screenDriver=new ScreenDriver(()=>screenSettings().screen?toolPaths().computer:null,{...claudeEnvironment(),...cuaEnv} as Record<string,string>);
-function screenApps():string[]{const apps=store.all<any>('settings').find(row=>row.id==='screen-apps')?.apps;return Array.isArray(apps)?apps.filter((name:unknown):name is string=>typeof name==='string'):[];}
-function screenContext(){return screenSettings().screen&&toolPaths().computer?'\n'+screenGuidance:'';}
-async function screenStep(turn:Turn,tool:string,args:any,target:ScreenTarget,signal:AbortSignal){
-  const chat=store.get<Chat>('chat',turn.chatId);
-  if(store.get<Project>('project',projectFor(chat).id).mode==='plan'&&screenActions.has(tool==='computer_use'?String(args?.action):tool))throw Error('Plan mode permits looking at the screen only.');
-  if(target.kind==='none')return;
-  const app=target.kind==='screen'?'Whole screen':target.kind==='named'?target.name:await processName(target.pid);
-  if(![...screenApps(),...(store.get<Chat>('chat',chat.id).screenApps||[])].some(name=>sameApp(name,app))){
-    const choice=await screenAsk(turn,app,signal);
-    if(choice==='deny')throw Error((app==='Whole screen'?'The user did not allow the whole screen':'The user did not allow '+app)+'. Ask them in the chat before trying again.');
-    if(choice==='always')store.put('settings',{id:'screen-apps',apps:[...screenApps(),app]});
-    else store.update<Chat>('chat',chat.id,{screenApps:[...(store.get<Chat>('chat',chat.id).screenApps||[]),app]});
-  }
-  screenShow(turn,app);
-  if(sendsEscape(tool,args))screenEscPause();
-}
-function screenAsk(turn:Turn,app:string,signal:AbortSignal){
-  return new Promise<string>(resolve=>{
-    const id='screen:'+turn.id+':'+randomUUID(),model=modelLabel(turn.model,claude.models);
-    const description=app==='Whole screen'?'Let '+model+' see and control the whole screen?':'Let '+model+' control '+app+'?';
-    const finish=(choice:string)=>{signal.removeEventListener('abort',abort);requests.delete(id);resolve(choice);};
-    const abort=()=>{if(requests.has(id)){store.update<Approval>('approval',id,{status:'expired'});if(store.get<Turn>('turn',turn.id).status==='waiting')store.update<Turn>('turn',turn.id,{status:'running'});emit();}finish('deny');};
-    if(signal.aborted){resolve('deny');return;}
-    signal.addEventListener('abort',abort,{once:true});requests.set(id,{respond:(answer:any)=>finish(answer.choice)});
-    store.put('approval',{id,chatId:turn.chatId,turnId:turn.id,method:'approval',params:{description,screenApp:app},status:'pending'});
-    store.update<Turn>('turn',turn.id,{status:'waiting'});emit();
-  });
-}
-let screenBar:BrowserWindow|null=null,screenTurn:string|null=null,screenText='',screenEsc:NodeJS.Timeout|null=null;
-const screenEscOn=()=>{if(screenTurn&&!screenEsc&&!globalShortcut.isRegistered('Escape'))globalShortcut.register('Escape',()=>void screenStop());};
-function screenShow(turn:Turn,app:string){
+export const screenDriver=new ScreenDriver(()=>screenSettings().screen?toolPaths().computer:null,{...claudeEnvironment(),...cuaEnv} as Record<string,string>);
+export let screenBar:BrowserWindow|null=null,screenTurn:string|null=null,screenText='',screenEsc:NodeJS.Timeout|null=null;
+export function screenShow(turn:Turn,app:string){
   screenTurn=turn.id;const text=modelLabel(turn.model,claude.models)+' is controlling '+app;
   if(!screenBar||screenBar.isDestroyed()){
     const area=screen.getPrimaryDisplay().workArea,width=480;
@@ -940,44 +643,12 @@ function screenShow(turn:Turn,app:string){
   screenBar.showInactive();screenEscOn();
 }
 // An Esc the model sends to an app must not stop it: the global Esc steps aside for 2 s.
-function screenEscPause(){globalShortcut.unregister('Escape');clearTimeout(screenEsc!);screenEsc=setTimeout(()=>{screenEsc=null;screenEscOn();},2000);}
-// The bar and Esc end the moment their turn does (checked on every state change).
-function screenSettle(){if(screenTurn&&!['running','waiting','dispatching','stopping'].includes(store.find<Turn>('turn',screenTurn)?.status||''))screenEnd();}
-function screenEnd(){if(screenTurn||screenEsc)globalShortcut.unregister('Escape');clearTimeout(screenEsc!);screenEsc=null;screenTurn=null;screenText='';if(screenBar&&!screenBar.isDestroyed())screenBar.destroy();screenBar=null;}
-async function screenStop(){const id=screenTurn;screenEnd();const t=id?store.find<Turn>('turn',id):null;if(t&&['running','waiting','dispatching'].includes(t.status))await handlers.stop({chatId:t.chatId}).catch(()=>{});}
-// Claude models reach the desktop tools as mcp__screen__*, each action checked first.
-function screenServer(turn:Turn){
-  if(!screenSettings().screen||!toolPaths().computer)return undefined;
-  return {instructions:screenInstructions(!!claudeScreenEnv()),tools:(signal:AbortSignal)=>screenDriver.tools(signal),call:async(name:string,args:any,signal:AbortSignal)=>{await screenStep(turn,name,args,screenTarget(name,args),signal);return screenDriver.call(name,args,signal);}};
-}
+export function screenEscPause(){globalShortcut.unregister('Escape');clearTimeout(screenEsc!);screenEsc=setTimeout(()=>{screenEsc=null;screenEscOn();},2000);}
+export function screenEnd(){if(screenTurn||screenEsc)globalShortcut.unregister('Escape');clearTimeout(screenEsc!);screenEsc=null;screenTurn=null;screenText='';if(screenBar&&!screenBar.isDestroyed())screenBar.destroy();screenBar=null;}
 app.on('will-quit',()=>{screenEnd();screenDriver.stop();});
-// Publishing (4c): settings, and one publish path the preview button and the publish_page tool share.
-function publishing(){return readPublishing(store.all<any>('settings').find(row=>row.id==='publishing'));}
-async function publish(file:string,signal?:AbortSignal,settings=publishing()){
-  const link=resolveChatLink(defaultFolder(),String(file||''),[data]);if(link.kind!=='file'||link.directory)throw Error('Choose an HTML file in the working folder.');
-  validatePublishing(settings,namespace.startsWith('Trismegistus/Test/'));
-  return publishPage({page:path.join(link.root,link.path),settings,clone:path.join(data,'publish',createHash('sha256').update(settings.repository).digest('hex').slice(0,16)),secret:text=>backend.scrubber.text(text)!==text||redactPastedKeys(text)!==text,signal});
-}
-// Share work with clients (FEATURE-SPECS 3): Tris's own copy of the share site, its setup, sharing a page with the
-// client, the notes that come back and the "for your AI" page Koan approves.
-const shareSite=()=>path.join(data,'share-site'),shareTest=()=>namespace.startsWith('Trismegistus/Test/');
-function shareSettings():ShareSettings&{testId?:string}{const row=store.all<any>('settings').find(row=>row.id==='share');return {site:typeof row?.site==='string'?row.site:'',databaseId:typeof row?.databaseId==='string'?row.databaseId:'',ready:row?.ready===true,wrangler:typeof row?.wrangler==='string'?row.wrangler:undefined,checked:row?.checked,testId:row?.testId,ownerKey:typeof row?.ownerKey==='string'?row.ownerKey:undefined,pagesSince:Number(row?.pagesSince)||0};}
-let shareStatus='',shareBusy:Promise<unknown>=Promise.resolve();
+export let shareStatus='',shareBusy:Promise<unknown>=Promise.resolve();
 // One wrangler at a time: setup, sharing, approvals and password changes wait for each other.
-function shareQueue<T>(work:()=>Promise<T>){const next=shareBusy.catch(()=>{}).then(work);shareBusy=next;return next;}
-// Every deploy restages the Worker from the app (so app updates reach the site) and rewrites each project's settings.
-async function shareDeploy(signal?:AbortSignal,write?:()=>Promise<void>){
-  const settings=shareSettings(),wrangler=await findWrangler(shareSite(),settings.wrangler);if(!wrangler||!settings.databaseId)throw Error('Set up Share with clients in Settings first.');
-  await stageSite(path.join(root,'share'),shareSite(),settings.databaseId);
-  const copied=await previewSync();
-  await write?.();
-  for(const project of store.all<ShareProject>('share-project'))await writeProject(shareSite(),project);
-  await fs.writeFile(path.join(shareSite(),'public','_owner.json'),JSON.stringify({hash:ownerHash(ownerKey())}));
-  const url=deployedUrl(await runShare(wrangler,['deploy'],shareSite(),signal),shareTest());
-  // The copies have their own folders now.
-  for(const row of copied)await pagesApi('/'+row.id,{method:'PUT',body:JSON.stringify({...row,folder:row.id})}).catch(()=>{});
-  return url;
-}
+export function shareQueue<T>(work:()=>Promise<T>){const next=shareBusy.catch(()=>{}).then(work);shareBusy=next;return next;}
 async function shareSetup(){
   return shareQueue(async()=>{
     const step=(text:string)=>{shareStatus=text;emit();},site=shareSite();
@@ -1018,202 +689,27 @@ async function shareSetup(){
     }catch(error){step('Failed: '+backend.scrubber.text(error instanceof Error?error.message:String(error)));throw error;}
   });
 }
-// "Share this with the client" (3.6): the page and the files it links to go to the project's private folder; the
-// link stays the same for every version. The AI page is drafted for Koan and goes live only when he approves it.
-async function shareWithClient(chat:Chat,file:string,signal:AbortSignal){
-  const settings=shareSettings();if(!settings.ready||!settings.site)throw Error('Set up Share with clients in Settings first.');
-  const link=resolveChatLink(defaultFolder(),String(file||''),[data]);if(link.kind!=='file'||link.directory||!/\.html?$/i.test(link.path))throw Error('Choose an HTML file in the working folder.');
-  const page=path.join(link.root,link.path),bundle=await pageBundle(page),name=path.basename(page);
-  assertNoSecrets(bundle,text=>backend.scrubber.text(text)!==text||redactPastedKeys(text)!==text);
-  const owner=sidebar.root(chat.parentChatId||chat.id),projectId=projectFor(owner).id;
-  const shared=await shareQueue(async()=>{
-    const existing=store.find<ShareProject>('share-project',projectId);
-    const project:ShareProject={...(existing||{id:projectId,shareId:privateId(),aiKey:privateId(),since:0}),chatId:owner.id,title:owner.title,page:name,version:(existing?.version||0)+1,sections:pageSections(bundle.get(name)?.toString('utf8')||''),published:Date.now()} as ShareProject;
-    await writeProject(shareSite(),project,bundle);
-    store.put('share-project',project);
-    try{await shareDeploy(signal);}catch(error){if(existing)store.put('share-project',existing);else store.remove('share-project',projectId);throw error;}
-    return project;
-  });
-  emit();void shareDraft(shared.id);
-  const url=pageLink(settings.site,shared);
-  for(const end=Date.now()+60000;Date.now()<end;){try{const response=await fetch(url+(shared.password?(url.includes('?')?'&':'?')+'key='+shared.aiKey:''),{signal:AbortSignal.timeout(10000)});await response.body?.cancel();if(response.ok)break;}catch{}signal.throwIfAborted();await new Promise(resolve=>setTimeout(resolve,2000));}
-  return {link:url,version:shared.version,aiPage:shared.ai?'The AI page for version '+shared.ai.version+' stays live; the user reviews the new draft before it changes.':'The user reviews the AI page draft before it goes live.'};
-}
-async function shareDraft(id:string){
-  const project=store.find<ShareProject>('share-project',id),chat=project&&store.find<Chat>('chat',project.chatId);if(!project||!chat)return;
-  const model=summaryModel(true,'',chat.pool||[],availableModels(),jevSettings().summaryModel)||sideModel();
-  store.update<ShareProject>('share-project',id,{draft:{text:'',version:project.version,status:'writing'}});emit();
-  try{
-    if(!model)throw Error('Connect a model to write the draft.');
-    const records=store.all<Turn>('turn').filter(turn=>turn.chatId===chat.id&&!turn.automatic&&turn.status==='completed').slice(-14).map(turn=>({you:turn.prompt.slice(0,800),model:(turn.text||'').slice(0,1500)}));
-    const answer=await contextCompletion(chat,model,aiSystem,JSON.stringify({project:project.title,page:project.page,version:project.version,previousAiPage:project.ai?.text||null,records}),new AbortController().signal);
-    if(store.find<ShareProject>('share-project',id)?.version!==project.version)return;
-    store.update<ShareProject>('share-project',id,{draft:{text:answer.text,version:project.version,status:'ready'}});
-  }catch(error){if(store.find<ShareProject>('share-project',id)?.version===project.version)store.update<ShareProject>('share-project',id,{draft:{text:'The draft could not be written: '+backend.scrubber.text(error instanceof Error?error.message:String(error)),version:project.version,status:'failed'}});}
-  emit();
-}
-// Clients' notes come back about every minute (3.4); each person's new notes raise one notification.
-async function shareCheck(){
-  const settings=shareSettings();if(!settings.ready||!settings.site)return 0;let found=0;
-  for(const project of store.all<ShareProject>('share-project')){
-    let rows:any;try{const response=await fetch(settings.site+'/api/notes?project='+encodeURIComponent('/'+project.shareId+'/')+'&since='+project.since+(project.password?'&key='+project.aiKey:''),{signal:AbortSignal.timeout(20000)});rows=response.ok?await response.json():null;}catch{rows=null;}
-    if(!Array.isArray(rows))continue;
-    const fresh:ShareNote[]=rows.filter((row:any)=>typeof row?.id==='string'&&typeof row.text==='string'&&typeof row.name==='string'&&Number.isFinite(row.created)&&!store.find<ShareNote>('share-note',row.id)).map((row:any)=>({id:row.id,shareId:project.shareId,projectId:project.id,page:String(row.page||''),name:row.name.slice(0,60),text:row.text.slice(0,4000),anchor:typeof row.anchor==='string'?row.anchor:null,version:Number.isInteger(row.version)?row.version:null,created:row.created}));
-    if(!fresh.length)continue;
-    for(const note of fresh)store.put('share-note',note);
-    store.update<ShareProject>('share-project',project.id,{since:Math.max(project.since,...fresh.map(note=>note.created))});found+=fresh.length;
-    for(const line of noteMessages(project.title,fresh))shareAlert(project,line);
-  }
-  // Notes on Koan's preview pages: one feed, each page's notes go to the chat that made it.
-  try{
-    const response=await fetch(settings.site+'/api/notes?pages=1&since='+shareSettings().pagesSince,{headers:{authorization:'Bearer '+ownerKey()},signal:AbortSignal.timeout(20000)}),rows=response.ok?await response.json():null;
-    const fresh:ShareNote[]=Array.isArray(rows)?rows.filter((row:any)=>typeof row?.id==='string'&&typeof row.text==='string'&&typeof row.name==='string'&&Number.isFinite(row.created)&&typeof row.page==='string'&&!store.find<ShareNote>('share-note',row.id)).map((row:any)=>{const id=row.page.split('/')[1]||'';return {id:row.id,shareId:id,projectId:'page:'+id,page:row.page,name:row.name.slice(0,60),text:row.text.slice(0,4000),anchor:typeof row.anchor==='string'?row.anchor:null,version:Number.isInteger(row.version)?row.version:null,created:row.created};}):[];
-    for(const note of fresh)store.put('share-note',note);
-    if(fresh.length)store.put('settings',{...shareSettings(),id:'share',pagesSince:Math.max(shareSettings().pagesSince||0,...fresh.map(note=>note.created))});
-    found+=fresh.length;
-    for(const id of new Set(fresh.map(note=>note.shareId))){const page=store.find<PreviewPage>('preview-page',id);for(const line of noteMessages(page?.title||'A page',fresh.filter(note=>note.shareId===id)))pageAlert(page,id,line);}
-  }catch{/* The site may be away for a moment; the next check picks the notes up. */}
-  store.put('settings',{...shareSettings(),id:'share',checked:Date.now()});if(found)emit();return found;
-}
 // Tests record the line only, like the other desktop alerts.
-const shareAlerts:string[]=[];
-function shareAlert(project:ShareProject,line:string){
-  shareAlerts.push(line);shareAlerts.splice(0,shareAlerts.length-20);
-  if(quitting||shareTest()||!Notification.isSupported())return;
-  const notification=new Notification({title:'Client notes',body:line});desktopNotices.add(notification);
-  notification.on('close',()=>desktopNotices.delete(notification));
-  notification.on('click',()=>{desktopNotices.delete(notification);const site=shareSettings().site;if(site)void shell.openExternal(pageLink(site,project));const owner=chatWindows.get(project.chatId)||win;owner.show();owner.focus();if(owner===win)win.webContents.send('select-chat',project.chatId);});
-  notification.show();
-}
-function pageAlert(page:PreviewPage|undefined,id:string,line:string){
-  shareAlerts.push(line);shareAlerts.splice(0,shareAlerts.length-20);
-  if(quitting||shareTest()||!Notification.isSupported())return;
-  const notification=new Notification({title:'Notes on your page',body:line});desktopNotices.add(notification);
-  notification.on('close',()=>desktopNotices.delete(notification));
-  notification.on('click',()=>{desktopNotices.delete(notification);const site=shareSettings().site;if(page)openPage(page.chatId,previewLink(site,id));else if(site)void withOwner(previewLink(site,id)).then(url=>shell.openExternal(url));});
-  notification.show();
-}
-// What the windows see: never the password hash or the key on its own.
-function shareView(){
-  const settings=shareSettings(),notes=store.all<ShareNote>('share-note');
-  return {site:settings.site,ready:settings.ready,status:shareStatus,checked:settings.checked,alerts:shareTest()?[...shareAlerts]:[],pages:pagesView(),projects:store.all<ShareProject>('share-project').map(project=>{const {password,aiKey,...rest}=project;return {...rest,password:!!password,link:settings.site?pageLink(settings.site,project):'',aiAddress:settings.site&&project.ai?aiAddress(settings.site,project):'',message:settings.site&&project.ai?readyMessage(settings.site,project):'',notes:notes.filter(note=>note.projectId===project.id).slice(-100)};})};
-}
+export const shareAlerts:string[]=[];
 // Preview pages (FEATURE-SPECS 4), like Claude Code's artifacts: pages on the share site that only Koan opens until he
 // shares them. The site knows Tris by the owner key (a bearer token, never in an address) and his browsers and the
 // preview pane by sessions made from one-time sign-in codes. It keeps each page's settings; Tris keeps which chat
 // made it.
 let ownerRegistered=false;
-function ownerKey(){
+export function ownerKey(){
   let key=shareSettings().ownerKey;
   if(!key||!/^[A-Za-z0-9_-]{22}$/.test(key)){key=privateId();store.put('settings',{...shareSettings(),id:'share',ownerKey:key});}
   if(!ownerRegistered){backend.scrubber.register(key);ownerRegistered=true;}
   return key;
 }
-async function pagesApi(tail:string,init:RequestInit={}){
-  const site=shareSettings().site;if(!site)throw Error('Set up Share with clients in Settings first; preview pages live on the same private site.');
-  const response=await fetch(site+'/api/pages'+tail,{...init,headers:{authorization:'Bearer '+ownerKey(),'content-type':'application/json'},signal:init.signal||AbortSignal.timeout(20000)});
-  const body=await response.json().catch(()=>({}));if(!response.ok)throw Error(body?.error||'The share site answered '+response.status+'.');return body;
-}
-// Before files change on the site: duplicates made on the web (still showing their source's files) get their own
-// folders, and pages deleted on the web lose theirs. Returns the copies, to point them at their folders after deploy.
-async function previewSync(){
-  const settings=shareSettings();if(!settings.ready||!settings.site)return [];
-  let rows:any[];try{rows=await pagesApi('?all=1');}catch{return [];}
-  const valid=(id:unknown)=>typeof id==='string'&&/^[A-Za-z0-9_-]{16,64}$/.test(id),site=shareSite(),copied:any[]=[];
-  rows=Array.isArray(rows)?rows.filter(row=>valid(row?.id)&&valid(row?.folder)):[];
-  for(const row of rows)if(!row.deleted&&row.folder!==row.id&&await fs.access(path.join(site,'public',row.folder)).then(()=>true,()=>false)){await fs.cp(path.join(site,'public',row.folder),path.join(site,'public',row.id),{recursive:true,force:true});copied.push(row);}
-  for(const row of rows)if(row.deleted){
-    if(row.folder===row.id&&!rows.some(other=>!other.deleted&&other.folder===row.id&&!copied.includes(other)))await fs.rm(path.join(site,'public',row.id),{recursive:true,force:true});
-    if(store.find<PreviewPage>('preview-page',row.id))store.remove('preview-page',row.id);
-  }
-  return copied.map(({id,title,description,entry,model,chatId,chatTitle,version,files})=>({id,title,description,entry,model,chatId,chatTitle,version,files}));
-}
-const pageUrl=(url:unknown)=>{const site=shareSettings().site;return typeof url==='string'&&!!site&&url.startsWith(site+'/')&&!!previewIdOf(site,url);};
-// Tris opens Koan's own pages as Koan: a one-time sign-in code in the address (two minutes, once); the site turns it
-// into that browser's own session and drops it from the address, so history keeps nothing that opens a page.
-async function withOwner(url:string){
-  const site=shareSettings().site;if(!site||!url.startsWith(site+'/')||/[?&]login=/.test(url))return url;
-  try{const response=await fetch(site+'/api/login',{method:'POST',headers:{authorization:'Bearer '+ownerKey()},signal:AbortSignal.timeout(15000)}),body=await response.json();if(response.ok&&typeof body?.code==='string')return url+(url.includes('?')?'&':'?')+'login='+body.code;}catch{/* Opened without signing in: the page says it is private. */}
-  return url;
-}
-function openPage(chatId:string,url:string){
-  const popped=workspaceWindows.get('preview'),request={url,chatId,root:'',path:'',directory:false,id:randomUUID()};
-  if(popped){if(popped.info.chatId!==chatId)throw Error(workspaceTitle('preview')+' is open for another chat. Return that window before opening this page.');popped.window.show();popped.window.focus();popped.window.webContents.send('open-file',request);return;}
-  const owner=chatWindows.get(chatId)||win;owner.show();owner.focus();owner.webContents.send('open-file',request);
-}
-// A page's Chat button: trismegistus://chat/<id>.
-function openChatLink(link:string){
-  const id=/^trismegistus:\/\/chat\/([\w-]{8,80})\/?$/i.exec(link)?.[1];const chat=id&&store.find<Chat>('chat',id);if(!chat)return;
-  const target=sidebar.root(chat.id),window=chatWindows.get(target.id)||win;if(!window)return;window.webContents.send('select-chat',target.id);window.show();window.focus();
-}
-async function previewPublish(chat:Chat,turn:Turn,input:any,signal:AbortSignal){
-  const settings=shareSettings();if(!settings.ready||!settings.site)throw Error('Set up Share with clients in Settings first; preview pages live on the same private site.');
-  const link=resolveChatLink(defaultFolder(),String(input?.path||''),[data]);if(link.kind!=='file'||link.directory||!/\.html?$/i.test(link.path))throw Error('Choose an HTML file in the working folder.');
-  const title=String(input?.title||'').replace(/\s+/g,' ').trim().slice(0,200);if(!title)throw Error('Give the page a short title.');
-  const file=path.join(link.root,link.path),bundle=await pageBundle(file),entry=path.basename(file);
-  assertNoSecrets(bundle,text=>backend.scrubber.text(text)!==text||redactPastedKeys(text)!==text);
-  const owner=sidebar.root(chat.parentChatId||chat.id);
-  // The same file from the same chat, or a page's link, updates that page and keeps its link (like Claude Code).
-  let id=input?.link?previewIdOf(settings.site,input.link):null,version=0;
-  if(input?.link){
-    if(!id)throw Error('That is not a link to one of your pages.');
-    const row=(await pagesApi('') as any[]).find(page=>page.id===id);if(!row)throw Error('That page is gone. Publish without a link to make a new one.');version=row.version;
-  }else{
-    // A page Koan deleted on the web stays deleted: the same file then makes a new, private page.
-    const earlier=store.all<PreviewPage>('preview-page').find(page=>page.chatId===owner.id&&page.sourcePath===link.path);
-    if(earlier&&(await pagesApi('') as any[]).some(page=>page.id===earlier.id)){id=earlier.id;version=earlier.version;}
-  }
-  const page:PreviewPage={...store.find<PreviewPage>('preview-page',id||''),id:id||privateId(),chatId:owner.id,sourcePath:link.path,title,description:String(input?.description||'').replace(/\s+/g,' ').trim().slice(0,600),entry,version:version+1,files:bundle.size,published:Date.now(),model:modelLabel(turn.model,claude.models)};
-  await shareQueue(async()=>{
-    // The page's settings first: the site never serves a page folder it has no settings for as anything else. A site
-    // set up before preview pages does not know the owner key yet; one deploy carries it.
-    const register=()=>pagesApi('/'+page.id,{method:'PUT',body:JSON.stringify({folder:page.id,title,description:page.description,entry,version:page.version,files:page.files,model:page.model,chatId:owner.id,chatTitle:owner.title}),signal});
-    try{await register();}catch(error){if(!/Only the owner/.test(String(error)))throw error;await shareDeploy(signal);await register();}
-    await shareDeploy(signal,()=>writePreview(shareSite(),page.id,bundle));
-  });
-  store.put('preview-page',page);emit();
-  const url=previewLink(settings.site,page.id);
-  for(const end=Date.now()+60000;Date.now()<end;){try{const response=await fetch(url,{headers:{authorization:'Bearer '+ownerKey()},signal:AbortSignal.timeout(10000)});const text=await response.text();if(response.ok&&text.includes('/v/'))break;}catch{}signal.throwIfAborted();await new Promise(resolve=>setTimeout(resolve,2000));}
-  return {link:url,title,version:page.version,files:[...bundle.keys()].map(name=>name.split(path.sep).join('/')),access:'Private: only the user can open it until they share it from the page.',show:'Ghidorah shows the page under your reply as a card with Open. Put the link in your reply too.'};
-}
-async function previewTool_(chat:Chat,turn:Turn,input:any,signal:AbortSignal){
-  const action=input?.action,site=shareSettings().site;
-  if(action==='guide')return {guide:previewGuide};
-  if(action==='publish')return previewPublish(chat,turn,input,signal);
-  if(!shareSettings().ready||!site)throw Error('Set up Share with clients in Settings first; preview pages live on the same private site.');
-  if(action==='list'){const owner=sidebar.root(chat.parentChatId||chat.id);return (await pagesApi('') as any[]).map(page=>({link:previewLink(site,page.id),title:page.title,description:page.description,updated:new Date(page.updated).toISOString(),version:page.version,access:page.access,pinned:page.pinned,fromThisChat:store.find<PreviewPage>('preview-page',page.id)?.chatId===owner.id}));}
-  const id=previewIdOf(site,input?.link);if(!id)throw Error('Give the link of one of your pages.');
-  const row=(await pagesApi('?all=1') as any[]).find(page=>page.id===id&&!page.deleted);if(!row)throw Error('That page is gone.');
-  if(action==='read'){
-    const folder=path.join(shareSite(),'public',row.folder),files:string[]=[];
-    const walk=async(dir:string):Promise<void>=>{for(const entry of await fs.readdir(dir,{withFileTypes:true}))if(entry.isDirectory())await walk(path.join(dir,entry.name));else if(entry.name!=='_export.zip')files.push(path.relative(folder,path.join(dir,entry.name)).split(path.sep).join('/'));};
-    await walk(folder).catch(()=>{throw Error('This page’s files are not on this computer.');});
-    const html=await fs.readFile(path.join(folder,row.entry),'utf8');
-    return {link:previewLink(site,id),title:row.title,version:row.version,entry:row.entry,files,html:html.length>300000?html.slice(0,300000)+'\n[cut at 300,000 characters]':html};
-  }
-  if(action==='delete'){await pagesApi('/'+id,{method:'DELETE',signal});store.remove('preview-page',id);emit();return {deleted:true,link:previewLink(site,id),note:'The link stopped working; its files go at the next publish.'};}
-  throw Error('Choose publish, list, read, delete or guide.');
-}
-function pagesView(){
-  const notes=store.all<ShareNote>('share-note'),site=shareSettings().site;
-  return store.all<PreviewPage>('preview-page').map(page=>({id:page.id,chatId:page.chatId,title:page.title,version:page.version,link:site?previewLink(site,page.id):'',notes:notes.filter(note=>note.projectId==='page:'+page.id&&!note.handled).slice(-100)}));
-}
 // Settings, Always on. Remote (6a) turns remoteOn on and off.
 let awakeBlocker:number|null=null,remoteOn=false;
-function alwaysOn(){return readAlwaysOn(store.all<any>('settings').find(row=>row.id==='always-on'));}
 function applyAlwaysOn(register:boolean,settings=alwaysOn()){
   if(register)app.setLoginItemSettings({openAtLogin:settings.startWithWindows,...loginItem({packaged:app.isPackaged,execPath:process.execPath,appFolder:app.getAppPath(),testData:process.env.TRISMEGISTUS_TEST_DATA})});
   // The computer stays awake; the screen still locks (prevent-app-suspension, nothing stronger).
   const awake=keepAwake(settings.stayAwake,remoteOn);
   if(awake&&awakeBlocker===null)awakeBlocker=powerSaveBlocker.start('prevent-app-suspension');
   else if(!awake&&awakeBlocker!==null){powerSaveBlocker.stop(awakeBlocker);awakeBlocker=null;}
-}
-function fixtureClaudeArgs(){return fixtureClaude()?[fixtureClaude()!,'--fixture-record',path.join(data,'claude-requests.jsonl')]:undefined;}
-function trustRecord(folder:string){return store.all<{id:string;folder:string;hash:string;skillFolders?:string[]}>('trust').find(record=>record.folder===folder);}
-async function projectSettingsReview(folder:string,skillFolders?:string[]){
-  const canonical=await fs.realpath(folder),review=await inspectProjectTrust(canonical,skillFolders||trustRecord(canonical)?.skillFolders||[]);
-  const register=(value:any)=>{if(!value||typeof value!=='object')return;for(const [key,item] of Object.entries(value)){if(/key|token|secret|password|authorization|cookie/i.test(key)&&typeof item==='string')backend.scrubber.register(item);else if(typeof item==='object')register(item);}};
-  register(review.settings);register(review.agents);register(review.skills);return review;
 }
 async function checkCodex(check=true,signal?:AbortSignal){
   if(apiChanging)return;
@@ -1303,7 +799,7 @@ function sendState(window:BrowserWindow,state:any){
   streamWindows.set(window,new Set((state.turns||[]).map((turn:Turn)=>turn.id)));
   window.webContents.send('state',windowTools(state));
 }
-function emit(){
+export function emit(){
   if(store&&backend)pluginChanges.poke();
   wizardOffer();
   goals?.schedule();
@@ -1317,7 +813,7 @@ function emit(){
   if(next!==scheduledReset){clearTimeout(resetTimer);scheduledReset=next;if(next!==null){resetTimer=setTimeout(()=>{scheduledReset=null;emit();},Math.min(next-Date.now()+10,2147483647));resetTimer.unref();}}
   if(updateTimer)return;updateTimer=setTimeout(()=>{updateTimer=null;if(!quitting)workNotifications?.scan(alwaysOn().desktopNotifications,notificationChatVisible,showWorkNotice,()=>{if(alwaysOn().questionSound&&!namespace.startsWith('Trismegistus/Test/'))shell.beep();});let shared:ReturnType<typeof snapshot>|undefined;const light=()=>shared??=snapshot({tools:false});for(const w of BrowserWindow.getAllWindows())if(!w.isDestroyed()&&!closingWindows.has(w)){const job=[...jobWindows].find(([,window])=>window===w)?.[0];const chat=[...chatWindows].find(([,window])=>window===w)?.[0];const workspace=[...workspaceWindows.values()].find(entry=>entry.window===w);sendState(w,workspace?workspaceWindowState(workspace,light()):job?.startsWith('agent:')?agentSnapshot(job.slice(6),light()):job?jobSnapshot(job,light()):chat?chatSnapshot(chat,light()):mainSnapshot(light()));}},32);
 }
-function projectFor(chat:Chat){return store.get<Project>('project',chat.projectId);}
+export function projectFor(chat:Chat){return store.get<Project>('project',chat.projectId);}
 let gitOperation:{chatId:string;controller:AbortController}|null=null;
 let worktreeChanging=false,folderChanging=false,creatingProjects=0,folderRecoveryRequired=false,checkpointChanging=false;
 function requireStableFolder(){if(gitOperation)throw Error('Wait for the Git operation to finish.');if(checkpointChanging)throw Error('Wait for file restoration to finish.');if(folderRecoveryRequired)throw Error('Restart the backend to restore the working folder configuration.');if(folderChanging)throw Error('Wait for the working folder change to finish.');}
@@ -1623,7 +1119,7 @@ async function routeTurn(chat:Chat,turn:Turn){
   store.transaction(()=>{store.update<Turn>('turn',turn.id,turn);if(!['jev','selector'].includes(decision.reason))recordRoute(turn.id,decision);});emit();return true;
 }
 // Each supplier's live address: what routing sends to, and what the expanded model bar shows.
-function providerUrls():Record<string,string>{return {deepseek:process.env.TRISMEGISTUS_TEST_PROVIDER_URL||'https://api.deepseek.com/v1','openai-codex':process.env.TRISMEGISTUS_TEST_CODEX_URL||'https://chatgpt.com/backend-api/codex',...apiProviders?.urls()};}
+export function providerUrls():Record<string,string>{return {deepseek:process.env.TRISMEGISTUS_TEST_PROVIDER_URL||'https://api.deepseek.com/v1','openai-codex':process.env.TRISMEGISTUS_TEST_CODEX_URL||'https://chatgpt.com/backend-api/codex',...apiProviders?.urls()};}
 function stateProviderInChat(provider:string,chat:Chat){return (chat.pool||['deepseek-flash']).some(model=>providerFor(model)===provider);}
 // The chat runner (TURN-REVIEW part 3). A message goes to its engine as soon as it is prepared, busy or not; it waits
 // only for an engine or model switch, and that wait is released by the engine's own idle. Every wait names itself on
@@ -2471,7 +1967,7 @@ async function submitTurn({id,chatId,text,selected,models,goalRun}:any,source?:P
 }
 
 
-async function contextCompletion(chat:Chat,model:string,system:string,prompt:string,signal:AbortSignal,lookup=false){
+export async function contextCompletion(chat:Chat,model:string,system:string,prompt:string,signal:AbortSignal,lookup=false){
  signal=AbortSignal.any([signal,AbortSignal.timeout(lookup?45000:90000)]);
  const answer=model.startsWith('claude-code:')
   ?await claudeOneShot(claudeExecutable!,model.slice(12),system,prompt,await fs.mkdir(path.join(data,'context-summary'),{recursive:true}).then(()=>path.join(data,'context-summary')),data,signal,lookup?45000:90000,fixtureClaudeArgs()?.concat('--fixture-oneshot'))
@@ -2480,7 +1976,7 @@ async function contextCompletion(chat:Chat,model:string,system:string,prompt:str
  return {text:redactPastedKeys(backend.scrubber.text(String(answer.text||''))).trim(),tokens:Number.isSafeInteger(count)&&count>=0?count:null};
 }
 // Side answers (FEATURE-SPECS 2). The model Koan picked, else the newest fast one he has connected.
-function sideModel():string|null{const ready=availableModels(),saved=store.all<any>('settings').find(row=>row.id==='side-answers')?.model;return ready.includes(saved)?saved:preferredSideModel(ready);}
+export function sideModel():string|null{const ready=availableModels(),saved=store.all<any>('settings').find(row=>row.id==='side-answers')?.model;return ready.includes(saved)?saved:preferredSideModel(ready);}
 const sideRow=(id:unknown,chatId:unknown)=>{const row=typeof id==='string'?store.find<SideAnswer>('side-answer',id):null;if(!row||row.chatId!==chatId)throw Error('This side answer belongs to another chat.');return row;};
 // A message from the message box: a side answer takes it (its id is returned) or it goes to the main model (null).
 // The running turn is never touched: the side model only reads a copy of the live state.
@@ -2577,7 +2073,7 @@ const repoMaps=new RepoMaps(path.join(app.isPackaged?root:__dirname,'repo-map','
 // Settings, Appearance, Font: the families Windows has installed. Chromium draws a missing Helvetica as Arial, so the
 // list comes from Windows. ponytail: read once per run; a font installed later shows after a restart.
 let installedFonts:Promise<string[]>|undefined;
-const handlers:Record<string,(args:any)=>any>={
+export const handlers:Record<string,(args:any)=>any>={
   async savedAppMap({id,repository,force=false}){
     const entry=store.get<SavedApp>('saved-app',id);
     if(typeof repository!=='string'||!entry.repositories?.includes(repository))throw Error('Choose a repository belonging to this app.');
@@ -3602,7 +3098,7 @@ function chatSnapshot(chatId:string,state:ReturnType<typeof snapshot>=snapshot({
 }
 type SavedWorkspaceWindow={view:WorkspaceView;chatId:string;root:string|null;directory:string;file?:string;diff?:{file:string;staged:boolean};bounds?:WindowBounds;maximized?:boolean};
 type WorkspaceWindow={info:SavedWorkspaceWindow;window:BrowserWindow;preview:Previews};
-const workspaceWindows=new Map<WorkspaceView,WorkspaceWindow>();
+export const workspaceWindows=new Map<WorkspaceView,WorkspaceWindow>();
 function workspaceWindowState(entry:WorkspaceWindow,state:ReturnType<typeof snapshot>=snapshot({tools:false})){return {workspaceWindow:entry.info,...(['plan','tasks'].includes(entry.info.view)?{activity:chatActivity({...state,tools:toolsForChats(state,new Set([entry.info.chatId]))},entry.info.chatId)}:{}),defaultFolder:defaultFolder(),title:store.all<Chat>('chat').find(chat=>chat.id===entry.info.chatId)?.title||'Workspace'};}
 function saveWorkspaceWindows(){if(!quitting)store.put('settings',{id:'workspace-windows',windows:[...workspaceWindows.values()].filter(({window})=>!window.isDestroyed()&&!closingWindows.has(window)).map(({info,window})=>({...info,bounds:window.getNormalBounds(),maximized:window.isMaximized()||hiddenMaximizedChats.has(window)}))});}
 function openWorkspaceWindow(args:SavedWorkspaceWindow,hidden=false){
