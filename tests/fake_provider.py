@@ -195,6 +195,9 @@ def auxiliary(body):
         if 'Koan asked a quick question' in json.dumps(body):
             return Text('Side fixture: ' + task['live']['status'])
         return Text('Side fixture (sorted): ' + task['live']['status'] if 'SIDE_FIXTURE' in task['question'] else 'MAIN')
+    if "Write a short plain-text page that a client" in json.dumps(body):
+        task = json.loads(body.get('body', body)['messages'][-1]['content'])
+        return Text('WHAT THIS PROJECT IS\nFixture project ' + task['project'] + ', version ' + str(task['version']) + '.\nTHE BRIEF\nA landing page.')
     if 'rlm-history' in json.dumps(body):
         task = json.loads(body.get('body', body)['messages'][-1]['content'])
         sources = task.get('sources')

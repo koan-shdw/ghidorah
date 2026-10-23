@@ -3,7 +3,7 @@ import {SidebarIcon,type IconName} from './kit';
 
 const groups=[
  {label:'Workspace',pages:[['general','General','settings'],['models','Default models','models'],['connections','Connections','fork'],['claude-code','Claude Code','terminal']]},
- {label:'Tools',pages:[['plugins','Plugins','plugins'],['skills','Skills','skills'],['browser','Browser and computer','preview'],['images','Images','files'],['publishing','Publishing','send']]},
+ {label:'Tools',pages:[['plugins','Plugins','plugins'],['skills','Skills','skills'],['browser','Browser and computer','preview'],['images','Images','files'],['publishing','Publishing','send'],['sharing','Share with clients','pin']]},
  {label:'Automation',pages:[['always-on','Always on','activity'],['remote','Remote','chats'],['routines','Routines','changes'],['voice','Voice','voice']]},
  {label:'Account',pages:[['security','Security','eye']]},
 ] as const;

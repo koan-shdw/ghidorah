@@ -6,12 +6,13 @@ import type {Snapshot} from './types';
 import {ClaudeCodeSettings,AlwaysOnSettings,RemoteSettings} from './settings-pages';
 import {apiSuppliers,type ApiProvider} from './api-catalog';
 import {healthOf} from './availability';
+import {ShareSetup} from './share-ui';
 
 type Call=(method:string,args?:any)=>Promise<any>;
-export type WizardStep='suppliers'|'claude'|'jev'|'always-on'|'remote';
+export type WizardStep='suppliers'|'claude'|'jev'|'always-on'|'remote'|'sharing';
 export const STEPS:{id:WizardStep;label:string;page:string}[]=[
  {id:'suppliers',label:'Suppliers',page:'connections'},{id:'claude',label:'Claude Code',page:'claude-code'},{id:'jev',label:'Jev',page:'connections'},
- {id:'always-on',label:'Start with Windows',page:'always-on'},{id:'remote',label:'Remote',page:'remote'},
+ {id:'always-on',label:'Start with Windows',page:'always-on'},{id:'remote',label:'Remote',page:'remote'},{id:'sharing',label:'Share with clients',page:'sharing'},
 ];
 export type Outcome='connected'|'unverified'|'failed'|'skipped';
 export interface SummaryRow {name:string;outcome:Outcome;detail:string;page:string;action:string}
@@ -28,6 +29,7 @@ export function wizardSummary(state:Snapshot):SummaryRow[]{
  rows.push({name:'Start with Windows',outcome:state.alwaysOn?.startWithWindows?'connected':'skipped',detail:state.alwaysOn?.startWithWindows?'On':'Off',page:'always-on',action:'Open Always on'});
  const remote=state.remote;
  rows.push({name:'Remote',outcome:!remote?.enabled?'skipped':remote.status==='running'?'connected':remote.status==='failed'?'failed':'unverified',detail:!remote?.enabled?'Off':remote.status==='running'?'Connected to Telegram':remote.message||'Connecting',page:'remote',action:'Open Remote'});
+ rows.push({name:'Share with clients',outcome:state.share?.ready?'connected':'skipped',detail:state.share?.ready?state.share.site:'Not set up. You can set it up any time in Settings.',page:'sharing',action:'Open Share with clients'});
  return rows;
 }
 
@@ -50,6 +52,7 @@ export function Wizard({state,call,suppliers,jev,openSettings,appError}:{state:S
    {step?.id==='jev'&&jev}
    {step?.id==='always-on'&&<AlwaysOnSettings state={state} call={call}/>}
    {step?.id==='remote'&&<RemoteSettings state={state} call={call}/>}
+   {step?.id==='sharing'&&<ShareSetup state={state} call={call}/>}
    {!step&&<section className="wizard-summary" aria-label="Setup summary"><h3>Summary</h3><ul>{wizardSummary(state).map(row=><li key={row.name} data-outcome={row.outcome}>
     <strong>{row.name}</strong><span className={'wizard-outcome '+row.outcome}>{OUTCOMES[row.outcome]}</span><span className="hint">{row.detail}</span>
     {row.outcome!=='connected'&&<button onClick={()=>void call('wizardClose').then(()=>openSettings(row.page),fail)}>{row.action}</button>}

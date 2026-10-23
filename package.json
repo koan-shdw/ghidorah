@@ -88,6 +88,16 @@
         ]
       },
       {
+        "from": "share",
+        "to": "share",
+        "filter": [
+          "src/**/*",
+          "public/_notes/**/*",
+          "schema.sql",
+          "package.json"
+        ]
+      },
+      {
         "from": "plugins",
         "to": "plugins",
         "filter": [

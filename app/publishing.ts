@@ -115,13 +115,16 @@ export async function pageBundle(page:string){
 }
 export async function pageFiles(page:string){return [...(await pageBundle(page)).keys()].sort();}
 
+// Inspect the actual bytes that will be published, including binary assets.
+export function assertNoSecrets(payload:Map<string,Buffer>,secret:(text:string)=>boolean){
+ for(const [file,data] of payload)for(let start=0;start<data.length;start+=65536){const part=data.subarray(Math.max(0,start-4096),start+65536);if(secret(part.toString('utf8'))||secret(part.toString('utf16le'))||secret(part.subarray(1).toString('utf16le')))throw Error(file+' holds a credential, so nothing was published.');}
+}
 const publishing=new Map<string,Promise<unknown>>();
 export async function publishPage({page,settings,clone,secret,signal,wait=180000,bundle}:{page:string;settings:Publishing;clone:string;secret:(text:string)=>boolean;signal?:AbortSignal;wait?:number;bundle?:Map<string,Buffer>}){
  if(!settings.repository||!settings.site)throw Error('Connect a destination in Settings, Publishing.');
  if(!/\.html?$/i.test(page))throw Error('Choose an HTML page to publish.');
  const payload=bundle||await pageBundle(page),files=[...payload.keys()].sort();
- // Inspect the actual bytes that will become Git blobs, including binary assets.
- for(const [file,data] of payload)for(let start=0;start<data.length;start+=65536){const part=data.subarray(Math.max(0,start-4096),start+65536);if(secret(part.toString('utf8'))||secret(part.toString('utf16le'))||secret(part.subarray(1).toString('utf16le')))throw Error(file+' holds a credential, so nothing was published.');}
+ assertNoSecrets(payload,secret);
  const previous=publishing.get(clone)||Promise.resolve();
  const operation=previous.catch(()=>{}).then(async()=>{
   signal?.throwIfAborted();
@@ -168,4 +171,4 @@ export async function publishPage({page,settings,clone,secret,signal,wait=180000
 }
 
 // The model tool (code rule 2: this schema, the permissions plugin's mcp.py, request() and the Claude list).
-export const publishTool={name:'publish_page',description:'Publish an HTML page from the working folder to the user\'s publishing destination (Cloudflare Pages or GitHub Pages). The page and the files it links to inside its folder are published; the result is a public link. Only publish when the user asks.',inputSchema:{type:'object',properties:{path:{type:'string',description:'The HTML file, relative to the working folder'}},required:['path'],additionalProperties:false}};
+export const publishTool={name:'publish_page',description:'Publish an HTML page from the working folder to the user\'s publishing destination (Cloudflare Pages or GitHub Pages). The page and the files it links to inside its folder are published; the result is a public link. With client true it is shared with the client instead: a private link with a notes layer, the same link for every new version (Share with clients). Only publish or share when the user asks.',inputSchema:{type:'object',properties:{path:{type:'string',description:'The HTML file, relative to the working folder'},client:{type:'boolean',description:'Share with the client at a private link with notes, instead of publishing publicly'}},required:['path'],additionalProperties:false}};

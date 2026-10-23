@@ -5,6 +5,11 @@
   if (window.__koanNotes) return;
   window.__koanNotes = true;
   const page = location.pathname.replace(/\/index\.html?$/i, '/');
+  // The version Tris published (3.5) and, on a private page opened from the AI address, its key (3.7).
+  const version = Number(document.currentScript?.dataset.version) || 0;
+  const key = new URLSearchParams(location.search).get('key');
+  const api = (query = '') => '/api/notes' + query + (key ? (query ? '&' : '?') + 'key=' + encodeURIComponent(key) : '');
+  const earlier = (n) => version && n.version != null && n.version < version;
   const store = { get(k) { try { return localStorage.getItem('koan-notes:' + k) || ''; } catch { return ''; } }, set(k, v) { try { localStorage.setItem('koan-notes:' + k, v); } catch {} } };
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const when = (t) => new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -42,15 +47,22 @@
   .panel li b{color:#d29a7e;margin-right:6px}
   .panel li small{color:#92918a;margin-left:6px;font-size:11px}
   .panel .none{padding:12px 14px;color:#92918a;font-size:13px}
+  .pin.old{opacity:.55;background:#92918a}
+  .old-tag{color:#92918a;font-size:11px;margin-left:6px}
+  .paste{padding:12px 14px;display:grid;gap:8px}
+  .paste p{margin:0;color:#92918a;font-size:12px}
+  .paste textarea{min-height:120px;margin:0}
+  .paste input{margin:0}
   [hidden]{display:none!important}
   @media (prefers-reduced-motion:no-preference){.pin{transition:transform .12s}.pin:hover{transform:scale(1.12)}}
   </style>
   <div class="pins"></div>
   <div class="shield" hidden></div><div class="hint" hidden>Click the spot your note is about · Esc to cancel</div>
   <div class="panel" hidden><h2>Notes on this page</h2><ol></ol></div>
-  <div class="bar"><button class="list" type="button">Notes · 0</button><button class="add" type="button" aria-pressed="false">+ Add note</button></div>`;
+  <form class="panel pastebox" hidden><h2>Paste notes</h2><div class="paste"><p>One note per line, written as Section: note. Notes from an AI work too.</p><textarea aria-label="Notes to paste" placeholder="Header: make the logo bigger"></textarea><input aria-label="Your name" placeholder="Your name" maxlength="60"><div class="row"><span></span><button type="submit" class="go">Send notes</button></div></div></form>
+  <div class="bar"><button class="list" type="button">Notes · 0</button><button class="pastebtn" type="button">Paste notes</button><button class="add" type="button" aria-pressed="false">+ Add note</button></div>`;
   const $ = (s) => root.querySelector(s);
-  const pins = $('.pins'), shield = $('.shield'), hint = $('.hint'), panel = $('.panel'), list = $('.list'), add = $('.add');
+  const pins = $('.pins'), shield = $('.shield'), hint = $('.hint'), panel = $('.panel'), list = $('.list'), add = $('.add'), pastebox = $('.pastebox');
   let notes = [], open = null, composer = null;
 
   // A spot = the element under the click (a short nth-of-type path) and where inside it, so pins stay put when
@@ -77,14 +89,14 @@
     pins.querySelectorAll('.pin').forEach((p) => p.remove());
     notes.forEach((n, i) => {
       const b = document.createElement('button'), s = spotOf(n);
-      b.className = 'pin'; b.type = 'button'; b.textContent = i + 1; b.style.left = s.x + 'px'; b.style.top = s.y + 'px';
-      b.setAttribute('aria-label', 'Note ' + (i + 1) + ' by ' + n.name);
+      b.className = earlier(n) ? 'pin old' : 'pin'; b.type = 'button'; b.textContent = i + 1; b.style.left = s.x + 'px'; b.style.top = s.y + 'px';
+      b.setAttribute('aria-label', 'Note ' + (i + 1) + ' by ' + n.name + (earlier(n) ? ', earlier version' : ''));
       b.onclick = (e) => { e.stopPropagation(); show(i); };
       pins.appendChild(b);
     });
     list.textContent = 'Notes · ' + notes.length;
     panel.querySelector('ol').innerHTML = notes.length
-      ? notes.map((n, i) => `<li data-i="${i}"><b>${i + 1}</b>${esc(n.name)}<small>${esc(when(n.created))}</small><br>${esc(n.text.length > 140 ? n.text.slice(0, 140) + '…' : n.text)}</li>`).join('')
+      ? notes.map((n, i) => `<li data-i="${i}"><b>${i + 1}</b>${esc(n.name)}<small>${esc(when(n.created))}</small>${earlier(n) ? '<span class="old-tag">earlier version</span>' : ''}<br>${esc(n.text.length > 140 ? n.text.slice(0, 140) + '…' : n.text)}</li>`).join('')
       : '<div class="none">No notes yet. Press + Add note, then click the spot it is about.</div>';
     if (open != null) show(open);
   }
@@ -98,12 +110,49 @@
     open = i; if (i == null || !notes[i]) { open = null; return; }
     const n = notes[i], s = spotOf(n), b = document.createElement('div');
     b.className = 'bubble';
-    b.innerHTML = `<b>${i + 1} · ${esc(n.name)}</b><p>${esc(n.text)}</p><small>${esc(when(n.created))}</small>`;
+    b.innerHTML = `<b>${i + 1} · ${esc(n.name)}</b><p>${esc(n.text)}</p><small>${esc(when(n.created))}${earlier(n) ? ' · earlier version' : ''}</small>`;
     pins.appendChild(b); place(b, s.x, s.y);
   }
+  async function send(fields) {
+    const r = await fetch(api(), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...fields, page }) });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw Error(body.error || 'The note did not send.');
+    return body;
+  }
+  // Pasted "Section: note" lines (3.7): each is pinned to the heading of that name, else to the top of the page.
+  const same = (a, b) => a.replace(/\s+/g, ' ').trim().toLowerCase() === b.replace(/\s+/g, ' ').trim().toLowerCase();
+  function pasteSpot(section) {
+    const heading = [...document.querySelectorAll('h1,h2,h3')].find((h) => section && same(h.textContent, section));
+    if (!heading) return { anchor: null, fx: null, fy: null, px: 0.5, py: 0.05 };
+    // Just past the heading's words, so the pin never covers them.
+    const r = heading.getBoundingClientRect(), d = docSize(), words = document.createRange();
+    words.selectNodeContents(heading);
+    const fx = r.width ? Math.min(1, (words.getBoundingClientRect().right - r.left + 20) / r.width) : 0;
+    return { anchor: pathOf(heading), fx, fy: 0.5, px: (r.left + fx * r.width + scrollX) / d.w, py: (r.top + scrollY + r.height / 2) / d.h };
+  }
+  pastebox.onsubmit = async (e) => {
+    e.preventDefault();
+    const area = pastebox.querySelector('textarea'), name = pastebox.querySelector('input'), err = pastebox.querySelector('.row span'), go = pastebox.querySelector('.go');
+    const lines = area.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    err.textContent = '';
+    if (!lines.length) { err.textContent = 'Paste at least one note.'; return; }
+    if (!name.value.trim()) { err.textContent = 'Add your name.'; return; }
+    store.set('name', name.value.trim()); go.disabled = true;
+    let sent = 0;
+    try {
+      for (const line of lines) {
+        const m = /^([^:]{1,80}):\s*(.+)$/.exec(line), spot = pasteSpot(m ? m[1] : '');
+        // The whole line is kept, so the section name travels with the note to Tris and the model.
+        notes.push(await send({ ...spot, text: line, name: name.value }));
+        sent++;
+      }
+      area.value = ''; pastebox.hidden = true;
+    } catch (problem) { err.textContent = (sent ? sent + ' sent. ' : '') + (problem.message || 'The notes did not send.'); area.value = lines.slice(sent).join('\n'); }
+    go.disabled = false; draw();
+  };
   async function load() {
     try {
-      const r = await fetch('/api/notes?page=' + encodeURIComponent(page), { cache: 'no-store' });
+      const r = await fetch(api('?page=' + encodeURIComponent(page)), { cache: 'no-store' });
       if (r.ok) { notes = await r.json(); draw(); }
     } catch {}
   }
@@ -127,10 +176,7 @@
       store.set('name', name.value.trim());
       const go = c.querySelector('.go'); go.disabled = true; go.textContent = 'Sending…';
       try {
-        const r = await fetch('/api/notes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...spot, page, text: text.value, name: name.value }) });
-        const body = await r.json();
-        if (!r.ok) throw Error(body.error || 'The note did not send.');
-        notes.push(body); closeComposer(); draw(); show(notes.length - 1);
+        notes.push(await send({ ...spot, text: text.value, name: name.value })); closeComposer(); draw(); show(notes.length - 1);
       } catch (problem) { err.textContent = problem.message || 'The note did not send. Try again.'; go.disabled = false; go.textContent = 'Send'; }
     };
     pins.appendChild(c); place(c, x, y); composer = c;
@@ -145,7 +191,11 @@
     compose({ anchor: pathOf(target), fx: r.width ? (e.clientX - r.left) / r.width : 0, fy: r.height ? (e.clientY - r.top) / r.height : 0, px: x / d.w, py: y / d.h }, x, y);
   });
   add.onclick = () => arm(add.getAttribute('aria-pressed') !== 'true');
-  list.onclick = () => { panel.hidden = !panel.hidden; };
+  list.onclick = () => { panel.hidden = !panel.hidden; pastebox.hidden = true; };
+  $('.pastebtn').onclick = () => {
+    pastebox.hidden = !pastebox.hidden; panel.hidden = true;
+    if (!pastebox.hidden) { const name = pastebox.querySelector('input'); name.value ||= store.get('name'); pastebox.querySelector('textarea').focus(); }
+  };
   panel.addEventListener('click', (e) => {
     const li = e.target.closest('li[data-i]'); if (!li) return;
     const i = +li.dataset.i, s = spotOf(notes[i]);

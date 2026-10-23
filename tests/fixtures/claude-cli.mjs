@@ -21,6 +21,7 @@ if(process.argv.includes('--fixture-oneshot')){
  if(system.startsWith('Review recent items for one app'))result=JSON.stringify({ideas:[{title:'Try Fixture video model',summary:'Open weights released.',why:'Local video rendering.',change:'Add it as a render backend.',effort:'small',sources:[input.items[0].id]},{title:'Unsourced',summary:'Not fetched.',change:'Do not show.',sources:['missing']}]});
  // Side answers (FEATURE-SPECS 2): the sorter sends every message to the main model unless it carries SIDE_FIXTURE.
  if(system.startsWith('The user sent this message while'))result=String(input.question).includes('SIDE_FIXTURE')?'Side fixture (sorted): '+input.live.status:'MAIN';
+ if(system.startsWith('Write a short plain-text page that a client'))result='WHAT THIS PROJECT IS\nFixture project '+input.project+', version '+input.version+'.\nTHE BRIEF\nA landing page.';
  if(system.startsWith('The user asked a quick question'))result='Side fixture: '+input.live.status+', '+String(input.live.textSoFar||'').length+' characters so far.';
  process.stdout.write(JSON.stringify({is_error:false,result,usage:{input_tokens:500,output_tokens:80,cache_read_input_tokens:100,cache_creation_input_tokens:200}}));process.exit(0);
 }

@@ -1,0 +1,16 @@
+/* Share with clients (FEATURE-SPECS 3): the card above the message box, the shared projects in Settings and the AI
+   page review, on the kit's card and dialog looks. */
+.share-card{margin:0 0 var(--space-4);padding:var(--space-5) var(--space-6);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);display:grid;gap:var(--space-3);font-size:var(--fs-list);animation:side-up .24s ease-out}
+.share-card header{display:flex;align-items:center;justify-content:space-between;font-size:var(--fs-meta);color:var(--muted)}
+.share-card .side-close{width:var(--h-sm);min-height:var(--h-sm)}
+.share-card p{margin:0}
+.share-line{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-4);min-width:0}
+.share-line>span{flex:1 1 220px;min-width:0}
+.share-line input{flex:0 1 180px}
+.share-address{font-family:var(--font-mono);font-size:var(--fs-ui);overflow-wrap:anywhere;user-select:text}
+.share-project{display:grid;gap:var(--space-4);padding:var(--space-6) 0;border-bottom:1px solid var(--line)}
+.share-project:last-of-type{border-bottom:0}
+.share-head{display:flex;gap:var(--space-5);align-items:baseline;flex-wrap:wrap}
+.kit-dialog.share-dialog{width:min(720px,calc(100vw - 40px))}
+.share-dialog textarea{font:var(--fs-list)/1.5 var(--font-mono);margin:var(--space-5) 0}
+@media (prefers-reduced-motion:reduce){.share-card{animation:none}}

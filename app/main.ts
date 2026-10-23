@@ -51,7 +51,8 @@ import {outcomes,learningState,readSummary,withLearning,type LearningRow} from '
 import {decideNotDiamond,notDiamondEndpoint} from './notdiamond';
 import {Terminals} from './terminal';
 import {resolveChatLink} from './chat-links';
-import {readPublishing,validatePublishing,publishPage,publishTool} from './publishing';
+import {readPublishing,validatePublishing,publishPage,publishTool,pageBundle,assertNoSecrets} from './publishing';
+import {DATABASE,privateId,hashPassword,sections as pageSections,pageLink,aiAddress,readyMessage,aiSystem,noteMessages,notesForModel,stageSite,writeProject,findWrangler,run as runShare,databaseIdOf,deployedUrl,type ShareSettings,type ShareProject,type ShareNote} from './share';
 import {AppUpdates,APP_FEED,compareVersions,unseenNotes,installedCopy,previousInstaller,backupChats,readUpdateWatch,markOpened,hermesReleases,newerReleases,HERMES_RELEASES,type Feed,type UpdateMode,type UpdateWatch,type WhatsNew} from './updates';
 import whatsNew from './whats-new.json';
 import featureWheels from '../backend/feature-wheels.json';
@@ -454,7 +455,7 @@ function dockableJobChats(turns:Turn[]){const latest=new Map<string,Turn>();for(
 // Shows an approval. Its action steps out of the work lock until the user answers, so other chats' work goes on
 // (Koan 2026-10-15: one chat waiting for Allow stalled another chat's command for ten minutes).
 function askApproval(row:Approval){store.put('approval',row);if(row.method==='approval')coordination.ask(row.turnId,row.params.description,row.params.command);}
-function snapshot(options:{tools?:boolean}={}){const base=store.snapshot(options),summaryUsage=store.all<{chatId:string;model:string;tokens:number|null}>('context-usage');base.chats=base.chats.map(chat=>({...chat,compacting:contextJobs.has(chat.id)?{done:contextJobs.get(chat.id)!.done,total:contextJobs.get(chat.id)!.total}:undefined,summarizationUsage:summaryUsage.filter(row=>row.chatId===chat.id).map(({model,tokens})=>({model,tokens}))}));const shareChats=base.chats.filter(chat=>!chat.archived&&!chat.sideSourceId),shareTargets=[...new Set(shareChats.map(chat=>chat.projectId))].map(projectId=>({projectId,title:shareChats.filter(chat=>chat.projectId===projectId).map(chat=>chat.title).join(" · ")}));return {...base,sideAnswers:store.all<SideAnswer>('side-answer').slice(-300),sideAnswerModel:sideModel(),shareTargets,workspaceWindows:[...workspaceWindows.keys()],agentWindows:[...jobWindows.keys()].filter(id=>id.startsWith('agent:')).map(id=>id.slice(6)),jobWindows:[...jobWindows.keys()].filter(id=>!id.startsWith('agent:')),jobChats:dockableJobChats(base.turns),chatWindows:[...chatWindows.keys()],providerUrls:providerUrls(),chatLayout:store.all<any>('settings').find(row=>row.id==='chat-layout')||null,paneLayout:store.all<any>('settings').find(row=>row.id==='pane-layout')?.tree||null,paneWorkspace:readPaneWorkspace(store.all<any>('settings').find(row=>row.id==='pane-layout')?.workspace),publishing:publishing(),updates:{current:app.getVersion(),dev,mode:updateSettings().mode,status:appUpdates?.status||'',available:appUpdates?.available||null,downloaded:!!appUpdates?.downloaded,checking:!!appUpdates?.checking,downloading:!!appUpdates?.downloading,percent:appUpdates?.percent??null,failed:appUpdates?.failed||'',rolledBack:updateRolledBack,show:updateShow,history:(whatsNew as WhatsNew[]).filter(entry=>compareVersions(entry.version,app.getVersion())<=0).reverse(),discovery:{...discoverySettings(),status:discoveryStatus,running:!!discoveryRun,result:store.all<any>('discovery').at(-1)?.result||null},hermes:{pinned:hermesPin().version,fork:hermesPin().fork,status:hermesStatus,releases:store.all<any>('hermes-release').sort((a,b)=>b.published.localeCompare(a.published)).map(({id,...row})=>row)}},browserTools:{...screenSettings(),apps:screenApps(),chrome:!!installedChrome(),on:toolAccess().on,programs:Object.fromEntries((Object.keys(programs) as ToolProgram[]).map(program=>[program,{version:programs[program].version,installed:!!(program==='agent-browser'?toolPaths().browser:toolPaths().computer)}]))},alwaysOn:{...alwaysOn(),awake:awakeBlocker!==null},routines:store.all<Routine>('routine'),voice:{...voiceSettings(),wake:wakeSettings(),speech:speechInstalled(),ready:speechReady(),installing:!!speechInstall,progress:speechProgress},wizard:{show:wizardOpen,pending:!wizardDecided,steps:wizardRow().steps||{},start:wizardStart},remote:{...remoteSettings(),paired:!!remoteSecret,waiting:remoteShown()?.kind||null,target:remoteChats().find(chat=>chat.id===remoteSettings().chatId)?.title||remoteChats()[0]?.title||null,alerts:store.all<any>('remote-alert').slice(-10).reverse(),tokenSaved:!!remoteRow()?.tokenSaved,installed:telegramInstalled(),installing:!!telegramInstall,status:remoteGateway?.status||'off',message:(remoteGateway?.message||'').replace(/\d{5,}:[\w-]{30,}/g,'[token]'),...(namespace.startsWith('Trismegistus/Test/')?{pid:remoteGateway?.pid}:{})},keyRotation:store.all<any>('settings').find(row=>row.id==='key-rotation')?.done||{},decisionEngine:{selected:decisionEngine(),connected:classifierActive(),status:pickerStatus(decisionEngine()),pickers:pickers.map(row=>({id:row.id,label:row.label,connected:pickerConnected(row.id),status:pickerStatus(row.id)}))},gliner:gliner?.state(),pickerSettings:Object.fromEntries(pickers.filter(row=>row.id!=='jev').map(row=>[row.id,pickerSettings(row.id)])),pluginChanges:pluginChanges.rows(),savedApps:savedAppRows(base),savedAppGroups:store.all<import('./saved-apps').SavedAppGroup>('saved-app-group'),sidebar:{groups:sidebar.groups(),preferences:sidebar.preferences()},goals:goals?.rows()||[],background:[...(background?.rows()||[]),...(native?.rows()||[])],workReview:[],jev:{connected:!!jevKey,status:jevStatus,summaryModel:jevSettings().summaryModel,confidence:jevSettings().confidence,timeoutMs:jevSettings().timeoutMs},connected,backend:backend.status,defaultMode:store.defaultMode(),providerStatus,balance,balanceCheckedAt,defaultFolder:defaultFolder(),codex,claude,apiProviders:apiProviders?.rows()||[],availability:health.rows(),availableModels:availableModels(),modelPrices,deepseekModels:deepseekModels(),defaultModels:defaultModels(),favouriteModels:favouriteModels(),mcp:mcpRows.map(row=>({...row,signingIn:mcpLogins.has(row.id)})),mcpError,commands:[{name:'/compact',description:'Summarize older messages and continue in this chat. Add a focus after the command.',plugin:'Ghidorah',kind:'Command'},...reviewCommands,...sharedCommands(store.all<NativePluginInstall>('native-plugin')),...pluginHandlers.map(({name,description,plugin,kind})=>({name,description,plugin,kind}))].sort((a,b)=>a.name.localeCompare(b.name))};}
+function snapshot(options:{tools?:boolean}={}){const base=store.snapshot(options),summaryUsage=store.all<{chatId:string;model:string;tokens:number|null}>('context-usage');base.chats=base.chats.map(chat=>({...chat,compacting:contextJobs.has(chat.id)?{done:contextJobs.get(chat.id)!.done,total:contextJobs.get(chat.id)!.total}:undefined,summarizationUsage:summaryUsage.filter(row=>row.chatId===chat.id).map(({model,tokens})=>({model,tokens}))}));const shareChats=base.chats.filter(chat=>!chat.archived&&!chat.sideSourceId),shareTargets=[...new Set(shareChats.map(chat=>chat.projectId))].map(projectId=>({projectId,title:shareChats.filter(chat=>chat.projectId===projectId).map(chat=>chat.title).join(" · ")}));return {...base,share:shareView(),sideAnswers:store.all<SideAnswer>('side-answer').slice(-300),sideAnswerModel:sideModel(),shareTargets,workspaceWindows:[...workspaceWindows.keys()],agentWindows:[...jobWindows.keys()].filter(id=>id.startsWith('agent:')).map(id=>id.slice(6)),jobWindows:[...jobWindows.keys()].filter(id=>!id.startsWith('agent:')),jobChats:dockableJobChats(base.turns),chatWindows:[...chatWindows.keys()],providerUrls:providerUrls(),chatLayout:store.all<any>('settings').find(row=>row.id==='chat-layout')||null,paneLayout:store.all<any>('settings').find(row=>row.id==='pane-layout')?.tree||null,paneWorkspace:readPaneWorkspace(store.all<any>('settings').find(row=>row.id==='pane-layout')?.workspace),publishing:publishing(),updates:{current:app.getVersion(),dev,mode:updateSettings().mode,status:appUpdates?.status||'',available:appUpdates?.available||null,downloaded:!!appUpdates?.downloaded,checking:!!appUpdates?.checking,downloading:!!appUpdates?.downloading,percent:appUpdates?.percent??null,failed:appUpdates?.failed||'',rolledBack:updateRolledBack,show:updateShow,history:(whatsNew as WhatsNew[]).filter(entry=>compareVersions(entry.version,app.getVersion())<=0).reverse(),discovery:{...discoverySettings(),status:discoveryStatus,running:!!discoveryRun,result:store.all<any>('discovery').at(-1)?.result||null},hermes:{pinned:hermesPin().version,fork:hermesPin().fork,status:hermesStatus,releases:store.all<any>('hermes-release').sort((a,b)=>b.published.localeCompare(a.published)).map(({id,...row})=>row)}},browserTools:{...screenSettings(),apps:screenApps(),chrome:!!installedChrome(),on:toolAccess().on,programs:Object.fromEntries((Object.keys(programs) as ToolProgram[]).map(program=>[program,{version:programs[program].version,installed:!!(program==='agent-browser'?toolPaths().browser:toolPaths().computer)}]))},alwaysOn:{...alwaysOn(),awake:awakeBlocker!==null},routines:store.all<Routine>('routine'),voice:{...voiceSettings(),wake:wakeSettings(),speech:speechInstalled(),ready:speechReady(),installing:!!speechInstall,progress:speechProgress},wizard:{show:wizardOpen,pending:!wizardDecided,steps:wizardRow().steps||{},start:wizardStart},remote:{...remoteSettings(),paired:!!remoteSecret,waiting:remoteShown()?.kind||null,target:remoteChats().find(chat=>chat.id===remoteSettings().chatId)?.title||remoteChats()[0]?.title||null,alerts:store.all<any>('remote-alert').slice(-10).reverse(),tokenSaved:!!remoteRow()?.tokenSaved,installed:telegramInstalled(),installing:!!telegramInstall,status:remoteGateway?.status||'off',message:(remoteGateway?.message||'').replace(/\d{5,}:[\w-]{30,}/g,'[token]'),...(namespace.startsWith('Trismegistus/Test/')?{pid:remoteGateway?.pid}:{})},keyRotation:store.all<any>('settings').find(row=>row.id==='key-rotation')?.done||{},decisionEngine:{selected:decisionEngine(),connected:classifierActive(),status:pickerStatus(decisionEngine()),pickers:pickers.map(row=>({id:row.id,label:row.label,connected:pickerConnected(row.id),status:pickerStatus(row.id)}))},gliner:gliner?.state(),pickerSettings:Object.fromEntries(pickers.filter(row=>row.id!=='jev').map(row=>[row.id,pickerSettings(row.id)])),pluginChanges:pluginChanges.rows(),savedApps:savedAppRows(base),savedAppGroups:store.all<import('./saved-apps').SavedAppGroup>('saved-app-group'),sidebar:{groups:sidebar.groups(),preferences:sidebar.preferences()},goals:goals?.rows()||[],background:[...(background?.rows()||[]),...(native?.rows()||[])],workReview:[],jev:{connected:!!jevKey,status:jevStatus,summaryModel:jevSettings().summaryModel,confidence:jevSettings().confidence,timeoutMs:jevSettings().timeoutMs},connected,backend:backend.status,defaultMode:store.defaultMode(),providerStatus,balance,balanceCheckedAt,defaultFolder:defaultFolder(),codex,claude,apiProviders:apiProviders?.rows()||[],availability:health.rows(),availableModels:availableModels(),modelPrices,deepseekModels:deepseekModels(),defaultModels:defaultModels(),favouriteModels:favouriteModels(),mcp:mcpRows.map(row=>({...row,signingIn:mcpLogins.has(row.id)})),mcpError,commands:[{name:'/compact',description:'Summarize older messages and continue in this chat. Add a focus after the command.',plugin:'Ghidorah',kind:'Command'},...reviewCommands,...sharedCommands(store.all<NativePluginInstall>('native-plugin')),...pluginHandlers.map(({name,description,plugin,kind})=>({name,description,plugin,kind}))].sort((a,b)=>a.name.localeCompare(b.name))};}
 // Window refreshes carry only the tools of the chats a window shows (RUN-PLAN 3b): every tool ever recorded was
 // 276 ms to build and 65 MB per window per refresh on Koan's data. A direct 'state' request still gets everything.
 function toolsForChats(state:{turns:Turn[]},chatIds:Set<string>){
@@ -956,6 +957,123 @@ async function publish(file:string,signal?:AbortSignal,settings=publishing()){
   const link=resolveChatLink(defaultFolder(),String(file||''),[data]);if(link.kind!=='file'||link.directory)throw Error('Choose an HTML file in the working folder.');
   validatePublishing(settings,namespace.startsWith('Trismegistus/Test/'));
   return publishPage({page:path.join(link.root,link.path),settings,clone:path.join(data,'publish',createHash('sha256').update(settings.repository).digest('hex').slice(0,16)),secret:text=>backend.scrubber.text(text)!==text||redactPastedKeys(text)!==text,signal});
+}
+// Share work with clients (FEATURE-SPECS 3): Tris's own copy of the share site, its setup, sharing a page with the
+// client, the notes that come back and the "for your AI" page Koan approves.
+const shareSite=()=>path.join(data,'share-site'),shareTest=()=>namespace.startsWith('Trismegistus/Test/');
+function shareSettings():ShareSettings&{testId?:string}{const row=store.all<any>('settings').find(row=>row.id==='share');return {site:typeof row?.site==='string'?row.site:'',databaseId:typeof row?.databaseId==='string'?row.databaseId:'',ready:row?.ready===true,wrangler:typeof row?.wrangler==='string'?row.wrangler:undefined,checked:row?.checked,testId:row?.testId};}
+let shareStatus='',shareBusy:Promise<unknown>=Promise.resolve();
+// One wrangler at a time: setup, sharing, approvals and password changes wait for each other.
+function shareQueue<T>(work:()=>Promise<T>){const next=shareBusy.catch(()=>{}).then(work);shareBusy=next;return next;}
+// Every deploy restages the Worker from the app (so app updates reach the site) and rewrites each project's settings.
+async function shareDeploy(signal?:AbortSignal){
+  const settings=shareSettings(),wrangler=await findWrangler(shareSite(),settings.wrangler);if(!wrangler||!settings.databaseId)throw Error('Set up Share with clients in Settings first.');
+  await stageSite(path.join(root,'share'),shareSite(),settings.databaseId);
+  for(const project of store.all<ShareProject>('share-project'))await writeProject(shareSite(),project);
+  return deployedUrl(await runShare(wrangler,['deploy'],shareSite(),signal),shareTest());
+}
+async function shareSetup(){
+  return shareQueue(async()=>{
+    const step=(text:string)=>{shareStatus=text;emit();},site=shareSite();
+    try{
+      await fs.mkdir(site,{recursive:true});
+      step('Finding Cloudflare’s wrangler…');let wrangler=await findWrangler(site,shareSettings().wrangler);
+      if(!wrangler){
+        step('Installing Cloudflare’s wrangler into Ghidorah (once)…');
+        await fs.writeFile(path.join(site,'package.json'),'{"type":"module"}\n',{flag:'wx'}).catch(()=>{});
+        await runShare('npm.cmd',['install','wrangler@4','--no-fund','--no-audit','--loglevel=error'],site,undefined,600000);
+        wrangler=await findWrangler(site);if(!wrangler)throw Error('wrangler did not install.');
+      }
+      step('Checking your Cloudflare sign-in…');
+      if(/not authenticated|not logged in/i.test(await runShare(wrangler,['whoami'],site,undefined,60000))){step('Sign in to Cloudflare in the browser window that opened…');await runShare(wrangler,['login'],site,undefined,600000);}
+      step('Preparing the notes database…');
+      const listed=JSON.parse((await runShare(wrangler,['d1','list','--json'],site,undefined,60000)).replace(/^[^\[]*/,'')) as {uuid:string;name:string}[];
+      const databaseId=listed.find(row=>row.name===DATABASE)?.uuid||databaseIdOf(await runShare(wrangler,['d1','create',DATABASE],site,undefined,120000));
+      if(!databaseId)throw Error('Cloudflare did not return the notes database.');
+      store.put('settings',{...shareSettings(),id:'share',databaseId,wrangler,ready:false});
+      await stageSite(path.join(root,'share'),site,databaseId);
+      await runShare(wrangler,['d1','execute',DATABASE,'--remote','--file','schema.sql','--yes'],site,undefined,180000);
+      await runShare(wrangler,['d1','execute',DATABASE,'--remote','--file','migrate.sql','--yes'],site,undefined,180000).catch(error=>{if(!/duplicate column/i.test(String(error)))throw error;});
+      step('Publishing a test page…');
+      const test=shareSettings().testId||privateId();await fs.mkdir(path.join(site,'public',test),{recursive:true});
+      await fs.writeFile(path.join(site,'public',test,'index.html'),'<!doctype html><meta charset="utf-8"><title>Share test</title><body><h1>Share test</h1><p>Ghidorah published this page to check that notes come back.</p></body>');
+      const url=await shareDeploy()||shareSettings().site;if(!url)throw Error('Cloudflare did not say where the site is.');
+      step('Checking that a test note reaches Ghidorah…');
+      let proved=false;
+      for(const end=Date.now()+120000;!proved&&Date.now()<end;){
+        try{
+          const posted=await fetch(url+'/api/notes',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({page:'/'+test+'/',text:'Setup test note',name:'Ghidorah'}),signal:AbortSignal.timeout(15000)});
+          if(posted.ok){const back=await (await fetch(url+'/api/notes?project='+encodeURIComponent('/'+test+'/'),{signal:AbortSignal.timeout(15000)})).json();proved=Array.isArray(back)&&back.some((note:any)=>note.text==='Setup test note');}
+        }catch{/* A new site can take a moment to answer. */}
+        if(!proved)await new Promise(resolve=>setTimeout(resolve,shareTest()?300:5000));
+      }
+      if(!proved)throw Error('The test note did not come back from '+url+'. Try again in a minute.');
+      store.put('settings',{...shareSettings(),id:'share',site:url,databaseId,wrangler,testId:test,ready:true,checked:Date.now()});step('Ready');
+    }catch(error){step('Failed: '+backend.scrubber.text(error instanceof Error?error.message:String(error)));throw error;}
+  });
+}
+// "Share this with the client" (3.6): the page and the files it links to go to the project's private folder; the
+// link stays the same for every version. The AI page is drafted for Koan and goes live only when he approves it.
+async function shareWithClient(chat:Chat,file:string,signal:AbortSignal){
+  const settings=shareSettings();if(!settings.ready||!settings.site)throw Error('Set up Share with clients in Settings first.');
+  const link=resolveChatLink(defaultFolder(),String(file||''),[data]);if(link.kind!=='file'||link.directory||!/\.html?$/i.test(link.path))throw Error('Choose an HTML file in the working folder.');
+  const page=path.join(link.root,link.path),bundle=await pageBundle(page),name=path.basename(page);
+  assertNoSecrets(bundle,text=>backend.scrubber.text(text)!==text||redactPastedKeys(text)!==text);
+  const owner=sidebar.root(chat.parentChatId||chat.id),projectId=projectFor(owner).id;
+  const shared=await shareQueue(async()=>{
+    const existing=store.find<ShareProject>('share-project',projectId);
+    const project:ShareProject={...(existing||{id:projectId,shareId:privateId(),aiKey:privateId(),since:0}),chatId:owner.id,title:owner.title,page:name,version:(existing?.version||0)+1,sections:pageSections(bundle.get(name)?.toString('utf8')||''),published:Date.now()} as ShareProject;
+    await writeProject(shareSite(),project,bundle);
+    store.put('share-project',project);
+    try{await shareDeploy(signal);}catch(error){if(existing)store.put('share-project',existing);else store.remove('share-project',projectId);throw error;}
+    return project;
+  });
+  emit();void shareDraft(shared.id);
+  const url=pageLink(settings.site,shared);
+  for(const end=Date.now()+60000;Date.now()<end;){try{const response=await fetch(url+(shared.password?(url.includes('?')?'&':'?')+'key='+shared.aiKey:''),{signal:AbortSignal.timeout(10000)});await response.body?.cancel();if(response.ok)break;}catch{}signal.throwIfAborted();await new Promise(resolve=>setTimeout(resolve,2000));}
+  return {link:url,version:shared.version,aiPage:shared.ai?'The AI page for version '+shared.ai.version+' stays live; the user reviews the new draft before it changes.':'The user reviews the AI page draft before it goes live.'};
+}
+async function shareDraft(id:string){
+  const project=store.find<ShareProject>('share-project',id),chat=project&&store.find<Chat>('chat',project.chatId);if(!project||!chat)return;
+  const model=summaryModel(true,'',chat.pool||[],availableModels(),jevSettings().summaryModel)||sideModel();
+  store.update<ShareProject>('share-project',id,{draft:{text:'',version:project.version,status:'writing'}});emit();
+  try{
+    if(!model)throw Error('Connect a model to write the draft.');
+    const records=store.all<Turn>('turn').filter(turn=>turn.chatId===chat.id&&!turn.automatic&&turn.status==='completed').slice(-14).map(turn=>({you:turn.prompt.slice(0,800),model:(turn.text||'').slice(0,1500)}));
+    const answer=await contextCompletion(chat,model,aiSystem,JSON.stringify({project:project.title,page:project.page,version:project.version,previousAiPage:project.ai?.text||null,records}),new AbortController().signal);
+    if(store.find<ShareProject>('share-project',id)?.version!==project.version)return;
+    store.update<ShareProject>('share-project',id,{draft:{text:answer.text,version:project.version,status:'ready'}});
+  }catch(error){if(store.find<ShareProject>('share-project',id)?.version===project.version)store.update<ShareProject>('share-project',id,{draft:{text:'The draft could not be written: '+backend.scrubber.text(error instanceof Error?error.message:String(error)),version:project.version,status:'failed'}});}
+  emit();
+}
+// Clients' notes come back about every minute (3.4); each person's new notes raise one notification.
+async function shareCheck(){
+  const settings=shareSettings();if(!settings.ready||!settings.site)return 0;let found=0;
+  for(const project of store.all<ShareProject>('share-project')){
+    let rows:any;try{const response=await fetch(settings.site+'/api/notes?project='+encodeURIComponent('/'+project.shareId+'/')+'&since='+project.since+(project.password?'&key='+project.aiKey:''),{signal:AbortSignal.timeout(20000)});rows=response.ok?await response.json():null;}catch{rows=null;}
+    if(!Array.isArray(rows))continue;
+    const fresh:ShareNote[]=rows.filter((row:any)=>typeof row?.id==='string'&&typeof row.text==='string'&&typeof row.name==='string'&&Number.isFinite(row.created)&&!store.find<ShareNote>('share-note',row.id)).map((row:any)=>({id:row.id,shareId:project.shareId,projectId:project.id,page:String(row.page||''),name:row.name.slice(0,60),text:row.text.slice(0,4000),anchor:typeof row.anchor==='string'?row.anchor:null,version:Number.isInteger(row.version)?row.version:null,created:row.created}));
+    if(!fresh.length)continue;
+    for(const note of fresh)store.put('share-note',note);
+    store.update<ShareProject>('share-project',project.id,{since:Math.max(project.since,...fresh.map(note=>note.created))});found+=fresh.length;
+    for(const line of noteMessages(project.title,fresh))shareAlert(project,line);
+  }
+  store.put('settings',{...shareSettings(),id:'share',checked:Date.now()});if(found)emit();return found;
+}
+// Tests record the line only, like the other desktop alerts.
+const shareAlerts:string[]=[];
+function shareAlert(project:ShareProject,line:string){
+  shareAlerts.push(line);shareAlerts.splice(0,shareAlerts.length-20);
+  if(quitting||shareTest()||!Notification.isSupported())return;
+  const notification=new Notification({title:'Client notes',body:line});desktopNotices.add(notification);
+  notification.on('close',()=>desktopNotices.delete(notification));
+  notification.on('click',()=>{desktopNotices.delete(notification);const site=shareSettings().site;if(site)void shell.openExternal(pageLink(site,project));const owner=chatWindows.get(project.chatId)||win;owner.show();owner.focus();if(owner===win)win.webContents.send('select-chat',project.chatId);});
+  notification.show();
+}
+// What the windows see: never the password hash or the key on its own.
+function shareView(){
+  const settings=shareSettings(),notes=store.all<ShareNote>('share-note');
+  return {site:settings.site,ready:settings.ready,status:shareStatus,checked:settings.checked,alerts:shareTest()?[...shareAlerts]:[],projects:store.all<ShareProject>('share-project').map(project=>{const {password,aiKey,...rest}=project;return {...rest,password:!!password,link:settings.site?pageLink(settings.site,project):'',aiAddress:settings.site&&project.ai?aiAddress(settings.site,project):'',message:settings.site&&project.ai?readyMessage(settings.site,project):'',notes:notes.filter(note=>note.projectId===project.id).slice(-100)};})};
 }
 // Settings, Always on. Remote (6a) turns remoteOn on and off.
 let awakeBlocker:number|null=null,remoteOn=false;
@@ -1793,13 +1911,13 @@ function bindClaude(chat:Chat,turn:Turn,project:Project,controller:AbortControll
         try{
           if(mode==='plan')throw Error('Plan mode permits inspection and proposals only.');
           const asks=name!=='publish_page'?mode==='manual':mode!=='bypass';
-          const description=name!=='publish_page'?name+'\n'+JSON.stringify(input,null,2):'Publish a page publicly\n'+file+' to '+(destination.site||'no destination yet');
+          const description=name!=='publish_page'?name+'\n'+JSON.stringify(input,null,2):input?.client===true?'Share a page with the client at a private link\n'+file+' to '+(shareSettings().site||'Share with clients, not set up yet'):'Publish a page publicly\n'+file+' to '+(destination.site||'no destination yet');
           if(asks&&!await ask(description,signal))throw Error(name!=='publish_page'?'App update was denied.':'Publishing was denied.');
           signal.throwIfAborted();
           if(store.get<Project>('project',project.id).mode==='plan')throw Error('Plan mode permits inspection and proposals only.');
         }catch(error){coordination.denied(turn.id,'mcp__ghidorah__'+name+'\n'+JSON.stringify(input));throw error;}
         // Only pre-execution refusals are known not to have run. An execution failure retains uncertainty.
-        return {content:[{type:'text',text:JSON.stringify(name==='create_app'?await createApp(chat,input,turn.id):name==='update_app'?await updateApp(chat,input,turn.id):name==='add_app_todo'?addAppTask(chat,input):name==='update_app_todo'?updateAppTask(chat,input,turn.id):await publish(file,signal,destination))}]};
+        return {content:[{type:'text',text:JSON.stringify(name==='create_app'?await createApp(chat,input,turn.id):name==='update_app'?await updateApp(chat,input,turn.id):name==='add_app_todo'?addAppTask(chat,input):name==='update_app_todo'?updateAppTask(chat,input,turn.id):input?.client===true?await shareWithClient(chat,file,signal):await publish(file,signal,destination))}]};
       }
       if(name!=='parallel_work'&&name!=='inspect_action')return memory.call(name,args,signal);
       if(name==='parallel_work'&&!turn.parentTurnId)throw Error('This tool requires an active parallel job.');
@@ -2023,7 +2141,7 @@ function request(request:any){
       if(operation==='app-link')return linkCurrentApp(chat,backend.scrubber.value(args));
       if(operation==='app-todo-update')return updateAppTask(chat,backend.scrubber.value(args),turnId);
       if(operation==='app-todo')return addAppTask(chat,backend.scrubber.value(args));
-      if(operation==='publish'){if(projectFor(chat).mode==='plan')throw Error('Plan mode permits inspection and proposals only.');return publish(args?.path,controller.signal);}
+      if(operation==='publish'){if(projectFor(chat).mode==='plan')throw Error('Plan mode permits inspection and proposals only.');return args?.client===true?shareWithClient(chat,args?.path,controller.signal):publish(args?.path,controller.signal);}
       if(!['list','tools','call'].includes(operation))throw Error('Unsupported MCP operation.');
       if(operation==='list')return (await mcp.request('list',{},controller.signal)).filter((row:McpConnection)=>row.enabled).map((row:McpConnection)=>({id:row.id,name:row.name,status:row.status}));
       if(typeof connection!=='string'||operation==='call'&&(typeof tool!=='string'||!args||typeof args!=='object'||Array.isArray(args)))throw Error('Invalid MCP tool request.');
@@ -2943,6 +3061,38 @@ const handlers:Record<string,(args:any)=>any>={
     store.update<SideAnswer>('side-answer',id,{sent:'asked',closed:true});emit();return sent;
   },
   sideAnswerClose({id,chatId}){sideRow(id,chatId);store.update<SideAnswer>('side-answer',id,{closed:true});emit();},
+  shareSetup(){return shareSetup();},
+  shareCheck(){return shareCheck();},
+  // Koan approves every version of the AI page before it goes live (3.7, his answer 2026-10-10).
+  async shareAiApprove({id,text}){
+    const project=store.get<ShareProject>('share-project',id);
+    if(typeof text!=='string'||!text.trim()||text.length>20000)throw Error('Write the AI page first (up to 20,000 characters).');
+    if(backend.scrubber.text(text)!==text||redactPastedKeys(text)!==text)throw Error('Remove credentials from the AI page.');
+    return shareQueue(async()=>{
+      const current=store.get<ShareProject>('share-project',id),next={...current,ai:{text:text.trim(),version:current.version},draft:undefined};
+      store.put('share-project',next);try{await shareDeploy();}catch(error){store.put('share-project',current);throw error;}
+      emit();const site=shareSettings().site;return {address:aiAddress(site,next),message:readyMessage(site,next),version:project.version};
+    });
+  },
+  shareRedraft({id}){store.get<ShareProject>('share-project',id);void shareDraft(id);},
+  // A password per link, off by default (3.2); null removes it.
+  async sharePassword({id,password}){
+    store.get<ShareProject>('share-project',id);
+    if(password!==null&&(typeof password!=='string'||password.length<4||password.length>200))throw Error('Use a password of 4 to 200 characters.');
+    return shareQueue(async()=>{
+      const current=store.get<ShareProject>('share-project',id),{password:_old,...rest}=current,next:ShareProject=password?{...rest,password:hashPassword(password)}:rest;
+      store.put('share-project',next);try{await shareDeploy();}catch(error){store.put('share-project',current);throw error;}
+      emit();
+    });
+  },
+  async shareNotesSend({id}){
+    const project=store.get<ShareProject>('share-project',id),notes=store.all<ShareNote>('share-note').filter(note=>note.projectId===id&&!note.handled);
+    if(!notes.length)throw Error('No new client notes.');
+    const sent=await submitTurn({id:randomUUID(),chatId:project.chatId,text:notesForModel(pageLink(shareSettings().site,project),project.version,notes)});
+    for(const note of notes)store.update<ShareNote>('share-note',note.id,{handled:true});emit();return sent;
+  },
+  shareDismiss({id}){const project=store.get<ShareProject>('share-project',id);store.update<ShareProject>('share-project',id,{seenVersion:project.version});for(const note of store.all<ShareNote>('share-note'))if(note.projectId===id&&!note.handled)store.update<ShareNote>('share-note',note.id,{handled:true});emit();},
+  shareOpen({id}){const project=store.get<ShareProject>('share-project',id),site=shareSettings().site;if(!site)throw Error('Set up Share with clients first.');void shell.openExternal(pageLink(site,project));},
   sideAnswerModel({model}){if(typeof model!=='string'||!availableModels().includes(model))throw Error('Choose an available model for side answers.');store.put('settings',{id:'side-answers',model});emit();},
   sendPaused({id}){const turn=store.get<Turn>('turn',id);if(turn.status!=='queued'||!turn.paused)throw Error('This message is not paused.');store.update<Turn>('turn',id,{paused:false});emit();wake(turn.chatId);},
   async cancelQueued({id}){const turn=store.get<Turn>('turn',id);if(turn.automatic)throw Error('This message is already being sent.');
@@ -3075,7 +3225,7 @@ const handlers:Record<string,(args:any)=>any>={
     }finally{telegramInstall=null;installing=false;emit();}
   },
   remoteInstallCancel(){telegramInstall?.abort();},
-  wizardStep({step,status}){if(!['suppliers','claude','jev','always-on','remote'].includes(step)||!['done','skipped'].includes(status))throw Error('Invalid step.');const row=wizardRow();store.put('settings',{...row,steps:{...row.steps,[step]:status}});wizardStart=null;emit();},
+  wizardStep({step,status}){if(!['suppliers','claude','jev','always-on','remote','sharing'].includes(step)||!['done','skipped'].includes(status))throw Error('Invalid step.');const row=wizardRow();store.put('settings',{...row,steps:{...row.steps,[step]:status}});wizardStart=null;emit();},
   wizardFinish(){store.put('settings',{...wizardRow(),completed:true});wizardOpen=false;wizardStart=null;emit();},
   wizardClose(){store.put('settings',{...wizardRow(),started:false});wizardOpen=false;wizardStart=null;emit();},
   wizardOpen({step}={}){wizardDecided=true;wizardOpen=true;wizardStart=step==='suppliers'?'suppliers':null;store.put('settings',{...wizardRow(),started:true,completed:false});emit();},
@@ -3487,7 +3637,7 @@ app.whenReady().then(async()=>{
   goals=new Goals(store,emit,goalHold,chatId=>projectFor(store.get<Chat>('chat',chatId)).mode,async(chatId,runId,text)=>{await handlers.submit({id:randomUUID(),chatId,text,goalRun:runId,models:goals.get(chatId)?.models||[]});});goals.recover();
   backgroundTimer=setInterval(()=>void background.refresh(),2000);backgroundTimer.unref();
   backend.rpc.onAny(event=>{try{receive(event);}catch(error){const message=backend.scrubber.text(String(error));store.put('connection-check',{id:randomUUID(),sessionId:event.session_id,at:Date.now(),error:message});backend.rpc.invalidate('Could not save reply event: '+message);}});backend.rpc.onRequest(request);
-  replyTimer=setInterval(()=>void reconcileReplies(),5000);replyTimer.unref();wakeWaiting();
+  replyTimer=setInterval(()=>void reconcileReplies(),5000);replyTimer.unref();setInterval(()=>void shareCheck().catch(()=>{}),60000).unref();wakeWaiting();
   mcp=new McpOwner(backend,stopped=>{if(quitting)return;if(stopped){mcpRows=mcpRows.map(row=>({...row,status:row.enabled?'Service stopped':'Off',tools:0}));emit();}else void refreshMcp();});
   // The theme's colours for the window buttons; only the main window's page may set them, and only as hex colours.
   ipcMain.on('title-bar',(event,colors)=>{const hex=/^#[0-9a-f]{3,8}$/i;if(!win||event.sender!==win.webContents||event.senderFrame!==event.sender.mainFrame||!hex.test(colors?.color)||!hex.test(colors?.symbolColor))return;try{win.setTitleBarOverlay({color:colors.color,symbolColor:colors.symbolColor,height:36});}catch{}});
@@ -3548,6 +3698,7 @@ app.whenReady().then(async()=>{
       else if(method==='chatLink'){if(!owns(store.get<Turn>('turn',args?.turnId).chatId))throw Error('This link belongs to another chat.');}
       else if(method==='backgroundStop'){if(!owns(store.get<BackgroundProcess>('background',args?.id).chatId))throw Error('This process belongs to another chat.');}
       else if(method==='backgroundRefresh'){await background.refresh();return;}
+      else if(['shareAiApprove','shareNotesSend','shareDismiss','shareOpen','shareRedraft'].includes(method)){if(!owns(store.find<ShareProject>('share-project',args?.id)?.chatId||''))throw Error('This share belongs to another chat.');}
       else throw Error('Open the main chat for this action.');
     }
     if(job){

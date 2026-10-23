@@ -70,8 +70,8 @@ def register(ctx):
             schema={'name': tool['name'], 'description': tool['description'], 'parameters': tool['inputSchema']},
             handler=lambda args, _operation=app_operations[tool['name']], **_: exchange(_operation, arguments=args))
     ctx.register_tool(name='publish_page' , toolset='trismegistus_mcp', description='Publish an HTML page publicly',
-        schema={'name': 'publish_page', 'description': "Publish an HTML page from the working folder to the user's publishing destination (Cloudflare Pages or GitHub Pages). The page and the files it links to inside its folder are published; the result is a public link. Only publish when the user asks.",
-                'parameters': {'type': 'object', 'properties': {'path': {'type': 'string', 'description': 'The HTML file, relative to the working folder'}}, 'required': ['path'], 'additionalProperties': False}},
+        schema={'name': 'publish_page', 'description': "Publish an HTML page from the working folder to the user's publishing destination (Cloudflare Pages or GitHub Pages). The page and the files it links to inside its folder are published; the result is a public link. With client true it is shared with the client instead: a private link with a notes layer, the same link for every new version (Share with clients). Only publish or share when the user asks.",
+                'parameters': {'type': 'object', 'properties': {'path': {'type': 'string', 'description': 'The HTML file, relative to the working folder'}, 'client': {'type': 'boolean', 'description': 'Share with the client at a private link with notes, instead of publishing publicly'}}, 'required': ['path'], 'additionalProperties': False}},
         handler=lambda args, **_: exchange('publish', arguments=args))
     ctx.register_tool(name='connected_tools', toolset='trismegistus_mcp', description='Discover connected MCP tools',
         schema={'name': 'connected_tools', 'description': 'List the shared MCP connections. Supply a connection ID to read its tools and input schemas before calling one.',
