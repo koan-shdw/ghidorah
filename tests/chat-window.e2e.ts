@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import {Backend,PYTHON} from '../app/backend';
+import {mainWindow} from './fixtures/poll-state';
 const working=await fs.mkdtemp(path.join(process.cwd(),'work','chat-window-workspace-'));
 const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/chat-window-')),namespace='Trismegistus/Test/'+path.basename(data),host=new Backend(root,data,namespace,()=>{});
 await host.host('initialize');await host.host('save_key',{key:'synthetic-deepseek-regression-credential'});
@@ -13,7 +14,7 @@ const fake=spawn(PYTHON,['tests/fake_provider.py'],{windowsHide:true,stdio:'pipe
 const app=await electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,args:process.env.TRISMEGISTUS_EXE?['--hidden']:[root,'--hidden'],env:{...process.env,TRISMEGISTUS_TEST_DATA:data,TRISMEGISTUS_TEST_PROVIDER_URL:JSON.parse(line).url}});
 await app.evaluate(({BrowserWindow})=>{BrowserWindow.prototype.show=function(){};BrowserWindow.prototype.focus=function(){};});
 try{
- const main=await app.firstWindow();main.setDefaultTimeout(15000);
+ const main=await mainWindow(app);main.setDefaultTimeout(15000);
  const invoke=(page:any,method:string,args:any={})=>page.evaluate(({method,args}:any)=>window.desktop.invoke(method,args),{method,args});
  const call=(method:string,args:any={})=>invoke(main,method,args);
  const wait=async(check:(s:any)=>boolean)=>{for(let n=0;n<900;n++){const s=await call('state');if(check(s))return s;await main.waitForTimeout(100);}throw Error('Timed out');};

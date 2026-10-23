@@ -2,9 +2,10 @@ import type {Page,ElectronApplication} from 'playwright';
 import type {Snapshot} from '../../app/types';
 
 // Test windows are often never shown, and a never-shown window does not advance CSS transitions: a row's 120 ms
-// background fade stays at its start, so Playwright never sees the element settle and every click waits out its
-// timeout (2026-10-23). Test pages run without transitions; keyframe animations are untouched.
-const NO_TRANSITIONS='*,*::before,*::after{transition:none!important}';
+// background fade stays at its start and a panel's entrance stays on its first frame, so Playwright never sees the
+// element settle and every click waits out its timeout (2026-10-23). Test pages run without transitions, and keyframe
+// animations finish at once (their names stay, so a test can still read which one ran).
+const NO_TRANSITIONS='*,*::before,*::after{transition:none!important;animation-duration:0s!important;animation-delay:0s!important}';
 export async function mainWindow(app:ElectronApplication){
   for(const end=Date.now()+30000;Date.now()<end;await new Promise(resolve=>setTimeout(resolve,100))){
     const page=app.windows().find(view=>/index\.html$/.test(view.url()));
