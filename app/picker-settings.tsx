@@ -60,3 +60,12 @@ function GlinerInstall({state,call}:{state:Snapshot;call:Call}){
   <div className="actions">{local?.installing?<button onClick={()=>void call('glinerCancel')}>Cancel installation</button>:<><button disabled={local?.loading} onClick={()=>void call('glinerInstall').catch(()=>{})}>{local?.installed?'Repair installation':'Install GLiNER locally'}</button>{local?.installed&&<button disabled={local.loading} onClick={()=>void call('glinerCheck').catch(()=>{})}>Load and check GLiNER</button>}</>}</div>
   <p className="hint">Pinned GLiNER2.5-Decide · CPU · 2.0 GB model download plus its own dependencies. It picks one answering model; when you pick models yourself, your picks answer.{local?.elapsedMs!=null?' Last local decision · '+local.elapsedMs+' ms':''}</p></>;
 }
+
+// Side answers (FEATURE-SPECS 2): the model that answers quick questions about running work, every model listed.
+export function SideAnswerSettings({state,call}:{state:Snapshot;call:Call}){
+ const models=state.availableModels||[];
+ return <section className="decision-settings side-answer-settings"><h3>Side answers</h3>
+  <p className="hint">While a model works, start a message with ?? to ask a quick question about it (how is it going, what is it doing): this model answers from what Ghidorah can see, without interrupting.</p>
+  <div className="connection-field"><span>Side answer model</span>{models.length?<ChoiceMenu label="Side answer model" value={state.sideAnswerModel||models[0]} options={Object.fromEntries(models.map(model=>[model,modelLabel(model)]))} onChange={model=>void call('sideAnswerModel',{model}).catch(()=>{})}/>:<span className="settings-status">Connect a model first</span>}</div>
+ </section>;
+}

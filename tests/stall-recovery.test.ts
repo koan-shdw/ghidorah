@@ -77,7 +77,7 @@ test('restart and backend loss preserve initiating stop causes and uncertain res
 });
 test('retrying Stop and send never interrupts the already-accepted follow-up',async()=>{
  const store=new Store(':memory:'),chat=store.chat(store.project().id),turn=store.accept('accepted',chat.id,'Continue');store.update<Turn>('turn',turn.id,{status:'running'});
- let stopped=false;const correct=main('correctGroup',{store,replyRow:()=>turn.id,handlers:{submit:async()=>turn.id,stop:async()=>{stopped=true;}}});
+ let stopped=false;const correct=main('correctGroup',{store,replyRow:()=>turn.id,submitTurn:async()=>turn.id,handlers:{stop:async()=>{stopped=true;}}});
  assert.equal(await correct({id:turn.id,chatId:chat.id,text:turn.prompt}),turn.id);assert.equal(stopped,false);store.db.close();
 });
 

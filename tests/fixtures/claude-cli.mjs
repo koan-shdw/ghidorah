@@ -19,6 +19,9 @@ if(process.argv.includes('--fixture-oneshot')){
  if(system.startsWith('Build an app overview'))result=JSON.stringify({items:[{kind:'current',text:'Claude fixture finding',evidence:[{sourceId:input.sources[0].id,quote:String(input.sources[0].text).slice(0,40)}]}]});
  if(system.startsWith('Write a short dashboard title'))result=JSON.stringify({items:input.todos.map(todo=>({id:todo.id,text:'Claude title'}))});
  if(system.startsWith('Review recent items for one app'))result=JSON.stringify({ideas:[{title:'Try Fixture video model',summary:'Open weights released.',why:'Local video rendering.',change:'Add it as a render backend.',effort:'small',sources:[input.items[0].id]},{title:'Unsourced',summary:'Not fetched.',change:'Do not show.',sources:['missing']}]});
+ // Side answers (FEATURE-SPECS 2): the sorter sends every message to the main model unless it carries SIDE_FIXTURE.
+ if(system.startsWith('The user sent this message while'))result=String(input.question).includes('SIDE_FIXTURE')?'Side fixture (sorted): '+input.live.status:'MAIN';
+ if(system.startsWith('The user asked a quick question'))result='Side fixture: '+input.live.status+', '+String(input.live.textSoFar||'').length+' characters so far.';
  process.stdout.write(JSON.stringify({is_error:false,result,usage:{input_tokens:500,output_tokens:80,cache_read_input_tokens:100,cache_creation_input_tokens:200}}));process.exit(0);
 }
 const lines=createInterface({input:process.stdin});
@@ -334,7 +337,7 @@ lines.on('line',async line=>{
     }
     result({result:'App inspection complete.'});
   }else if(spec.action==='reply'||spec.action==='slow'){
-    const reply=spec.action==='slow'?'Slow Claude stream. '.repeat(100):'Claude fixture retained copperfinch.';
+    const reply=spec.action==='slow'?'Slow Claude stream. '.repeat(spec.repeat||100):'Claude fixture retained copperfinch.';
     for(const text of reply.split(' ')){if(context.getStore().cancelled)return;send({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:text+' '}}});await new Promise(resolve=>setTimeout(resolve,30));}
     if(!context.getStore().cancelled)result({result:reply});
   }else if(spec.action==='cancel'){

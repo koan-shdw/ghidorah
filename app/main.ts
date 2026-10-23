@@ -65,6 +65,7 @@ import {toDataURL} from 'qrcode';
 import {readRoutine,nextFiring,tick,firingId,type Routine} from './routines';
 import {readScreenSettings,installedProgram,installedChrome,programs,type ToolProgram} from './browser-tools';
 import {ScreenDriver,screenTarget,hermesScreenTarget,screenActions,sendsEscape,processName,sameApp,screenGuidance,screenInstructions,screenBarPage,type ScreenTarget} from './screen-control';
+import {sideRoute,sideQuestion,saysMain,preferredSideModel,sideSystem,sideState} from './side-answers';
 import {workspacePath,listWorkspace,readWorkspaceFile,saveWorkspaceFile} from './workspace-files';
 import {createParallel,settleParallel,terminalJobStates,parallelContext} from './parallel';
 import {WorkCoordination,parallelTool,inspectionTool} from './work-coordination';
@@ -100,7 +101,7 @@ import {nativePluginCatalog,reviewNativePlugin,reviewHermesPlugin,installNativeP
 import {redactPastedKeys} from './redaction';
 import {webTools,researchTool} from './web-research';
 import artFonts from '../third-party/taag/fonts.json';
-import type {Project,Chat,Turn,Approval,ToolCall,Mode,CodexConnection,ClaudeConnection,ModelPrice,Snapshot} from './types';
+import type {Project,Chat,Turn,Approval,ToolCall,Mode,CodexConnection,ClaudeConnection,ModelPrice,Snapshot,SideAnswer} from './types';
 
 protocol.registerSchemesAsPrivileged(['tris-preview','tris-inline'].map(scheme=>({scheme,privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true,stream:true}})));
 const root=app.isPackaged?process.resourcesPath:path.resolve(__dirname,'..');
@@ -453,7 +454,7 @@ function dockableJobChats(turns:Turn[]){const latest=new Map<string,Turn>();for(
 // Shows an approval. Its action steps out of the work lock until the user answers, so other chats' work goes on
 // (Koan 2026-10-15: one chat waiting for Allow stalled another chat's command for ten minutes).
 function askApproval(row:Approval){store.put('approval',row);if(row.method==='approval')coordination.ask(row.turnId,row.params.description,row.params.command);}
-function snapshot(options:{tools?:boolean}={}){const base=store.snapshot(options),summaryUsage=store.all<{chatId:string;model:string;tokens:number|null}>('context-usage');base.chats=base.chats.map(chat=>({...chat,compacting:contextJobs.has(chat.id)?{done:contextJobs.get(chat.id)!.done,total:contextJobs.get(chat.id)!.total}:undefined,summarizationUsage:summaryUsage.filter(row=>row.chatId===chat.id).map(({model,tokens})=>({model,tokens}))}));const shareChats=base.chats.filter(chat=>!chat.archived&&!chat.sideSourceId),shareTargets=[...new Set(shareChats.map(chat=>chat.projectId))].map(projectId=>({projectId,title:shareChats.filter(chat=>chat.projectId===projectId).map(chat=>chat.title).join(" · ")}));return {...base,shareTargets,workspaceWindows:[...workspaceWindows.keys()],agentWindows:[...jobWindows.keys()].filter(id=>id.startsWith('agent:')).map(id=>id.slice(6)),jobWindows:[...jobWindows.keys()].filter(id=>!id.startsWith('agent:')),jobChats:dockableJobChats(base.turns),chatWindows:[...chatWindows.keys()],providerUrls:providerUrls(),chatLayout:store.all<any>('settings').find(row=>row.id==='chat-layout')||null,paneLayout:store.all<any>('settings').find(row=>row.id==='pane-layout')?.tree||null,paneWorkspace:readPaneWorkspace(store.all<any>('settings').find(row=>row.id==='pane-layout')?.workspace),publishing:publishing(),updates:{current:app.getVersion(),dev,mode:updateSettings().mode,status:appUpdates?.status||'',available:appUpdates?.available||null,downloaded:!!appUpdates?.downloaded,checking:!!appUpdates?.checking,downloading:!!appUpdates?.downloading,percent:appUpdates?.percent??null,failed:appUpdates?.failed||'',rolledBack:updateRolledBack,show:updateShow,history:(whatsNew as WhatsNew[]).filter(entry=>compareVersions(entry.version,app.getVersion())<=0).reverse(),discovery:{...discoverySettings(),status:discoveryStatus,running:!!discoveryRun,result:store.all<any>('discovery').at(-1)?.result||null},hermes:{pinned:hermesPin().version,fork:hermesPin().fork,status:hermesStatus,releases:store.all<any>('hermes-release').sort((a,b)=>b.published.localeCompare(a.published)).map(({id,...row})=>row)}},browserTools:{...screenSettings(),apps:screenApps(),chrome:!!installedChrome(),on:toolAccess().on,programs:Object.fromEntries((Object.keys(programs) as ToolProgram[]).map(program=>[program,{version:programs[program].version,installed:!!(program==='agent-browser'?toolPaths().browser:toolPaths().computer)}]))},alwaysOn:{...alwaysOn(),awake:awakeBlocker!==null},routines:store.all<Routine>('routine'),voice:{...voiceSettings(),wake:wakeSettings(),speech:speechInstalled(),ready:speechReady(),installing:!!speechInstall,progress:speechProgress},wizard:{show:wizardOpen,pending:!wizardDecided,steps:wizardRow().steps||{},start:wizardStart},remote:{...remoteSettings(),paired:!!remoteSecret,waiting:remoteShown()?.kind||null,target:remoteChats().find(chat=>chat.id===remoteSettings().chatId)?.title||remoteChats()[0]?.title||null,alerts:store.all<any>('remote-alert').slice(-10).reverse(),tokenSaved:!!remoteRow()?.tokenSaved,installed:telegramInstalled(),installing:!!telegramInstall,status:remoteGateway?.status||'off',message:(remoteGateway?.message||'').replace(/\d{5,}:[\w-]{30,}/g,'[token]'),...(namespace.startsWith('Trismegistus/Test/')?{pid:remoteGateway?.pid}:{})},keyRotation:store.all<any>('settings').find(row=>row.id==='key-rotation')?.done||{},decisionEngine:{selected:decisionEngine(),connected:classifierActive(),status:pickerStatus(decisionEngine()),pickers:pickers.map(row=>({id:row.id,label:row.label,connected:pickerConnected(row.id),status:pickerStatus(row.id)}))},gliner:gliner?.state(),pickerSettings:Object.fromEntries(pickers.filter(row=>row.id!=='jev').map(row=>[row.id,pickerSettings(row.id)])),pluginChanges:pluginChanges.rows(),savedApps:savedAppRows(base),savedAppGroups:store.all<import('./saved-apps').SavedAppGroup>('saved-app-group'),sidebar:{groups:sidebar.groups(),preferences:sidebar.preferences()},goals:goals?.rows()||[],background:[...(background?.rows()||[]),...(native?.rows()||[])],workReview:[],jev:{connected:!!jevKey,status:jevStatus,summaryModel:jevSettings().summaryModel,confidence:jevSettings().confidence,timeoutMs:jevSettings().timeoutMs},connected,backend:backend.status,defaultMode:store.defaultMode(),providerStatus,balance,balanceCheckedAt,defaultFolder:defaultFolder(),codex,claude,apiProviders:apiProviders?.rows()||[],availability:health.rows(),availableModels:availableModels(),modelPrices,deepseekModels:deepseekModels(),defaultModels:defaultModels(),favouriteModels:favouriteModels(),mcp:mcpRows.map(row=>({...row,signingIn:mcpLogins.has(row.id)})),mcpError,commands:[{name:'/compact',description:'Summarize older messages and continue in this chat. Add a focus after the command.',plugin:'Ghidorah',kind:'Command'},...reviewCommands,...sharedCommands(store.all<NativePluginInstall>('native-plugin')),...pluginHandlers.map(({name,description,plugin,kind})=>({name,description,plugin,kind}))].sort((a,b)=>a.name.localeCompare(b.name))};}
+function snapshot(options:{tools?:boolean}={}){const base=store.snapshot(options),summaryUsage=store.all<{chatId:string;model:string;tokens:number|null}>('context-usage');base.chats=base.chats.map(chat=>({...chat,compacting:contextJobs.has(chat.id)?{done:contextJobs.get(chat.id)!.done,total:contextJobs.get(chat.id)!.total}:undefined,summarizationUsage:summaryUsage.filter(row=>row.chatId===chat.id).map(({model,tokens})=>({model,tokens}))}));const shareChats=base.chats.filter(chat=>!chat.archived&&!chat.sideSourceId),shareTargets=[...new Set(shareChats.map(chat=>chat.projectId))].map(projectId=>({projectId,title:shareChats.filter(chat=>chat.projectId===projectId).map(chat=>chat.title).join(" · ")}));return {...base,sideAnswers:store.all<SideAnswer>('side-answer').slice(-300),sideAnswerModel:sideModel(),shareTargets,workspaceWindows:[...workspaceWindows.keys()],agentWindows:[...jobWindows.keys()].filter(id=>id.startsWith('agent:')).map(id=>id.slice(6)),jobWindows:[...jobWindows.keys()].filter(id=>!id.startsWith('agent:')),jobChats:dockableJobChats(base.turns),chatWindows:[...chatWindows.keys()],providerUrls:providerUrls(),chatLayout:store.all<any>('settings').find(row=>row.id==='chat-layout')||null,paneLayout:store.all<any>('settings').find(row=>row.id==='pane-layout')?.tree||null,paneWorkspace:readPaneWorkspace(store.all<any>('settings').find(row=>row.id==='pane-layout')?.workspace),publishing:publishing(),updates:{current:app.getVersion(),dev,mode:updateSettings().mode,status:appUpdates?.status||'',available:appUpdates?.available||null,downloaded:!!appUpdates?.downloaded,checking:!!appUpdates?.checking,downloading:!!appUpdates?.downloading,percent:appUpdates?.percent??null,failed:appUpdates?.failed||'',rolledBack:updateRolledBack,show:updateShow,history:(whatsNew as WhatsNew[]).filter(entry=>compareVersions(entry.version,app.getVersion())<=0).reverse(),discovery:{...discoverySettings(),status:discoveryStatus,running:!!discoveryRun,result:store.all<any>('discovery').at(-1)?.result||null},hermes:{pinned:hermesPin().version,fork:hermesPin().fork,status:hermesStatus,releases:store.all<any>('hermes-release').sort((a,b)=>b.published.localeCompare(a.published)).map(({id,...row})=>row)}},browserTools:{...screenSettings(),apps:screenApps(),chrome:!!installedChrome(),on:toolAccess().on,programs:Object.fromEntries((Object.keys(programs) as ToolProgram[]).map(program=>[program,{version:programs[program].version,installed:!!(program==='agent-browser'?toolPaths().browser:toolPaths().computer)}]))},alwaysOn:{...alwaysOn(),awake:awakeBlocker!==null},routines:store.all<Routine>('routine'),voice:{...voiceSettings(),wake:wakeSettings(),speech:speechInstalled(),ready:speechReady(),installing:!!speechInstall,progress:speechProgress},wizard:{show:wizardOpen,pending:!wizardDecided,steps:wizardRow().steps||{},start:wizardStart},remote:{...remoteSettings(),paired:!!remoteSecret,waiting:remoteShown()?.kind||null,target:remoteChats().find(chat=>chat.id===remoteSettings().chatId)?.title||remoteChats()[0]?.title||null,alerts:store.all<any>('remote-alert').slice(-10).reverse(),tokenSaved:!!remoteRow()?.tokenSaved,installed:telegramInstalled(),installing:!!telegramInstall,status:remoteGateway?.status||'off',message:(remoteGateway?.message||'').replace(/\d{5,}:[\w-]{30,}/g,'[token]'),...(namespace.startsWith('Trismegistus/Test/')?{pid:remoteGateway?.pid}:{})},keyRotation:store.all<any>('settings').find(row=>row.id==='key-rotation')?.done||{},decisionEngine:{selected:decisionEngine(),connected:classifierActive(),status:pickerStatus(decisionEngine()),pickers:pickers.map(row=>({id:row.id,label:row.label,connected:pickerConnected(row.id),status:pickerStatus(row.id)}))},gliner:gliner?.state(),pickerSettings:Object.fromEntries(pickers.filter(row=>row.id!=='jev').map(row=>[row.id,pickerSettings(row.id)])),pluginChanges:pluginChanges.rows(),savedApps:savedAppRows(base),savedAppGroups:store.all<import('./saved-apps').SavedAppGroup>('saved-app-group'),sidebar:{groups:sidebar.groups(),preferences:sidebar.preferences()},goals:goals?.rows()||[],background:[...(background?.rows()||[]),...(native?.rows()||[])],workReview:[],jev:{connected:!!jevKey,status:jevStatus,summaryModel:jevSettings().summaryModel,confidence:jevSettings().confidence,timeoutMs:jevSettings().timeoutMs},connected,backend:backend.status,defaultMode:store.defaultMode(),providerStatus,balance,balanceCheckedAt,defaultFolder:defaultFolder(),codex,claude,apiProviders:apiProviders?.rows()||[],availability:health.rows(),availableModels:availableModels(),modelPrices,deepseekModels:deepseekModels(),defaultModels:defaultModels(),favouriteModels:favouriteModels(),mcp:mcpRows.map(row=>({...row,signingIn:mcpLogins.has(row.id)})),mcpError,commands:[{name:'/compact',description:'Summarize older messages and continue in this chat. Add a focus after the command.',plugin:'Ghidorah',kind:'Command'},...reviewCommands,...sharedCommands(store.all<NativePluginInstall>('native-plugin')),...pluginHandlers.map(({name,description,plugin,kind})=>({name,description,plugin,kind}))].sort((a,b)=>a.name.localeCompare(b.name))};}
 // Window refreshes carry only the tools of the chats a window shows (RUN-PLAN 3b): every tool ever recorded was
 // 276 ms to build and 65 MB per window per refresh on Koan's data. A direct 'state' request still gets everything.
 function toolsForChats(state:{turns:Turn[]},chatIds:Set<string>){
@@ -905,7 +906,7 @@ async function screenStep(turn:Turn,tool:string,args:any,target:ScreenTarget,sig
   const app=target.kind==='screen'?'Whole screen':target.kind==='named'?target.name:await processName(target.pid);
   if(![...screenApps(),...(store.get<Chat>('chat',chat.id).screenApps||[])].some(name=>sameApp(name,app))){
     const choice=await screenAsk(turn,app,signal);
-    if(choice==='deny')throw Error((app==='Whole screen'?'Koan did not allow the whole screen':'Koan did not allow '+app)+'. Ask him in the chat before trying again.');
+    if(choice==='deny')throw Error((app==='Whole screen'?'The user did not allow the whole screen':'The user did not allow '+app)+'. Ask them in the chat before trying again.');
     if(choice==='always')store.put('settings',{id:'screen-apps',apps:[...screenApps(),app]});
     else store.update<Chat>('chat',chat.id,{screenApps:[...(store.get<Chat>('chat',chat.id).screenApps||[]),app]});
   }
@@ -2212,6 +2213,36 @@ async function contextCompletion(chat:Chat,model:string,system:string,prompt:str
  signal.throwIfAborted();const usage=answer.usage,count=typeof usage?.total_tokens==='number'?usage.total_tokens:claudeTurnUsage({usage}).turn_total;
  return {text:redactPastedKeys(backend.scrubber.text(String(answer.text||''))).trim(),tokens:Number.isSafeInteger(count)&&count>=0?count:null};
 }
+// Side answers (FEATURE-SPECS 2). The model Koan picked, else the newest fast one he has connected.
+function sideModel():string|null{const ready=availableModels(),saved=store.all<any>('settings').find(row=>row.id==='side-answers')?.model;return ready.includes(saved)?saved:preferredSideModel(ready);}
+const sideRow=(id:unknown,chatId:unknown)=>{const row=typeof id==='string'?store.find<SideAnswer>('side-answer',id):null;if(!row||row.chatId!==chatId)throw Error('This side answer belongs to another chat.');return row;};
+// A message from the message box: a side answer takes it (its id is returned) or it goes to the main model (null).
+// The running turn is never touched: the side model only reads a copy of the live state.
+async function sideFirst({id,chatId,text,goalRun}:any):Promise<string|null>{
+  if(goalRun||typeof text!=='string'||typeof chatId!=='string'||! /^[\w-]{10,80}$/.test(id))return null;
+  const chat=store.find<Chat>('chat',chatId);if(!chat||chat.parentChatId||chat.archived)return null;
+  if(store.find<SideAnswer>('side-answer',id))return id;
+  const running=replyRow(chatId),route=sideRoute(text,{running:!!running,attachments:!!chat.attachments?.length}),model=sideModel();
+  // Only "??" for now: any other message reaches the engine at once, as the turn layer delivers it mid-reply.
+  if(route!=='side'||!model)return null;
+  if(backend.scrubber.text(text)!==text||redactPastedKeys(text)!==text)throw Error('This looks like an API key. Save it in Settings.');
+  const roots=store.all<Turn>('turn').filter(t=>t.chatId===chatId&&!t.parentTurnId),turn=running?store.get<Turn>('turn',running):roots.at(-1);
+  if(!turn)return null;
+  const forced=route==='side',question=forced?sideQuestion(text):text;
+  store.put<SideAnswer>('side-answer',{id,chatId,turnId:turn.id,question,model,forced,status:forced?'answering':'sorting',text:'',created:Date.now()});emit();
+  try{
+    const jobs=(turn.jobs||[]).map(job=>store.find<Turn>('turn',job)).filter((job):job is Turn=>!!job);
+    const live=sideState({turn,jobs,tools:store.whereIn<ToolCall>('tool','turnId',[turn.id,...jobs.map(job=>job.id)]),queued:roots.filter(t=>['queued','needs-model'].includes(t.status)),recent:roots.filter(t=>t.status==='completed'&&t.id!==turn.id).slice(-3),now:Date.now()});
+    const answer=await contextCompletion(chat,model,sideSystem(forced),JSON.stringify({question,live}),new AbortController().signal,true);
+    if(!forced&&saysMain(answer.text)){store.remove('side-answer',id);emit();return null;}
+    store.update<SideAnswer>('side-answer',id,{status:'done',text:answer.text,tokens:answer.tokens});
+  }catch(error){
+    // Unsure goes to the main model; a ?? question shows why it got no answer.
+    if(!forced){store.remove('side-answer',id);emit();return null;}
+    store.update<SideAnswer>('side-answer',id,{status:'failed',text:'No side answer: '+backend.scrubber.text(error instanceof Error?error.message:String(error))});
+  }
+  emit();return id;
+}
 async function queryHistory(turn:Turn,args:any,signal:AbortSignal){
  const chat=store.get<Chat>('chat',turn.chatId);
  return queryChatHistory(store,turn,args,signal,(system,prompt,signal)=>contextCompletion(chat,turn.model,system,prompt,signal,true)).finally(emit);
@@ -2898,7 +2929,21 @@ const handlers:Record<string,(args:any)=>any>={
     }finally{uploading.delete(chatId);}
   },
   attachmentRemove({chatId,id}){const chat=store.get<Chat>('chat',chatId);store.update<Chat>('chat',chatId,{attachments:(chat.attachments||[]).filter(a=>a.id!==id)});emit();},
-  async submit(args){return submitTurn(args);},
+  async submit(args){return await sideFirst(args)??submitTurn(args);},
+  // "Tell the main model": his question and the side answer go to the main model as a correction (Stop and send).
+  async sideAnswerTell({id,chatId}){
+    const row=sideRow(id,chatId);if(row.status!=='done'||row.sent)throw Error('This side answer cannot be sent.');
+    const sent=await handlers.correctGroup({id:randomUUID(),chatId,text:row.question+'\n\n(A side answer from '+modelLabel(row.model,claude.models)+', read from the live state while you worked: '+row.text+')'});
+    store.update<SideAnswer>('side-answer',id,{sent:'told',closed:true});emit();return sent;
+  },
+  // "Ask the main model instead": his question is queued for the main model as a normal message.
+  async sideAnswerAsk({id,chatId}){
+    const row=sideRow(id,chatId);if(row.sent)throw Error('This question was already sent.');
+    const sent=await submitTurn({id:randomUUID(),chatId,text:row.question});
+    store.update<SideAnswer>('side-answer',id,{sent:'asked',closed:true});emit();return sent;
+  },
+  sideAnswerClose({id,chatId}){sideRow(id,chatId);store.update<SideAnswer>('side-answer',id,{closed:true});emit();},
+  sideAnswerModel({model}){if(typeof model!=='string'||!availableModels().includes(model))throw Error('Choose an available model for side answers.');store.put('settings',{id:'side-answers',model});emit();},
   sendPaused({id}){const turn=store.get<Turn>('turn',id);if(turn.status!=='queued'||!turn.paused)throw Error('This message is not paused.');store.update<Turn>('turn',id,{paused:false});emit();wake(turn.chatId);},
   async cancelQueued({id}){const turn=store.get<Turn>('turn',id);if(turn.automatic)throw Error('This message is already being sent.');
     if(turn.status==='running'&&turn.delivery){if(!await native.withdraw(turn.chatId,id))throw Error('Claude has already started on this message.');}
@@ -3178,12 +3223,12 @@ const handlers:Record<string,(args:any)=>any>={
   },
   openParent({chatId,turnId}){const turn=typeof turnId==='string'?store.get<Turn>('turn',turnId):null,chat=store.get<Chat>('chat',turn?.chatId||chatId);if(!chat.parentChatId&&turn?.automatic?.kind!=='agent')throw Error('Not a side job.');const id=chat.parentChatId||chat.id,owner=chatWindows.get(id)||win;owner.show();owner.focus();if(owner===win)win.webContents.send('select-chat',id);},
   async correctGroup({id,chatId,text}){
-    if(store.all<Turn>('turn').some(turn=>turn.id===id)||store.all<any>('turn-removed').some(row=>row.id===id))return handlers.submit({id,chatId,text});
-    if(typeof text==='string'&&/^\/compact(?:\s|$)/i.test(text.trim()))return handlers.submit({id,chatId,text});
-    const current=replyRow(chatId);if(!current)return handlers.submit({id,chatId,text});
+    if(store.all<Turn>('turn').some(turn=>turn.id===id)||store.all<any>('turn-removed').some(row=>row.id===id))return submitTurn({id,chatId,text});
+    if(typeof text==='string'&&/^\/compact(?:\s|$)/i.test(text.trim()))return submitTurn({id,chatId,text});
+    const current=replyRow(chatId);if(!current)return submitTurn({id,chatId,text});
     const turn=store.get<Turn>('turn',current),chat=store.get<Chat>('chat',chatId);
     const models=chat.selectedModels?.length?chat.selectedModels:turn.command||turn.routePending?undefined:turn.jobs?[...new Set(turn.jobs.map(id=>store.get<Turn>('turn',id)).filter(job=>!terminalJobStates.has(job.status)).map(job=>job.model))]:[turn.model];
-    await handlers.submit({id,chatId,text,models});if(replyRow(chatId)===current)await handlers.stop({chatId,reason:'superseded-by-message'});return id;
+    await submitTurn({id,chatId,text,models});if(replyRow(chatId)===current)await handlers.stop({chatId,reason:'superseded-by-message'});return id;
   },
   async correctJob({id,chatId,text,queue=false}){
     const chat=store.get<Chat>('chat',chatId);
@@ -3240,7 +3285,7 @@ const handlers:Record<string,(args:any)=>any>={
 };
 function chatSnapshot(chatId:string,state:ReturnType<typeof snapshot>=snapshot({tools:false})){
  const chats=sidebar.owned(chatId),owners=new Set(chats.map(c=>c.id)),turns=state.turns.filter(t=>owners.has(t.chatId)),ids=new Set(turns.map(t=>t.id));
- return {...state,savedApps:[],sidebar:undefined,chats,projects:state.projects.filter(p=>chats.some(c=>c.projectId===p.id)),turns,tools:store.whereIn<ToolCall>('tool','turnId',[...ids]),approvals:state.approvals.filter(a=>owners.has(a.chatId)),background:state.background.filter(row=>owners.has(row.chatId)),goals:state.goals.filter(goal=>goal.id===chatId),workReview:[]};
+ return {...state,savedApps:[],sidebar:undefined,chats,projects:state.projects.filter(p=>chats.some(c=>c.projectId===p.id)),turns,tools:store.whereIn<ToolCall>('tool','turnId',[...ids]),approvals:state.approvals.filter(a=>owners.has(a.chatId)),background:state.background.filter(row=>owners.has(row.chatId)),goals:state.goals.filter(goal=>goal.id===chatId),sideAnswers:state.sideAnswers.filter(row=>owners.has(row.chatId)),workReview:[]};
 }
 type SavedWorkspaceWindow={view:WorkspaceView;chatId:string;root:string|null;directory:string;file?:string;diff?:{file:string;staged:boolean};bounds?:WindowBounds;maximized?:boolean};
 type WorkspaceWindow={info:SavedWorkspaceWindow;window:BrowserWindow;preview:Previews};
@@ -3475,12 +3520,12 @@ app.whenReady().then(async()=>{
       if(method==='previewLayout'&&!args?.bounds)return;
       if(!['previewState','previewBrowser'].includes(method))throw Error('Open this preview in its chat window.');
     }
-    if(!job&&!chatView&&['draft','submit','correctGroup','attachmentAdd','attachmentRemove','reviewDraft','dictate'].includes(method)&&chatWindows.has(args?.chatId))throw Error('Continue this chat in its open window, or return it to the main window.');
+    if(!job&&!chatView&&['draft','submit','correctGroup','sideAnswerTell','sideAnswerAsk','sideAnswerClose','attachmentAdd','attachmentRemove','reviewDraft','dictate'].includes(method)&&chatWindows.has(args?.chatId))throw Error('Continue this chat in its open window, or return it to the main window.');
     if(chatView){
       const owns=(id:string)=>sidebar.owned(chatView).some(c=>c.id===id);
       if(method==='state')return chatSnapshot(chatView);
       if(method==='window'){const view=chatWindows.get(chatView)!;if(args?.action==='close')view.close();else if(args?.action==='minimize')view.minimize();else if(args?.action==='maximize')view.isMaximized()?view.unmaximize():view.maximize();return;}
-      if(['correctGroup','submit','draft','modelSelection','modelLock','selectorModel','effort','attachmentAdd','attachmentRemove','openMainChat','addModel','removeModel','goalSet','goalPause','goalResume','goalClear','sideChatKeep','sideChatDiscard','reviewDraft','dictate','dictationCancel'].includes(method)){if(args?.chatId!==chatView)throw Error('This action belongs to another chat.');}
+      if(['correctGroup','submit','sideAnswerTell','sideAnswerAsk','sideAnswerClose','draft','modelSelection','modelLock','selectorModel','effort','attachmentAdd','attachmentRemove','openMainChat','addModel','removeModel','goalSet','goalPause','goalResume','goalClear','sideChatKeep','sideChatDiscard','reviewDraft','dictate','dictationCancel'].includes(method)){if(args?.chatId!==chatView)throw Error('This action belongs to another chat.');}
       else if(method==='chatFiles'){if(!owns(args?.chatId))throw Error('This file belongs to another chat.');}
       else if(['contextSettings','exportChat','contextInfo','contextGenerate','contextCancel','contextApply','contextReset','checkpointPreview','checkpointRestore','branchMessage','workspaceGit','workspaceGitCancel','shareSummary','shareToProject','publishPreview'].includes(method)){if(args?.chatId!==chatView)throw Error('This action belongs to another chat.');}
       else if(method==='sideChatOpen'){if(args?.chatId!==chatView)throw Error('This action belongs to another chat.');const id=await handlers.sideChatOpen(args);openChatWindow(id);return id;}
