@@ -174,9 +174,16 @@
 .app-overview h2{font-size:var(--fs-title)}
 .sidebar-tools .nav span{white-space:nowrap}
 .model-pill{position:relative}
-.model-usage-tooltip{display:none;position:absolute;bottom:calc(100% + 10px);left:0;z-index:var(--z-tooltip);width:295px;max-width:calc(100vw - 30px);padding:13px 15px;background:var(--raised);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-popover);font-size:var(--fs-ui);pointer-events:none;color:var(--text)}
-.model-usage-tooltip>strong,.model-usage-tooltip>span,.model-usage-tooltip>small{display:block;margin-bottom:5px;line-height:1.45}
-.model-usage-tooltip>small{color:var(--muted)}
+.model-usage-tooltip{display:none;position:absolute;bottom:calc(100% + 10px);left:0;z-index:var(--z-tooltip);width:300px;max-width:calc(100vw - 30px);padding:var(--space-6) var(--space-7);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-popover);font-size:var(--fs-ui);pointer-events:none;color:var(--text)}
+.model-usage-tooltip h3{font-size:var(--fs-ui);font-weight:var(--fw-strong);margin:0;overflow-wrap:anywhere}
+.model-usage-tooltip p{margin:0}
+.model-usage-tooltip .usage-account-heading{margin-bottom:var(--space-4)}
+.usage-tip-tokens{display:flex;align-items:baseline;gap:var(--space-3)}
+.usage-tip-tokens strong{font-size:var(--fs-title);font-weight:var(--fw-strong)}
+.usage-tip-tokens span,.usage-tip-note{color:var(--muted);font-size:var(--fs-meta)}
+.usage-tip-note{margin-top:var(--space-1)}
+.model-usage-tooltip small{color:var(--muted);font-size:var(--fs-meta);line-height:1.4}
+.model-usage-tooltip .usage-window:first-of-type{border-top:1px solid var(--line);margin-top:var(--space-5);padding-top:var(--space-4)}
 .model-tab:hover+.model-usage-tooltip,.model-tab:focus+.model-usage-tooltip{display:block}
 .model-disclosure{margin-left:auto}
 .app-summary-controls{border:1px solid var(--line);border-radius:var(--r-lg);padding:16px;margin-bottom:20px;background:var(--surface)}

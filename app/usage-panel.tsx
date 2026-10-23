@@ -7,27 +7,31 @@ import {modelUsage,usageModels,resetLabel,windowLabel} from './usage';
 import {picker,pickerTokens} from './pickers';
 import {ContextDialog} from './context-dialog';
 
-const compact=(value:number)=>Intl.NumberFormat(undefined,{notation:'compact',maximumFractionDigits:1}).format(value);
-function Meter({label,used,max=100,remaining=false}:{label:string;used:number;max?:number;remaining?:boolean}){
+export const compact=(value:number)=>Intl.NumberFormat(undefined,{notation:'compact',maximumFractionDigits:1}).format(value);
+export function Meter({label,used,max=100,remaining=false}:{label:string;used:number;max?:number;remaining?:boolean}){
   const percent=used/max*100;
-  return <progress aria-label={label} className={(remaining?'remaining ':'')+(percent>=100?'exhausted':percent>=80?'warning':'')} value={Math.max(0,Math.min(remaining?max-used:used,max))} max={max}/>;
+  return <progress aria-label={label} className={'usage-meter '+(remaining?'remaining ':'')+(percent>=100?'exhausted':percent>=80?'warning':'')} value={Math.max(0,Math.min(remaining?max-used:used,max))} max={max}/>;
 }
-function shortReset(value:string|null,now:number){
+export function shortReset(value:string|null,now:number){
   if(value&&Date.parse(value)-now>=86400000)return 'Resets '+new Date(value).toLocaleString(undefined,{weekday:'short',hour:'numeric',minute:'2-digit'});
   return resetLabel(value,now);
 }
 function AccountUsage({name,connection,now}:{name:string;connection?:Omit<ClaudeConnection,'models'>;now:number}){
   return <section className="usage-account" aria-label={name+' account usage'}>
     <div className="usage-account-heading"><h3>{name}</h3><span title={connection?.status}>{connection?.plan||'Subscription'}</span></div>
-    {connection?.windows?.length?connection.windows.map((window,index)=>{
-      const label=windowLabel(window.label,window.durationSeconds),used=window.usedPercent;
-      return <div className="usage-window" key={index}>
-        <div><span>{label}</span><strong className={used!=null&&used>=100?'usage-exhausted':used!=null&&used>=80?'usage-warning':''} title={used==null?undefined:used.toLocaleString()+'% used'}>{used==null?'Unavailable':`${Math.max(0,100-used).toLocaleString()}% left`}</strong></div>
-        {used!=null&&<Meter label={name+' '+label+' remaining'} used={used} remaining/>}
-        <small title={window.resetAt?new Date(window.resetAt).toLocaleString():undefined}>{shortReset(window.resetAt,now)}</small>
-      </div>;
-    }):<p className="usage-unavailable">{connection?.connected?'Windows unavailable':connection?.status||'Not connected'}</p>}
+    {connection?.windows?.length?<UsageWindows name={name} windows={connection.windows} now={now}/>:<p className="usage-unavailable">{connection?.connected?'Windows unavailable':connection?.status||'Not connected'}</p>}
   </section>;
+}
+// One account's limit windows: name, what is left (amber from 80% used, red when spent), a bar and the reset.
+export function UsageWindows({name,windows,now}:{name:string;windows:NonNullable<ClaudeConnection['windows']>;now:number}){
+  return <>{windows.map((window,index)=>{
+    const label=windowLabel(window.label,window.durationSeconds),used=window.usedPercent;
+    return <div className="usage-window" key={index}>
+      <div><span>{label}</span><strong className={used!=null&&used>=100?'usage-exhausted':used!=null&&used>=80?'usage-warning':''} title={used==null?undefined:used.toLocaleString()+'% used'}>{used==null?'Unavailable':`${Math.max(0,100-used).toLocaleString()}% left`}</strong></div>
+      {used!=null&&<Meter label={name+' '+label+' remaining'} used={used} remaining/>}
+      <small title={window.resetAt?new Date(window.resetAt).toLocaleString():undefined}>{shortReset(window.resetAt,now)}</small>
+    </div>;
+  })}</>;
 }
 // Level, sign-in state with its dot, and the live vendor address under each model (F7, 5.21 M3).
 function ModelDetails({state,chat,model}:{state:Snapshot;chat?:Chat;model:string}){
