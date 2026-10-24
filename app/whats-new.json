@@ -115,5 +115,10 @@
     "Long command output no longer weighs down the window; an action loads its full output when you open it.",
     "After a Hermes model patches a file, it can edit that file again without reading it first.",
     "In parallel work, Claude jobs get your message once, not twice."
+  ]},
+  {"version":"0.1.24","date":"2026-10-24","notes":[
+    "Handover mode: Hand off (in the chat menu, or type /handoff) has the chat write a handover. START HANDOVER under it opens the next chat in the series, numbered, with the same settings, and keeps the old chat beside it in Plan mode.",
+    "During a handover, Show old chat and Send to new chat move only what is new between the two chats. Close handover unpins the old chat and gives it its own mode back.",
+    "The first time a chat's context is compressed, a chip by the context ring suggests a handoff."
   ]}
 ]
