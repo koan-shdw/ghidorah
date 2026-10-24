@@ -546,3 +546,20 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .wizard-body :where(input:not([type=checkbox]):not([type=radio]),select){width:100%;min-width:0;padding:var(--space-4) var(--space-5);border:1px solid var(--line);border-radius:var(--r);background:var(--bg);color:var(--text)}
 /* The update window reads like settings: each choice is a row */
 .update-window .connection-field:has(>.choice-menu,>select){display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,50%);align-items:center;column-gap:var(--space-7);margin:var(--space-4) 0}
+/* Handover mode (handover-ui.tsx): the bar reads like the branch notice; START and Send sit under the reply */
+.handover-notice{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:8px 20px;padding:8px 12px;border:1px solid var(--line);border-radius:var(--r-lg);color:var(--muted);font-size:var(--fs-meta);line-height:1.5}
+.handover-notice strong{color:var(--text)}
+.handover-notice>span{flex:1 1 240px}
+.handover-notice .sidebar-icon{width:16px;height:16px;flex:none}
+.handover-notice button,.handover-actions button{padding:3px 9px;border:1px solid var(--line);border-radius:var(--r-pill);color:var(--accent)}
+.handover-notice button:disabled{color:var(--muted)}
+.handover-actions{display:flex;justify-content:flex-start;margin-top:6px;font-size:var(--fs-meta)}
+.handover-start{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-lg);font-size:var(--fs-meta)}
+.handover-start-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.handover-start-row label{display:flex;align-items:center;gap:6px;color:var(--muted)}
+.handover-check{margin-top:8px;color:var(--muted);line-height:1.5}
+.handover-check strong{color:var(--text)}
+.handover-check ul{margin:4px 0 0;padding-left:18px}
+.handover-chip{display:inline-flex;align-items:center;border-radius:var(--r-pill);background:var(--surface);color:var(--muted);font-size:var(--fs-meta)}
+.handover-chip button{padding:0 var(--space-3);min-height:var(--h);color:inherit}
+.handover-chip button:first-child{padding-left:var(--space-4);color:var(--accent)}

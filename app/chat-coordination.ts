@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import type {Store} from './store';
 import type {Chat,Turn} from './types';
 import {readChatHistory} from './chat-context';
+import {seriesBefore} from './handover';
 import catalog from '../plugins/trismegistus-permissions/chat-tools.json';
 
 export const chatTools=catalog;
@@ -15,9 +16,9 @@ function page(args:any){const offset=args.offset??0,limit=args.limit??10;if(!Num
 function valid(name:string,args:any){const schema=chatTools.find(t=>t.name===name)?.inputSchema;if(!schema||!args||typeof args!=='object'||Array.isArray(args)||Object.keys(args).some(k=>!Object.hasOwn(schema.properties,k))||schema.required.some(k=>args[k]===undefined))throw Error('Invalid chat tool request.');}
 function excerpt(value:string,query:string){const start=Math.max(0,value.toLowerCase().indexOf(query)-70);return (start?'…':'')+value.slice(start,start+250);}
 function search(store:Store,source:string,query:string,archived:boolean){
- const needle=query.toLowerCase(),rows:{chatId:string;title:string;archived:boolean;turnId?:string;model?:string;excerpt?:string;link:string}[]=[];
+ const needle=query.toLowerCase(),earlier=seriesBefore(store,source),rows:{chatId:string;title:string;archived:boolean;turnId?:string;model?:string;excerpt?:string;link:string}[]=[];
  const turns=store.all<Turn>('turn'),tools=store.all<any>('tool');let total=0;
- for(const chat of store.all<Chat>('chat').filter(c=>ordinary(c)&&c.id!==source&&(archived||!c.archived)).reverse()){
+ for(const chat of store.all<Chat>('chat').filter(c=>ordinary(c)&&c.id!==source&&!earlier.has(c.id)&&(archived||!c.archived)).reverse()){
   const boundary=turns.filter(t=>t.chatId===chat.id&&!t.parentTurnId).at(-1),base={chatId:chat.id,title:chat.title,archived:!!chat.archived};let matches=0;
   if(needle&&boundary){let offset=0;do{
    const result=readChatHistory(store,boundary,{query,offset,limit:20});if(!result.messages||result.total===undefined)throw Error('Invalid search result.');matches=result.total; 
@@ -41,6 +42,8 @@ export async function chatToolCall(store:Store,current:Turn,name:string,args:any
   return {total:saved.total,truncated:saved.truncated,chats:saved.rows.slice(offset,offset+limit),nextOffset:offset+limit<saved.rows.length?offset+limit:null,readWith:'Use read_other_chat with the result’s chatId and turnId to read its original record.'};
  }
  const other=target(store,args.chatId);if(other.id===source.id)throw Error('Use read_chat_history for this chat; a handoff needs another destination.');
+ // Decision 9: a chat started by handover never reads the chats before it in its series, even with approval.
+ if(name==='read_other_chat'&&seriesBefore(store,source.id).has(other.id))throw Error('This chat continues from that one by handover; the handover is its only context.');
  if(name==='read_other_chat'){
   const {chatId,...request}=args;page(request);for(const key of ['query','turnId','toolId'])if(request[key]!==undefined&&(typeof request[key]!=='string'||request[key].length>500))throw Error('Invalid history request.');if(request.turnId&&request.toolId)throw Error('Choose a message or a tool result.');
   const id=current.id+':'+other.id;let grant=store.all<any>('chat-read-grant').find(r=>r.id===id);

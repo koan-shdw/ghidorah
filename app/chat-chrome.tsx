@@ -13,6 +13,7 @@ import {contextPercent,contextTooltip} from './usage';
 import {modelLabel,modelEfforts} from './models';
 import {modelStatus} from './availability';
 import {picker} from './pickers';
+import {HandoverChip} from './handover-ui';
 import type {Chat,Mode,Snapshot,Turn} from './types';
 
 type Call=(method:string,args?:any)=>Promise<any>;
@@ -21,18 +22,19 @@ export type PanelView='preview'|'files'|'changes'|'terminal'|'plan'|'tasks';
 const panels:[PanelView,IconName,string][]=[['preview','preview','Preview'],['files','files','Files'],['changes','changes','Changes'],['terminal','terminal','Terminal · Ctrl+`'],['plan','plan','Plan'],['tasks','tasks','Tasks']];
 
 /** C1 C2: a caret after the title opens Chat files, Export and Keyboard shortcuts; the panels are one icon group. */
-export function ChatActions({chatId,open,shortcuts=false,artwork}:{chatId?:string;open:(view:PanelView)=>void;shortcuts?:boolean;artwork?:{label:string;title:string;disabled:boolean;run:()=>void}}){
+export function ChatActions({chatId,open,shortcuts=false,artwork,handoff}:{chatId?:string;open:(view:PanelView)=>void;shortcuts?:boolean;artwork?:{label:string;title:string;disabled:boolean;run:()=>void};handoff?:()=>void}){
  const caret=useRef<HTMLButtonElement>(null),[menu,setMenu]=useState<{x:number;y:number}|null>(null),[dialog,setDialog]=useState<'files'|'export'|'shortcuts'|null>(null),[fromMenu,setFromMenu]=useState(false);
  const show=useCallback((which:'files'|'export'|'shortcuts',viaMenu=false)=>{setMenu(null);setFromMenu(viaMenu);setDialog(which);},[]);
  useShortcutKeys(useCallback(()=>show('shortcuts'),[show]),shortcuts);
  const items:MenuItem[]=[
   {label:'Chat files',icon:'files',disabled:!chatId,action:()=>show('files',true)},
   {label:'Export chat',icon:'archive',disabled:!chatId,action:()=>show('export',true)},
+  ...(handoff?[{label:'Hand off',icon:'fork',disabled:!chatId,action:()=>{setMenu(null);handoff();}} as MenuItem]:[]),
   ...(shortcuts?[{label:'Keyboard shortcuts',icon:'more',key:'F1',action:()=>show('shortcuts',true)} as MenuItem]:[]),
  ];
  const returnFocus=fromMenu?caret.current:undefined,close=()=>setDialog(null);
  return <>
-  <Button ref={caret} iconOnly icon="caret" className="chat-menu-trigger" aria-label="Chat menu" title="Chat files · Export · Keyboard shortcuts" aria-haspopup="menu" aria-expanded={!!menu} onClick={event=>{const box=event.currentTarget.getBoundingClientRect();setMenu(menu?null:{x:box.left,y:box.bottom+4});}}/>
+  <Button ref={caret} iconOnly icon="caret" className="chat-menu-trigger" aria-label="Chat menu" title={"Chat files · Export"+(handoff?" · Hand off":"")+" · Keyboard shortcuts"} aria-haspopup="menu" aria-expanded={!!menu} onClick={event=>{const box=event.currentTarget.getBoundingClientRect();setMenu(menu?null:{x:box.left,y:box.bottom+4});}}/>
   <div className="workspace-actions panel-group" role="group" aria-label="Panels">
    {panels.map(([view,icon,title])=><Button key={view} iconOnly icon={icon} aria-label={'Open '+view} title={title} onClick={()=>open(view)}/>)}
    {artwork&&<Button iconOnly icon="art" aria-label={artwork.label} title={artwork.title} disabled={artwork.disabled} onClick={artwork.run}/>}
@@ -66,6 +68,7 @@ export function ChatDock({state,chat,chatId,turns,call,usageId,details,setDetail
    <Button className="side-chat-button" disabled={!chat||!!chat.sideSourceId} title="Side chat · Ctrl+;" aria-label="Open side chat" onClick={openSideChat}>Side chat</Button>
    {chat&&<ContextControls chat={chat} turns={turns} call={call}/>}
    <Button className="connections-link" onClick={()=>{setDetails(false);openConnections();}}>Connections</Button>
+   <HandoverChip state={state} chat={chat} call={call}/>
    <ContextRing percent={contextPercent(turns,picks)} title={contextTooltip(turns,picks,state.claude?.models)} open={details} controls={usageId} toggle={()=>{setDetails(!details);if(!details)void refreshUsage().catch(()=>{});}}/>
   </div>
   <ChatModelRow usageId={usageId} state={state} chatId={chatId} call={call} details={details} setDetails={setDetails} connections={openConnections} addModel={openChatModels}/>

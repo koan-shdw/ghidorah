@@ -7,6 +7,7 @@ import {claudeTurnUsage} from '../claude-turn';
 import {apiChanging,appSummaryJobs,backend,background,checkpointChanging,claudeExecutable,commandTurns,contextJobs,coordination,data,emit,folderChanging,gitOperation,goals,health,installing,managingChats,modeChanges,native,pluginChanges,pluginControllers,pluginHandlers,pluginOwners,pluginRuntime,pluginWorkerSettings,pluginsChanging,quitting,requests,restartBackend,sidebar,store,submittingChats,uploading} from '../main';
 import {NativePluginInstall,hermesPluginCopies,hermesPluginKey,verifyPlugins} from '../native-plugins';
 import {PluginProcessOwner,pluginWorker} from '../plugin-commands';
+import {handoffCommand,handoverRequest} from '../handover';
 import {redactPastedKeys} from '../redaction';
 import {queryChatHistory} from '../rlm-history';
 import type {Routine} from '../routines';
@@ -113,7 +114,7 @@ export function goalHold(chatId:string){
   return null;
 }
 export async function submitTurn({id,chatId,text,selected,models,goalRun}:any,source?:Pick<Turn,'remote'|'routine'|'voice'|'handoff'>,signal?:AbortSignal){
-    const checkHandoff=()=>{signal?.throwIfAborted();if(source?.handoff&&projectFor(store.get<Chat>('chat',source.handoff.sourceChatId)).mode==='plan')throw Error('Plan mode permits inspection and proposals only.');if(source?.handoff&&store.get<Chat>('chat',chatId).archived)throw Error('Restore the destination chat before sending a task.');};
+    const checkHandoff=()=>{signal?.throwIfAborted();if(source?.handoff&&!source.handoff.push&&projectFor(store.get<Chat>('chat',source.handoff.sourceChatId)).mode==='plan')throw Error('Plan mode permits inspection and proposals only.');if(source?.handoff&&store.get<Chat>('chat',chatId).archived)throw Error('Restore the destination chat before sending a task.');};
     checkHandoff();
     requireStableFolder();
     if(managingChats.has(chatId)||store.get<Chat>('chat',chatId).archived)throw Error('Restore this chat before sending a message.');
@@ -124,6 +125,13 @@ export async function submitTurn({id,chatId,text,selected,models,goalRun}:any,so
     if(pluginsChanging)throw Error('Plugins are changing. Send your message when they are ready.');
     if(backend.loginChild)throw Error('Finish or cancel the account sign-in before sending.');
     if(typeof text!=='string'||! /^[\w-]{10,80}$/.test(id))throw Error('Invalid message');
+    // /handoff asks this chat for a handover (protocol part 1); its latest finished reply then offers START HANDOVER.
+    const handingOff=handoffCommand.test(text.trim());
+    if(handingOff){
+      const chat=sidebar.root(chatId);if(chat.sideSourceId)throw Error('Keep this side chat before handing off.');
+      if(chat.handover?.stage==='live'||store.all<Chat>('chat').some(c=>c.handover?.newChatId===chatId))throw Error('Close handover mode before handing off again.');
+      text=handoverRequest(text.trim().slice('/handoff'.length));
+    }
     if(backend.scrubber.text(text)!==text || redactPastedKeys(text)!==text)throw Error('This looks like an API key. Save it in Settings.');
     const existing=store.all<Turn>('turn').find(turn=>turn.id===id);if(existing){if(existing.chatId!==chatId||existing.prompt!==text)throw Error('Message ID was already used.');return id;}if(store.all<{id:string;chatId:string}>('turn-removed').some(row=>row.id===id)){if(store.get<{chatId:string}>('turn-removed',id).chatId!==chatId)throw Error('Message ID was already used.');return id;}
     if(!text.trim()&&(source||!store.get<Chat>('chat',chatId).attachments?.length))throw Error('Add a message or attachment.');
@@ -161,6 +169,7 @@ export async function submitTurn({id,chatId,text,selected,models,goalRun}:any,so
       if(goalRun&&(current.draft.trim()||current.attachments?.length||(submittingChats.get(chatId)||0)>1||store.all<Turn>('turn').some(turn=>turn.chatId===chatId&&['queued','running','waiting','dispatching','stopping','needs-model'].includes(turn.status))))throw Error('Your pending message takes priority. Resume the goal after sending it.');
       if(source?.routine){const routine=store.get<Routine>('routine',source.routine.id);if(!routine.enabled||routine.nextFiring!==source.routine.firing)throw Error('Routine changed before dispatch.');}
       const turn=store.accept(id,chatId,text,model,source);goals.attach(turn,goalRun,picks);
+      if(handingOff)store.update<Chat>('chat',chatId,{handover:{stage:'writing'}});
       if(goalRun&&['New chat','New project'].includes(current.title))store.update<Chat>('chat',chatId,{title:goals.get(chatId)!.objective.slice(0,55)});
       return turn;
     };
@@ -247,7 +256,7 @@ export async function applyReadyDraft(chatId:string){
  const chat=sidebar.root(chatId),draft=store.find<ContextDraft>('context-draft',chat.id);
  if(!draft||draft.partial||draft.origin!=='automatic'||contextJobs.has(chat.id))return false;
  try{for(const owner of sidebar.owned(chat.id))await native.closeChat(owner.id);saveContext(store,chat.id,draft.revision,draft.summary,draft.instructions);}catch{return false;}
- store.update<Chat>('chat',chat.id,{contextRetryAfter:undefined,contextNotice:'Context compacted. Original messages remain available.'});emit();return true;
+ store.update<Chat>('chat',chat.id,{contextRetryAfter:undefined,compressed:true,contextNotice:'Context compacted. Original messages remain available.'});emit();return true;
 }
 export function compactInBackground(turn:Turn){
  const chat=sidebar.root(turn.chatId),model=summaryModel(true,turn.model,chat.pool||[],availableModels(),jevSettings().summaryModel);
@@ -272,6 +281,6 @@ export async function compactForTurn(turn:Turn,automatic:boolean){
  for(const owner of sidebar.owned(chat.id))await native.closeChat(owner.id);
  if(store.get<Turn>('turn',turn.id).status==='stopping')throw Error('Compaction stopped. Your previous context is kept.');
  saveContext(store,chat.id,draft.revision,draft.summary,draft.instructions);
- store.update<Chat>('chat',chat.id,{contextRetryAfter:undefined,contextNotice:'Context compacted. Original messages remain available.'});emit();
+ store.update<Chat>('chat',chat.id,{contextRetryAfter:undefined,compressed:true,contextNotice:'Context compacted. Original messages remain available.'});emit();
  return 'Context compacted. Decisions, unfinished work and source references are saved; the newest exchange and original history are retained.';
 }

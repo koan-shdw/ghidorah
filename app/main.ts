@@ -122,6 +122,7 @@ import {automaticClaude,automaticHermes,continueNative,coordinateChat,providerUr
 import {anyChatBusy,hasWork,nextWatermark,reconcileReplies,releaseHermesSession,replyRow,stopDeadline,waitForMode} from './main/turns';
 import {appsHandlers} from './main/handlers/apps';
 import {chatsHandlers} from './main/handlers/chats';
+import {handoverHandlers} from './main/handlers/handover';
 import {connectionsHandlers} from './main/handlers/connections';
 import {pluginsHandlers} from './main/handlers/plugins';
 import {settingsHandlers} from './main/handlers/settings';
@@ -950,7 +951,7 @@ export function bindClaude(chat:Chat,turn:Turn,project:Project,controller:AbortC
         if(event.type==='runtime.automaticKind'||event.type==='runtime.promptRefused'){
           const saved=store.get<Turn>('turn',turn.id);if(saved.automatic)store.update<Turn>('turn',turn.id,{automatic:{...saved.automatic,source:event.kind==='cross-session'?'other-session':event.kind==='notice'?'notice':event.kind==='self'?'self':saved.automatic.source},...(event.type==='runtime.promptRefused'?{error:backend.scrubber.text(String(event.reason))}:{})});emit();return;
         }
-        if(event.type==='system'&&event.subtype==='compact_boundary')clearHistoryReads(store,turn.id);
+        if(event.type==='system'&&event.subtype==='compact_boundary'){clearHistoryReads(store,turn.id);store.update<Chat>('chat',turn.chatId,{compressed:true});}
         if(event.type==='runtime.agentConfig'){
           const saved=store.get<Turn>('turn',turn.id);if(saved.automatic?.kind==='agent')store.update<Turn>('turn',turn.id,{automatic:{...saved.automatic,...(event.resolvedModel?{resolvedModel:event.resolvedModel}:{}),...(event.permissionMode?{permissionMode:event.permissionMode}:{}),...(event.directory?{directory:event.directory}:{}),...(event.worktree?{worktree:event.worktree}:{})},...(event.effort!==undefined?{effort:event.effort}:{})});emit();return;
         }
@@ -1040,7 +1041,7 @@ export function receive(event:any){
       if(text.trim()&&!payload.already_streamed)store.update<Turn>('turn',id,{text:(turn.text.trim()?turn.text.trimEnd()+'\n\n':'')+text+'\n\n',interimText:(turn.interimText?turn.interimText+'\n\n':'')+text});
     }else if(event.type==='status.update'){
       if(payload.kind==='compacting')store.update<Turn>('turn',id,{activity:'Compressing context'});
-      else if(payload.kind==='compacted'){clearHistoryReads(store,id);store.update<Turn>('turn',id,{activity:'Waiting for model'});}
+      else if(payload.kind==='compacted'){clearHistoryReads(store,id);store.update<Turn>('turn',id,{activity:'Waiting for model'});store.update<Chat>('chat',turn.chatId,{compressed:true});}
     }else if(event.type==='tool.start'){
       const p=backend.scrubber.value(payload);store.put('tool',{id:id+':'+p.tool_id,turnId:id,name:p.name,args:p.args||p.args_text,result:null,status:'running'});store.update<Turn>('turn',id,{activity:'Running tools'});
     }else if(event.type==='tool.complete'){
@@ -1109,7 +1110,7 @@ export const repoMaps=new RepoMaps(path.join(app.isPackaged?root:__dirname,'repo
 // list comes from Windows. ponytail: read once per run; a font installed later shows after a restart.
 let installedFonts:Promise<string[]>|undefined;
 export const handlers:Record<string,(args:any)=>any>={
-  ...appsHandlers,...chatsHandlers,...workspaceHandlers,...pluginsHandlers,...windowsHandlers,...connectionsHandlers,...sharingHandlers,...settingsHandlers,
+  ...appsHandlers,...chatsHandlers,...handoverHandlers,...workspaceHandlers,...pluginsHandlers,...windowsHandlers,...connectionsHandlers,...sharingHandlers,...settingsHandlers,
   async checkpointRestore({chatId,turnId,revision,retry=false}){
     requireStableFolder();const chat=sidebar.root(chatId);
     if(typeof retry!=='boolean')throw Error('Choose files only or files and a new chat.');

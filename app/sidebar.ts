@@ -56,9 +56,12 @@ export class Sidebar {
   }else throw Error('Unknown chat action.');
   return this.store.update<Chat>('chat',chat.id,patch);
  }
- fork(chatId:string,{sideChat=false,beforeTurnId}:{sideChat?:boolean;beforeTurnId?:string}={}){
+ // handover: a fresh chat in the series (HANDOVER-MODE-PLAN use 3): the chat's settings and goal, none of its messages,
+ // and a project of its own so the old chat's Plan mode stays with the old chat.
+ fork(chatId:string,{sideChat=false,beforeTurnId,handover=false}:{sideChat?:boolean;beforeTurnId?:string;handover?:boolean}={}){
   const source=this.root(chatId);let owned=this.owned(chatId),turns=this.store.all<Turn>('turn').filter(t=>owned.some(c=>c.id===t.chatId));
   if(!sideChat&&turns.some(t=>pendingTurn(t.status)))throw Error('Finish or stop current work before forking.');
+  if(handover){owned=[source];turns=[];}
   let retry:Turn|undefined;
   if(beforeTurnId!==undefined){
    if(source.sideSourceId)throw Error('Keep this side chat before creating a branch.');
@@ -79,9 +82,9 @@ export class Sidebar {
   const aliases=(chat:Chat)=>Object.fromEntries([...turnIds,...toolIds,...sourceIds,...outputIds,...Object.entries(chat.historyAliases||{}).flatMap(([old,id])=>{const next=turnIds.get(id)||toolIds.get(id)||sourceIds.get(id)||outputIds.get(id);return next?[[old,next]]:[];})]);
   const compact=(chat:Chat)=>chat.context&&turnIds.has(chat.context.throughTurnId)&&(!retry||this.store.all<Turn>('turn').findIndex(t=>t.id===chat.context!.throughTurnId)<this.store.all<Turn>('turn').findIndex(t=>t.id===retry!.id))?{...chat.context,id:randomUUID(),throughTurnId:turnIds.get(chat.context.throughTurnId)!}:undefined;
   this.store.transaction(()=>{
-   const originalProject=this.store.get<Project>('project',source.projectId),project=sideChat?this.store.project(originalProject.folder):originalProject;
-   if(sideChat)this.store.update<Project>('project',project.id,{mode:originalProject.mode,worktree:originalProject.worktree});
-   for(const chat of owned)this.store.put('chat',{...chat,context:compact(chat),historyAliases:aliases(chat),id:chatIds.get(chat.id)!,...(chat.parentChatId?{parentChatId:newId,groupTurnId:turnIds.get(chat.groupTurnId!)}:{title:sideChat?'Side chat · '+source.title:source.title+' (fork)',sideSourceId:sideChat?source.id:undefined,created:Date.now(),updated:Date.now(),forkedFrom:source.id}),projectId:project.id,runtimeId:null,storedId:null,draft:'',attachments:[],pinned:false,archived:false,unread:false,readThrough:'',selected:sideChat?source.selected:false,selectedModels:sideChat?source.selectedModels:[]});
+   const originalProject=this.store.get<Project>('project',source.projectId),project=sideChat||handover?this.store.project(originalProject.folder):originalProject;
+   if(sideChat||handover)this.store.update<Project>('project',project.id,{mode:originalProject.mode,worktree:originalProject.worktree});
+   for(const chat of owned)this.store.put('chat',{...chat,context:compact(chat),historyAliases:aliases(chat),id:chatIds.get(chat.id)!,...(chat.parentChatId?{parentChatId:newId,groupTurnId:turnIds.get(chat.groupTurnId!)}:{title:sideChat?'Side chat · '+source.title:source.title+' (fork)',sideSourceId:sideChat?source.id:undefined,created:Date.now(),updated:Date.now(),forkedFrom:source.id}),projectId:project.id,runtimeId:null,storedId:null,draft:'',attachments:[],pinned:false,archived:false,unread:false,readThrough:'',handover:undefined,...(handover?{compressed:false,handoverChipHidden:false,contextNotice:undefined,engineNotice:undefined}:{}),selected:sideChat?source.selected:false,selectedModels:sideChat?source.selectedModels:[]});
    for(const turn of turns)this.store.put<Turn>('turn',{...turn,...(sideChat?{contextSnapshot:{turnId:turn.id,status:turn.contextSnapshot?.status||turn.status},status:'context',usage:null}:{}),id:turnIds.get(turn.id)!,chatId:chatIds.get(turn.chatId)!,jobs:turn.jobs?.map(id=>turnIds.get(id)!),parentTurnId:turn.parentTurnId?turnIds.get(turn.parentTurnId):undefined,goal:undefined,automatic:turn.automatic?{...turn.automatic,originTurnId:turnIds.get(turn.automatic.originTurnId)||'',taskId:randomUUID()}:undefined,attachments:turn.attachments?.map(a=>({...a,chatId:newId}))});
    for(const tool of forkedTools)this.store.put('tool',{...tool,id:toolIds.get(tool.id)!,turnId:turnIds.get(tool.turnId)!});
    for(const output of outputs)this.store.put('chat-output',{...output,id:outputIds.get(output.id)!,chatId:newId,turnId:turnIds.get(output.turnId)!});
