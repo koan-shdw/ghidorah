@@ -16,6 +16,11 @@ import {randomUUID} from 'node:crypto';
 
 export const sharingHandlers:Record<string,(args:any)=>any>={
   shareSetup(){return shareSetup();},
+  // The Cloudflare account the site lives on, from the setup card: setup runs again on the one he picks.
+  shareAccount({id}){
+    if(!shareSettings().accounts?.some(row=>row.id===id))throw Error('Choose one of your Cloudflare accounts.');
+    store.put('settings',{...shareSettings(),id:'share',accountId:id});emit();return shareSetup();
+  },
   shareCheck(){return shareCheck();},
   // Koan approves every version of the AI page before it goes live (3.7, his answer 2026-10-10).
   async shareAiApprove({id,text}){

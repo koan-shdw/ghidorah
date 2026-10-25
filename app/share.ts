@@ -9,7 +9,7 @@ import path from 'node:path';
 import {crc32,deflateRawSync} from 'node:zlib';
 import previewTools from '../plugins/trismegistus-permissions/preview-tools.json';
 
-export interface ShareSettings {site:string;databaseId:string;ready:boolean;wrangler?:string;checked?:number;ownerKey?:string;pagesSince?:number}
+export interface ShareSettings {site:string;databaseId:string;ready:boolean;wrangler?:string;checked?:number;ownerKey?:string;pagesSince?:number;accountId?:string;accounts?:CloudflareAccount[]}
 export interface ShareProject {id:string;shareId:string;chatId:string;title:string;page:string;version:number;aiKey:string;password?:{salt:string;hash:string};sections:string[];published:number;since:number;
  ai?:{text:string;version:number};draft?:{text:string;version:number;status:'writing'|'ready'|'failed'};seenVersion?:number}
 export interface ShareNote {id:string;shareId:string;projectId:string;page:string;name:string;text:string;anchor:string|null;version:number|null;created:number;handled?:boolean}
@@ -63,10 +63,26 @@ export async function findWrangler(site:string,saved?:string){
  for(const candidate of [saved,process.env.TRISMEGISTUS_TEST_WRANGLER,path.join(site,'node_modules','.bin','wrangler.cmd')])if(candidate&&await fs.access(candidate).then(()=>true,()=>false))return candidate;
  return await new Promise<string|null>(resolve=>execFile('where',['wrangler.cmd'],{windowsHide:true,timeout:10000},(error,stdout)=>resolve(error?null:stdout.split(/\r?\n/).find(Boolean)||null)));
 }
-export function run(command:string,args:string[],cwd:string,signal?:AbortSignal,timeout=300000){
+// The Cloudflare account (wrangler whoami --json). Wrangler stops when the sign-in reaches more than one account and
+// none is named, so setup picks one and every call names it: the saved pick, the only account, or the one Cloudflare
+// named after the sign-in email ("<email>'s Account").
+export interface CloudflareAccount {id:string;name:string}
+export function accountsOf(output:string):{email:string;accounts:CloudflareAccount[]}|null{
+ const start=output.search(/^\{/m),end=output.lastIndexOf('}');if(start<0||end<start)return null;
+ try{
+  const who=JSON.parse(output.slice(start,end+1));if(!Array.isArray(who?.accounts))return null;
+  return {email:typeof who.email==='string'?who.email:'',accounts:who.accounts.filter((row:any)=>typeof row?.id==='string'&&/^[0-9a-f]{32}$/i.test(row.id)).map((row:any)=>({id:row.id,name:typeof row.name==='string'&&row.name.trim()?row.name.trim().slice(0,120):row.id}))};
+ }catch{return null;}
+}
+export function pickAccount(accounts:CloudflareAccount[],email:string,saved?:string){
+ if(saved&&accounts.some(row=>row.id===saved))return saved;
+ if(accounts.length===1)return accounts[0].id;
+ return email?accounts.find(row=>row.name.toLowerCase()===email.toLowerCase()+'\'s account')?.id:undefined;
+}
+export function run(command:string,args:string[],cwd:string,signal?:AbortSignal,timeout=300000,account?:string){
  if(args.some(arg=>/[\s"&|<>^%]/.test(arg)))throw Error('Share commands take simple arguments only.');
  return new Promise<string>((resolve,reject)=>{
-  const child=spawn(command,args,{cwd,windowsHide:true,shell:/\.(cmd|bat)$/i.test(command),env:{...process.env,WRANGLER_SEND_METRICS:'false',NO_COLOR:'1',FORCE_COLOR:'0'},stdio:['ignore','pipe','pipe']});
+  const child=spawn(command,args,{cwd,windowsHide:true,shell:/\.(cmd|bat)$/i.test(command),env:{...process.env,...(account?{CLOUDFLARE_ACCOUNT_ID:account}:{}),WRANGLER_SEND_METRICS:'false',NO_COLOR:'1',FORCE_COLOR:'0'},stdio:['ignore','pipe','pipe']});
   let out='';const add=(chunk:Buffer)=>{out=(out+chunk.toString()).slice(-200000);};child.stdout.on('data',add);child.stderr.on('data',add);
   const stop=()=>{if(child.pid)execFile('taskkill',['/PID',String(child.pid),'/T','/F'],{windowsHide:true},()=>{});};
   const timer=setTimeout(stop,timeout);signal?.addEventListener('abort',stop,{once:true});

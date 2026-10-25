@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import {sections,pageLink,aiAddress,readyMessage,aiPage,noteMessages,notesForModel,hashPassword,privateId,stageSite,writeProject,databaseIdOf,deployedUrl,run,previewIdOf,previewLink,ownerHash,writePreview,zip,previewTool,previewGuide,type ShareProject,type ShareNote} from '../app/share';
+import {sections,pageLink,aiAddress,readyMessage,aiPage,noteMessages,notesForModel,hashPassword,privateId,stageSite,writeProject,databaseIdOf,deployedUrl,run,accountsOf,pickAccount,previewIdOf,previewLink,ownerHash,writePreview,zip,previewTool,previewGuide,type ShareProject,type ShareNote} from '../app/share';
 
 const project:ShareProject={id:'p',shareId:'AbCdEfGhIjKlMnOpQrStUv',chatId:'c',title:'Davan',page:'index.html',version:2,aiKey:'key123',sections:['Home','Pricing'],published:0,since:0};
 
@@ -100,4 +100,17 @@ test('share: reading wrangler output, and only simple arguments',()=>{
  assert.equal(deployedUrl('  http://127.0.0.1:5123'),null,'a local address only counts in tests');
  assert.equal(deployedUrl('  http://127.0.0.1:5123',true),'http://127.0.0.1:5123');
  assert.throws(()=>run('wrangler.cmd',['d1','execute','--command','DROP TABLE notes'],'.'),/simple arguments/);
+});
+
+test('share: the Cloudflare account, read from whoami --json and named on every call',async()=>{
+ const own={id:'0000000000000000000000000000a1e5',name:'Alex@example.com\'s Account'},other={id:'0000000000000000000000000000c11e',name:'Client@example.com\'s Account'};
+ const who=accountsOf(' ⛅️ wrangler 4.152.0\n'+JSON.stringify({loggedIn:true,email:'alex@example.com',accounts:[{...other,type:'standard'},{...own,type:'standard'},{id:'not-an-id',name:'x'}]},null,4));
+ assert.deepEqual(who,{email:'alex@example.com',accounts:[other,own]});
+ assert.equal(accountsOf('Unknown argument: json'),null,'an older wrangler: no list');
+ assert.equal(pickAccount(who!.accounts,who!.email),own.id,'the one named after the sign-in email');
+ assert.equal(pickAccount(who!.accounts,who!.email,other.id),other.id,'a saved pick wins');
+ assert.equal(pickAccount(who!.accounts,who!.email,'ffffffffffffffffffffffffffffffff'),own.id,'a saved pick that is gone does not');
+ assert.equal(pickAccount(who!.accounts,'someone@example.com'),undefined,'no match: he chooses');
+ assert.equal(pickAccount([other],'alex@example.com'),other.id,'the only account');
+ assert.equal((await run(process.execPath,['-p','process.env.CLOUDFLARE_ACCOUNT_ID'],'.',undefined,30000,own.id)).trim(),own.id);
 });

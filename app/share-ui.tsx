@@ -3,7 +3,7 @@
 import React,{useState} from 'react';
 import type {Snapshot,ShareProjectView,PageView} from './types';
 import {SettingsCard} from './settings-dialog';
-import {Button,Dialog} from './kit';
+import {Button,ChoiceMenu,Dialog} from './kit';
 
 type Call=(method:string,args?:any)=>Promise<any>;
 const copy=(text:string)=>void navigator.clipboard.writeText(text).catch(()=>{});
@@ -17,6 +17,7 @@ export function ShareSetup({state,call}:{state:Snapshot;call:Call}){
  return <SettingsCard title="Share work with clients">
   <p>In the future you can publish work in progress and send it to people for notes. Let’s set up your Cloudflare for free and make a private link where people can see a project and leave notes; their notes come back to Ghidorah.</p>
   <p className="hint">Ghidorah uses Cloudflare’s own tool (wrangler) with your Cloudflare sign-in in the browser; no key is stored. The site holds only what you share, never project code.</p>
+  {(share?.accounts?.length||0)>1&&<div className="connection-field"><span>Cloudflare account</span><ChoiceMenu label="Cloudflare account" value={share!.accountId||''} options={Object.fromEntries(share!.accounts!.map(row=>[row.id,row.name]))} disabled={working} onChange={id=>{if(id===share!.accountId&&share!.ready)return;setBusy(true);void call('shareAccount',{id}).catch(()=>{}).finally(()=>setBusy(false));}}/></div>}
   <div className="connection-field"><span>Status</span><span className="settings-status" role="status">{share?.status||(share?.ready?'Ready':'Not set up')}</span></div>
   {share?.ready&&<div className="connection-field"><span>Site</span><span className="share-address">{share.site}</span></div>}
   <div className="actions"><button className={share?.ready?undefined:'primary'} disabled={working} onClick={()=>{setBusy(true);void call('shareSetup').catch(()=>{}).finally(()=>setBusy(false));}}>{share?.ready?'Set up again':'Set it up'}</button></div>

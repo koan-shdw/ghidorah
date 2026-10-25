@@ -52,7 +52,7 @@ import {decideNotDiamond,notDiamondEndpoint} from './notdiamond';
 import {Terminals} from './terminal';
 import {resolveChatLink} from './chat-links';
 import {readPublishing,validatePublishing,publishPage,publishTool,pageBundle,assertNoSecrets} from './publishing';
-import {DATABASE,privateId,hashPassword,sections as pageSections,pageLink,aiAddress,readyMessage,aiSystem,noteMessages,notesForModel,stageSite,writeProject,findWrangler,run as runShare,databaseIdOf,deployedUrl,previewLink,previewIdOf,ownerHash,writePreview,previewGuide,previewTool,type ShareSettings,type ShareProject,type ShareNote,type PreviewPage} from './share';
+import {DATABASE,privateId,hashPassword,sections as pageSections,pageLink,aiAddress,readyMessage,aiSystem,noteMessages,notesForModel,stageSite,writeProject,findWrangler,run as runShare,accountsOf,pickAccount,databaseIdOf,deployedUrl,previewLink,previewIdOf,ownerHash,writePreview,previewGuide,previewTool,type ShareSettings,type ShareProject,type ShareNote,type PreviewPage} from './share';
 import {AppUpdates,APP_FEED,compareVersions,unseenNotes,installedCopy,previousInstaller,backupChats,readUpdateWatch,markOpened,hermesReleases,newerReleases,HERMES_RELEASES,type Feed,type UpdateMode,type UpdateWatch,type WhatsNew} from './updates';
 import whatsNew from './whats-new.json';
 import featureWheels from '../backend/feature-wheels.json';
@@ -566,14 +566,20 @@ export async function shareSetup(){
       }
       step('Checking your Cloudflare sign-in…');
       if(/not authenticated|not logged in/i.test(await runShare(wrangler,['whoami'],site,undefined,60000))){step('Sign in to Cloudflare in the browser window that opened…');await runShare(wrangler,['login'],site,undefined,600000);}
+      // Which Cloudflare account. When the list cannot be read (a wrangler without whoami --json) the saved pick stays.
+      const who=accountsOf(await runShare(wrangler,['whoami','--json'],site,undefined,60000).catch(()=>''));
+      const accounts=who?who.accounts:shareSettings().accounts||[],accountId=who?pickAccount(accounts,who.email,shareSettings().accountId):shareSettings().accountId;
+      store.put('settings',{...shareSettings(),id:'share',accounts,accountId});emit();
+      if(accounts.length>1&&!accountId){step('Choose your Cloudflare account.');return;}
+      const cloudflare=(args:string[],timeout:number)=>runShare(wrangler!,args,site,undefined,timeout,accountId);
       step('Preparing the notes database…');
-      const listed=JSON.parse((await runShare(wrangler,['d1','list','--json'],site,undefined,60000)).replace(/^[^\[]*/,'')) as {uuid:string;name:string}[];
-      const databaseId=listed.find(row=>row.name===DATABASE)?.uuid||databaseIdOf(await runShare(wrangler,['d1','create',DATABASE],site,undefined,120000));
+      const listed=JSON.parse((await cloudflare(['d1','list','--json'],60000)).replace(/^[^\[]*/,'')) as {uuid:string;name:string}[];
+      const databaseId=listed.find(row=>row.name===DATABASE)?.uuid||databaseIdOf(await cloudflare(['d1','create',DATABASE],120000));
       if(!databaseId)throw Error('Cloudflare did not return the notes database.');
       store.put('settings',{...shareSettings(),id:'share',databaseId,wrangler,ready:false});
       await stageSite(path.join(root,'share'),site,databaseId);
-      await runShare(wrangler,['d1','execute',DATABASE,'--remote','--file','schema.sql','--yes'],site,undefined,180000);
-      await runShare(wrangler,['d1','execute',DATABASE,'--remote','--file','migrate.sql','--yes'],site,undefined,180000).catch(error=>{if(!/duplicate column/i.test(String(error)))throw error;});
+      await cloudflare(['d1','execute',DATABASE,'--remote','--file','schema.sql','--yes'],180000);
+      await cloudflare(['d1','execute',DATABASE,'--remote','--file','migrate.sql','--yes'],180000).catch(error=>{if(!/duplicate column/i.test(String(error)))throw error;});
       step('Publishing a test page…');
       const test=shareSettings().testId||privateId();await fs.mkdir(path.join(site,'public',test),{recursive:true});
       await fs.writeFile(path.join(site,'public',test,'index.html'),'<!doctype html><meta charset="utf-8"><title>Share test</title><body><h1>Share test</h1><p>Ghidorah published this page to check that notes come back.</p></body>');

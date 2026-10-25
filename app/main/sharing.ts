@@ -28,7 +28,7 @@ export async function publish(file:string,signal?:AbortSignal,settings=publishin
 // Share work with clients (FEATURE-SPECS 3): Tris's own copy of the share site, its setup, sharing a page with the
 // client, the notes that come back and the "for your AI" page Koan approves.
 export const shareSite=()=>path.join(data,'share-site'),shareTest=()=>namespace.startsWith('Trismegistus/Test/');
-export function shareSettings():ShareSettings&{testId?:string}{const row=store.all<any>('settings').find(row=>row.id==='share');return {site:typeof row?.site==='string'?row.site:'',databaseId:typeof row?.databaseId==='string'?row.databaseId:'',ready:row?.ready===true,wrangler:typeof row?.wrangler==='string'?row.wrangler:undefined,checked:row?.checked,testId:row?.testId,ownerKey:typeof row?.ownerKey==='string'?row.ownerKey:undefined,pagesSince:Number(row?.pagesSince)||0};}
+export function shareSettings():ShareSettings&{testId?:string}{const row=store.all<any>('settings').find(row=>row.id==='share');return {site:typeof row?.site==='string'?row.site:'',databaseId:typeof row?.databaseId==='string'?row.databaseId:'',ready:row?.ready===true,wrangler:typeof row?.wrangler==='string'?row.wrangler:undefined,checked:row?.checked,testId:row?.testId,ownerKey:typeof row?.ownerKey==='string'?row.ownerKey:undefined,pagesSince:Number(row?.pagesSince)||0,accountId:typeof row?.accountId==='string'?row.accountId:undefined,accounts:Array.isArray(row?.accounts)?row.accounts:[]};}
 // Every deploy restages the Worker from the app (so app updates reach the site) and rewrites each project's settings.
 export async function shareDeploy(signal?:AbortSignal,write?:()=>Promise<void>){
   const settings=shareSettings(),wrangler=await findWrangler(shareSite(),settings.wrangler);if(!wrangler||!settings.databaseId)throw Error('Set up Share with clients in Settings first.');
@@ -37,7 +37,7 @@ export async function shareDeploy(signal?:AbortSignal,write?:()=>Promise<void>){
   await write?.();
   for(const project of store.all<ShareProject>('share-project'))await writeProject(shareSite(),project);
   await fs.writeFile(path.join(shareSite(),'public','_owner.json'),JSON.stringify({hash:ownerHash(ownerKey())}));
-  const url=deployedUrl(await runShare(wrangler,['deploy'],shareSite(),signal),shareTest());
+  const url=deployedUrl(await runShare(wrangler,['deploy'],shareSite(),signal,undefined,settings.accountId),shareTest());
   // The copies have their own folders now.
   for(const row of copied)await pagesApi('/'+row.id,{method:'PUT',body:JSON.stringify({...row,folder:row.id})}).catch(()=>{});
   return url;
@@ -118,7 +118,7 @@ export function pageAlert(page:PreviewPage|undefined,id:string,line:string){
 // What the windows see: never the password hash or the key on its own.
 export function shareView(){
   const settings=shareSettings(),notes=store.all<ShareNote>('share-note');
-  return {site:settings.site,ready:settings.ready,status:shareStatus,checked:settings.checked,alerts:shareTest()?[...shareAlerts]:[],pages:pagesView(),projects:store.all<ShareProject>('share-project').map(project=>{const {password,aiKey,...rest}=project;return {...rest,password:!!password,link:settings.site?pageLink(settings.site,project):'',aiAddress:settings.site&&project.ai?aiAddress(settings.site,project):'',message:settings.site&&project.ai?readyMessage(settings.site,project):'',notes:notes.filter(note=>note.projectId===project.id).slice(-100)};})};
+  return {site:settings.site,ready:settings.ready,status:shareStatus,checked:settings.checked,accounts:settings.accounts||[],accountId:settings.accountId||'',alerts:shareTest()?[...shareAlerts]:[],pages:pagesView(),projects:store.all<ShareProject>('share-project').map(project=>{const {password,aiKey,...rest}=project;return {...rest,password:!!password,link:settings.site?pageLink(settings.site,project):'',aiAddress:settings.site&&project.ai?aiAddress(settings.site,project):'',message:settings.site&&project.ai?readyMessage(settings.site,project):'',notes:notes.filter(note=>note.projectId===project.id).slice(-100)};})};
 }
 export async function pagesApi(tail:string,init:RequestInit={}){
   const site=shareSettings().site;if(!site)throw Error('Set up Share with clients in Settings first; preview pages live on the same private site.');
