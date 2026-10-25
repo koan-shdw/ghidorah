@@ -108,7 +108,7 @@ test('one GO covers the whole plan without repeated requests (Koan, 2026-10-18)'
   assert.match(text,/^Plan first: when the user asks you to build, change, fix, install or commit something, reply with a short plan/);
   assert.match(text,/then stop/);assert.match(text,/Never tell the user to say or reply GO/);
   assert.match(text,/One GO covers the whole plan, including every step, check and workaround inside it, until the job is done/);
-  assert.match(text,/Never stop to ask inside a GO'd job/);assert.match(text,/Small calls are yours; list what you picked in the final report/);
+  assert.match(text,/Never stop to ask inside a GO'd job/);assert.match(text,/first put them in your task list tool \(TodoWrite, todo_list or TaskCreate\)/);assert.match(text,/Small calls are yours; list what you picked in the final report/);
   assert.match(text,/A new or changed request still gets a new plan/);assert.match(text,/Search with rg .*never grep -r/);
   assert.doesNotMatch(text,/wait for the user to say GO|A GO covers only the plan it answers/);
   const full=handover([{id:'t',chatId:'c',prompt:'build it',model:'deepseek-flash',status:'queued',created:1} as any],[],{id:'t',chatId:'c',prompt:'build it'} as any);

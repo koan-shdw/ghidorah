@@ -6,6 +6,7 @@ import './share-ui.css';
 import {ShareSettings,ShareCard} from './share-ui';
 import {SideAnswerCard,SideAnswerRows} from './side-answer-card';
 import {HandoverNotice,HandoverReply,startHandoff} from './handover-ui';
+import {PlanChecklist} from './plan-checklist';
 import {isJoinedTurn,replyParts} from './turn-joins';
 import appIcon from '../assets/icon.png';
 import {applyTurnStream} from './turn-stream';
@@ -116,6 +117,7 @@ function Response({state,t,call,pool,addModel}:{state:Snapshot;t:Turn;call:(meth
  return <>
   {t.automatic?.kind==='agent'&&<button className="agent-open" onClick={()=>void call('openJob',{id:t.id})}>Open agent</button>}
   <div className="model-label" title={t.automatic?.resolvedModel}>{turnModelLabel(t,model=>modelLabel(model,state.claude?.models))}{t.automatic?.kind==='agent'&&t.effort&&<span title="Reported thinking effort">{t.effort}</span>}<TurnStatus turn={t} tools={state.tools} approvals={state.approvals}/></div>
+  <PlanChecklist tools={state.tools.filter(tool=>tool.turnId===t.id)} before={()=>{const earlier=new Set(state.turns.filter(turn=>turn.chatId===t.chatId&&turn.created<t.created).map(turn=>turn.id));return state.tools.filter(tool=>earlier.has(tool.turnId));}} working={activeStates.has(t.status)}/>
   {t.reasoning&&<details className="thinking" key={viewMode} open={viewMode!=='normal'}><summary>Thinking</summary><Markdown text={t.reasoning} turnId={t.id}/></details>}
   {replyParts(t,state.tools,state.turns).map(part=><React.Fragment key={part.message?.id||'tail'}><ToolActivity tools={part.tools}/>{part.text&&<Markdown text={part.text} turnId={t.id}/>}
    {part.message&&<JoinedMessage state={state} turn={part.message} call={call}/>}

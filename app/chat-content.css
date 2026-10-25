@@ -80,3 +80,25 @@
 .inline-preview-frame{display:block;height:460px;min-height:200px;max-height:85vh;resize:vertical;overflow:auto}
 .inline-preview iframe{display:block;width:100%;height:100%;border:0}
 .inline-preview>.hint,.inline-preview>.chat-link-error{display:block;padding:12px}
+/* The reply's plan checklist (plan-checklist.tsx): steps at the top of the reply, folded when it ends. */
+.plan-checklist{list-style:none;margin:0 0 var(--space-4);padding:var(--space-5) var(--space-7);border:1px solid var(--line);border-radius:var(--r-lg);font-size:var(--fs-list)}
+.plan-checklist>li{display:flex;gap:10px;align-items:flex-start;padding:var(--space-2) 0;line-height:1.45}
+.plan-text{flex:1;min-width:0;overflow-wrap:anywhere}
+.plan-checklist>li.completed .plan-text{color:var(--muted)}
+.plan-checklist>li.in_progress .plan-text{color:var(--text);font-weight:var(--fw-medium)}
+.plan-checklist>li.cancelled .plan-text{color:var(--muted);text-decoration:line-through}
+.plan-now{display:block;color:var(--muted);font-size:var(--fs-ui);font-weight:var(--fw-regular);margin-top:var(--space-1)}
+.plan-mark{flex:none;width:var(--icon-sm);height:var(--icon-sm);margin-top:3px;border-radius:var(--r-round);display:inline-grid;place-items:center}
+.plan-mark.pending,.plan-mark.cancelled{border:1.5px dashed var(--muted)}
+.plan-mark.in_progress{border:1.5px solid var(--accent);border-top-color:transparent;animation:activity-spin .8s linear infinite}
+.plan-mark.completed{background:var(--green);color:var(--bg)}
+.plan-mark.completed::after{content:"";width:4px;height:7px;border:solid currentColor;border-width:0 2px 2px 0;transform:translateY(-1px) rotate(45deg)}
+@media(prefers-reduced-motion:reduce){.plan-mark.in_progress{animation:none}}
+.plan-folded{margin:0 0 var(--space-4)}
+.plan-fold{display:inline-flex;align-items:center;gap:var(--space-4);min-height:var(--h);padding:0;border:0;background:none;color:var(--muted);font-size:var(--fs-list);cursor:pointer}
+.plan-fold .plan-mark{margin-top:0}
+.plan-fold:hover{color:var(--text)}
+.plan-chevron{transition:transform .15s}
+.plan-fold[aria-expanded=true] .plan-chevron{transform:rotate(90deg)}
+.plan-folded>.plan-checklist{margin-top:var(--space-3)}
+.plan-fold:focus-visible{outline:2px solid var(--accent);outline-offset:2px}

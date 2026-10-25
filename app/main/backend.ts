@@ -33,7 +33,7 @@ export async function configure(project?:Project) {
     display:{busy_input_mode:'steer'},
     wake_word:{enabled:!project&&wakeSettings().enabled,surface:'gui',provider:'sherpa',phrase:wakeSettings().phrase,profile_routing:false,start_new_session:false,capture:'client',sherpa:{model_dir:path.join(data,'models','wake',wakeModel.sha256)},sensitivity:.5},
     terminal:{cwd:project?workingDirectory(project):home},
-    tools:{tool_search:{eager:[...directAppTools,'preview_page','skills_list','skill_view','search_web','read_web_page','read_chat_history','query_chat_history','save_chat_output','goal_status','background_process','connected_tools']},desktop:{enabled:['file','terminal','memory','session_search','todo','clarify','trismegistus_mcp','skills',...toolAccess().on],disabled:['cronjob','delegation','messaging',...['browser','computer_use'].filter(name=>!toolAccess().on.includes(name))]}},
+    tools:{tool_search:{eager:[...directAppTools,'todo_list','preview_page','skills_list','skill_view','search_web','read_web_page','read_chat_history','query_chat_history','save_chat_output','goal_status','background_process','connected_tools']},desktop:{enabled:['file','terminal','memory','session_search','todo','clarify','trismegistus_mcp','skills',...toolAccess().on],disabled:['cronjob','delegation','messaging',...['browser','computer_use'].filter(name=>!toolAccess().on.includes(name))]}},
     };
   await fs.writeFile(path.join(home,'config.yaml'),JSON.stringify(config,null,2));
   if(project&&!project.folder)await fs.mkdir(workingDirectory(project),{recursive:true});

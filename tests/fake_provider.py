@@ -182,6 +182,10 @@ def response(body):
     if 'UNKNOWN_COMMAND_FIXTURE' in last:return ToolCall('terminal',{'command':'python -c "print(42)"'})
     if 'COMMAND_FIXTURE' in last:return ToolCall('terminal',{'command':'echo command-through-hermes'})
     if 'BACKGROUND_NOTICE_FIXTURE' in last:return ToolCall('terminal',{'command':'''python -c "import time; time.sleep(3); print('notice-fixture-done')"''','background':True,'notify_on_complete':True})
+    # A plan in the Hermes todo_list tool, one step done (plan checklist, 10-25).
+    if 'TODO_FIXTURE' in last:
+        if messages[-1].get('role')=='tool':return Text('Plan recorded.')
+        return ToolCall('todo_list',{'todos':[{'id':'1','content':'Read the code','status':'completed'},{'id':'2','content':'Write the fix','status':'in_progress'},{'id':'3','content':'Run the tests','status':'pending'}]})
     if 'MEMORY_FIXTURE' in last:return ToolCall('memory',{'action':'add','target':'memory','content':'ALPHA_MEMORY_PRIVATE_VALUE'})
     if 'CLARIFY_FIXTURE' in last:return ToolCall('clarify',{'question':'Choose a fixture color','choices':['Blue','Green']})
     if 'SLOW_FIXTURE' in last:return Text('Streaming cancellation fixture. '*100,chunk_chars=8,delay_per_chunk=.05)

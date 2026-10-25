@@ -10,7 +10,8 @@ import {Button} from './kit';
 
 const object=(value:any):any=>{try{if(typeof value==='string')return JSON.parse(value);}catch{}return value;};
 // Tris checking or describing its own tools: bookkeeping, not work (Koan: "internal steps hidden").
-const internal=new Set(['inspect_action','tool_describe','toolsearch','tool_search','connected_tools','goal_status']);
+// Task lists show as the reply's plan checklist (plan-checklist.tsx), so they are not counted as actions either.
+const internal=new Set(['inspect_action','tool_describe','toolsearch','tool_search','connected_tools','goal_status','todowrite','todo','todo_list','taskcreate','taskupdate','tasklist','taskget']);
 const base=(file:string)=>file.split(/[/\\]/).filter(Boolean).at(-1)||file;
 const clip=(text:string,size:number)=>{const one=text.replace(/\s+/g,' ').trim();return one.length>size?one.slice(0,size-1)+'…':one;};
 const host=(url:string)=>{try{return new URL(url).host;}catch{return clip(url,50);}};
