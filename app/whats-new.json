@@ -120,5 +120,9 @@
     "Handover mode: Hand off (in the chat menu, or type /handoff) has the chat write a handover. START HANDOVER under it opens the next chat in the series, numbered, with the same settings, and keeps the old chat beside it in Plan mode.",
     "During a handover, Show old chat and Send to new chat move only what is new between the two chats. Close handover unpins the old chat and gives it its own mode back.",
     "The first time a chat's context is compressed, a chip by the context ring suggests a handoff."
+  ]},
+  {"version":"0.1.25","date":"2026-10-25","notes":[
+    "Delete now cancels a chat's queued messages and stops its running work instead of refusing. The dialog says so first.",
+    "Share with clients sets up when your Cloudflare sign-in reaches more than one account: it picks the one named after your email, or lets you choose."
   ]}
 ]
