@@ -208,9 +208,9 @@ test('old unscoped outcomes permit current file baselines and inspected work, bu
 
 test('both engines receive current review state rather than only historical warnings',async()=>{
  const directory=await fs.mkdtemp(path.join(os.tmpdir(),'tris-review-context-')),store=new Store(':memory:'),work=new WorkCoordination(store),chat=store.chat(store.project().id),background=new BackgroundWork(store,{} as any,work,()=>{});
- assert.doesNotMatch(background.context(chat),/Work review/);assert.match(background.context(chat),/never call inspect_action/);
+ assert.doesNotMatch(background.context(chat),/Work review/);assert.match(background.context(chat),/run directly, without inspect_action/);
  const id=await work.begin('old','old',directory,'terminal',{command:'unknown'},new AbortController().signal);work.interrupt('old');assert.doesNotMatch(background.context(chat),/Work review/);
- work.inspect(id!,'Inspected in this disposable fixture.');assert.doesNotMatch(background.context(chat),/Work review/);assert.match(background.context(chat),/never call inspect_action/);store.db.close();
+ work.inspect(id!,'Inspected in this disposable fixture.');assert.doesNotMatch(background.context(chat),/Work review/);assert.match(background.context(chat),/run directly, without inspect_action/);store.db.close();
 });
 
 test('identical commands in different working directories have distinct execution and inspection identities',async()=>{
