@@ -27,11 +27,29 @@ import {availableModels,recordRoute,unavailableMessage,videoModel} from '../mode
 import {changeProjectMode,projectFor,requireStableFolder,workingDirectory} from '../projects';
 import {remoteBinding} from '../remote';
 import {openPage,pageUrl} from '../sharing';
+import {pendingTurn} from '../../sidebar';
 import {replyRow,stopDeadline} from '../turns';
 import {dialog,nativeImage,shell} from 'electron';
 import {randomUUID} from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+
+// Delete drops a waiting message the way its × does (cancelQueued keeps its own copy: stall-recovery.test runs it alone).
+function dropQueued(turn:Turn){store.transaction(()=>{if(turn.parentTurnId){const parent=store.get<Turn>('turn',turn.parentTurnId);store.update<Turn>('turn',parent.id,{jobs:parent.jobs!.filter(job=>job!==turn.id)});}goals.forget(turn);store.put('turn-removed',{id:turn.id,chatId:turn.chatId,cancelled:true});store.remove('turn',turn.id);});}
+// Delete cancels what the chat still has waiting and stops what runs, then deletes (his ask 10-25: "we should be able
+// to cancel by deleting"). Only an action with an uncertain outcome holds it, since its effects need a look first.
+async function settleForDelete(chatId:string){
+  const ids=new Set(sidebar.owned(chatId).map(c=>c.id));
+  if(coordination.pending().some(action=>ids.has(store.get<Turn>('turn',action.job).chatId)))throw Error('An action in this chat has an uncertain outcome. Inspect it in Work review, then delete.');
+  goals.pause(chatId,'Chat deleted');
+  const drop=()=>{for(const turn of store.all<Turn>('turn'))if(ids.has(turn.chatId)&&['queued','needs-model'].includes(turn.status)&&preparing.get(turn.chatId)?.turnId!==turn.id)dropQueued(turn);};
+  drop();emit();
+  for(let n=0;n<120&&(goalHold(chatId)||store.all<Turn>('turn').some(turn=>ids.has(turn.chatId)&&pendingTurn(turn.status)));n++){
+    if(n%20===0){for(const id of ids){preparing.get(id)?.controller.abort();await handlers.stop({chatId:id,reason:'user-stop'}).catch(()=>{});}}
+    await new Promise(resolve=>setTimeout(resolve,250));drop();
+  }
+  const hold=goalHold(chatId);if(hold)throw Error('This chat is still stopping ('+hold.replace(/\.$/,'').toLowerCase()+'). Try Delete again in a moment.');
+}
 
 export const chatsHandlers:Record<string,(args:any)=>any>={
   sidebarSettings(args){const result=sidebar.settings(args);emit();return result;},
@@ -79,12 +97,13 @@ export const chatsHandlers:Record<string,(args:any)=>any>={
     if(action==='delete'&&store.all<Chat>('chat').some(row=>row.sideSourceId===chat.id&&!row.parentChatId))throw Error('Keep or discard this thread’s side chat before deleting the thread.');
     if(['delete','fork','archive'].includes(action)&&!(action==='archive'&&args.archived===false)){
       if(managingChats.has(chat.id))throw Error('This chat is already changing.');
-      const hold=goalHold(chat.id);if(hold)throw Error(hold);
-      if(goals.get(chat.id)?.status==='active')throw Error('Pause this chat’s goal first.');
+      const hold=action==='delete'?null:goalHold(chat.id);if(hold)throw Error(hold);
+      if(action!=='delete'&&goals.get(chat.id)?.status==='active')throw Error('Pause this chat’s goal first.');
       if(sidebar.owned(chat.id).some(c=>uploading.has(c.id)||terminals.has(c.id)))throw Error('Finish attaching files and close this chat’s terminals first.');
       if(action==='delete'&&workspaceDrafts.has(win.webContents.id))throw Error('Save or discard workspace edits before deleting chats.');
       const workspace=[...workspaceWindows.values()].filter(entry=>entry.info.chatId===chat.id);if(action==='delete'&&workspace.some(entry=>workspaceDrafts.has(entry.window.webContents.id)))throw Error('Save or discard workspace edits before deleting this chat.');
       const editor=chatWindows.get(chat.id);if(action==='delete'&&editor&&workspaceDrafts.has(editor.webContents.id))throw Error('Save or discard the file draft before deleting this chat.');
+      if(action==='delete')await settleForDelete(chat.id);
       managingChats.add(chat.id);
       try{
         if(action==='delete'){
