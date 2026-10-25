@@ -341,6 +341,28 @@ lines.on('line',async line=>{
     const reply=spec.action==='slow'?'Slow Claude stream. '.repeat(spec.repeat||100):'Claude fixture retained copperfinch.';
     for(const text of reply.split(' ')){if(context.getStore().cancelled)return;send({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:text+' '}}});await new Promise(resolve=>setTimeout(resolve,30));}
     if(!context.getStore().cancelled)result({result:reply});
+  }else if(spec.action==='todo-plan'){
+    // A plan written with TodoWrite, one step ticked, a pause while it works, then all done (plan checklist, 10-25).
+    const plan=states=>[['Read the code','Reading the code'],['Write the fix','Writing the fix'],['Run the tests','Running the tests'],['Update the notes','Updating the notes']].map(([content,activeForm],index)=>({content,activeForm,status:index===0?'completed':states[index-1]}));
+    const todo=async(id,todos)=>{const input={todos};send({type:'assistant',message:{content:[{type:'tool_use',id,name:'TodoWrite',input}]}});
+     await request({subtype:'hook_callback',callback_id:'fixed-protection',input:{hook_event_name:'PreToolUse',tool_use_id:id,tool_name:'TodoWrite',tool_input:input}});
+     if(workHooks)await request({subtype:'hook_callback',callback_id:'fixed-work-finish',input:{hook_event_name:'PostToolUse',tool_use_id:id,tool_name:'TodoWrite',tool_input:input,tool_response:'Todos have been modified successfully.'}});
+     send({type:'user',message:{content:[{type:'tool_result',tool_use_id:id,content:'Todos have been modified successfully.'}]}});};
+    await todo('todo-1',plan(['in_progress','pending','pending']));
+    await new Promise(resolve=>setTimeout(resolve,spec.hold||3000));
+    await todo('todo-2',plan(['completed','completed','completed']));
+    send({type:'assistant',message:{content:[{type:'text',text:'All four steps are done.'}]}});result({result:'plan done'});
+  }else if(spec.action==='exit-plan'){
+    // Plan mode's request to leave it (handover old chat: answered No without a prompt, TRIS-TODO top fix).
+    send({type:'assistant',message:{content:[{type:'tool_use',id:'exit-plan-call',name:'ExitPlanMode',input:{}}]}});
+    const permission=await request({subtype:'can_use_tool',tool_name:'ExitPlanMode',input:{}});
+    result({result:permission.behavior==='allow'?'exit plan allowed':'exit plan denied'});
+  }else if(spec.action==='withdraw-request'){
+    // Claude withdraws its own permission request (control_cancel_request), then keeps working.
+    const request_id=String(++count);send({type:'control_request',request_id,request:{subtype:'can_use_tool',tool_name:'Write',input:{file_path:path.join(process.cwd(),'withdrawn.txt'),content:'never'}}});
+    await new Promise(resolve=>setTimeout(resolve,spec.after||1500));send({type:'control_cancel_request',request_id});pending.delete(request_id);
+    await new Promise(resolve=>setTimeout(resolve,spec.hold||3000));
+    send({type:'assistant',message:{content:[{type:'text',text:'Carried on after withdrawing the request.'}]}});result({result:'withdrawn'});
   }else if(spec.action==='cancel'){
     const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{windowsHide:true,stdio:'ignore'});
     send({type:'system',subtype:'child',childPid:child.pid});

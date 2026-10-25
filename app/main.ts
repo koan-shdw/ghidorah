@@ -640,7 +640,13 @@ export async function checkCodex(check=true,signal?:AbortSignal){
 }
 export async function signOutCodex(){
   if(apiChanging||pluginsChanging||installing||backend.loginChild)throw Error('Finish the current plugin change, or finish or cancel the open sign-in first.');
-  if(anyChatBusy()||submittingChats.size||contextJobs.size||appSummaryJobs.size||discoveryRun||pluginOwners.size||store.all<Turn>('turn').some(turn=>['queued','dispatching','running','waiting','stopping'].includes(turn.status)))throw Error('Stop or finish current replies and summaries before switching ChatGPT accounts.');
+  // Messages a restart left paused wait for his Send and never hold the switch; the refusal names the chats that do.
+  const holding=store.all<Turn>('turn').filter(turn=>['dispatching','running','waiting','stopping'].includes(turn.status)||turn.status==='queued'&&!turn.paused);
+  if(anyChatBusy()||submittingChats.size||contextJobs.size||appSummaryJobs.size||discoveryRun||pluginOwners.size||holding.length){
+    const chats=store.all<Chat>('chat'),title=(id:string)=>{const chat=chats.find(c=>c.id===id);return (chat?.parentChatId?chats.find(c=>c.id===chat.parentChatId):chat)?.title;};
+    const titles=[...new Set([...holding.map(turn=>title(turn.chatId)),...[...submittingChats.keys(),...contextJobs.keys()].map(title)].filter((t):t is string=>!!t))];
+    throw Error('Stop or finish current replies and summaries before switching ChatGPT accounts'+(titles.length?': '+titles.slice(0,3).map(t=>'“'+t+'”').join(', ')+(titles.length>3?' and '+(titles.length-3)+' more':''):'')+'.');
+  }
   apiChanging=true;++codexCheckVersion;codexCheckController?.abort();codex={...codex,status:'Signing out…',login:null};emit();
   try{
     await codexCheckTask?.catch(()=>{});
@@ -970,7 +976,9 @@ export function bindClaude(chat:Chat,turn:Turn,project:Project,controller:AbortC
         if(event.type==='assistant'&&event.error==='rate_limit'&&!rateReported)health.observe('claude-code','limit','limit',true,Date.now(),null,turn.model);
         if(event.type==='approval.cancel'){
           const id='claude:'+turn.id+':'+event.id;requests.get(id)?.respond({choice:'deny'});requests.delete(id);
-          try{store.update<Approval>('approval',id,{status:'expired'});}catch{}emit();return;
+          // Claude withdrew its own request: the reply runs on, as when Ghidorah withdraws one (abort above). Left in
+          // 'waiting', it counted as busy and held account switches (TRIS-TODO top fix, 10-25).
+          try{store.update<Approval>('approval',id,{status:'expired'});}catch{}if(store.get<Turn>('turn',turn.id).status==='waiting'&&!store.all<Approval>('approval').some(a=>a.turnId===turn.id&&a.status==='pending'))store.update<Turn>('turn',turn.id,{status:'running'});emit();return;
         }
         const update=claudeTurnEvent(store.get<Turn>('turn',turn.id),event);
         if(update.patch)store.update<Turn>('turn',turn.id,update.patch);
@@ -983,6 +991,9 @@ export function bindClaude(chat:Chat,turn:Turn,project:Project,controller:AbortC
         const description=name+'\n'+JSON.stringify(input,null,2);
         const deny=()=>coordination.denied(turn.id,description);
         if(controller.signal.aborted){deny();resolve(false);return;}
+        // The old chat of a running handover stays in Plan mode until Close: Claude's request to leave it gets No
+        // without asking him, so its comment finishes (live check 10-25: it waited on this prompt after each comment).
+        if(name==='ExitPlanMode'&&store.get<Chat>('chat',chat.id).handover?.stage==='live'){deny();resolve(false);return;}
         if(name!=='AskUserQuestion'&&projectFor(chat).mode==='bypass'){resolve(true);return;}
         if(name==='AskUserQuestion'){
           const questions=(input.questions||[]).map((question:any,index:number)=>({qid:String(index),header:question.header,question:question.question,choices:question.options?.map((option:any)=>option.label),descriptions:question.options?.map((option:any)=>option.description),multi_select:question.multiSelect===true}));

@@ -68,6 +68,6 @@ export function pushText(store:Store,turns:Turn[],title:string,toOld:boolean){
   const actions=tools.filter(tool=>tool.turnId===t.id).map(tool=>'- '+tool.name+(target(tool.args)?' '+target(tool.args):''));
   return [!t.handoff?.push&&!t.automatic&&!t.goal?.automatic&&t.prompt.trim()?'**User:** '+t.prompt.trim():'',actions.length?'**Actions:**\n'+actions.join('\n'):'',t.text.trim()?'**Reply:** '+t.text.trim():t.error?'**Error:** '+t.error:''].filter(Boolean).join('\n\n');
  }).filter(Boolean);
- const head=toOld?`Update from the new chat "${title}", which started from your handover. Check whether it has understood the work: say briefly what is right, what is wrong or missing, and what it should do next.`:`Comments from the old chat "${title}", which wrote your handover. Weigh them against the handover and the user's rulings; the user's word wins.`;
+ const head=toOld?`Update from the new chat "${title}", which started from your handover. Check whether it has understood the work: say briefly what is right, what is wrong or missing, and what it should do next. Reply with comments only. Don't write a plan or change files.`:`Comments from the old chat "${title}", which wrote your handover. Weigh them against the handover and the user's rulings; the user's word wins.`;
  return head+'\n\n'+parts.join('\n\n---\n\n');
 }
