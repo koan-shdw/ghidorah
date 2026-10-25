@@ -13,7 +13,7 @@ try{
  const page=await mainWindow(app);page.setDefaultTimeout(15000);const call=(method:string,args:any={})=>page.evaluate(({method,args})=>window.desktop.invoke(method,args),{method,args});
  await pollState(page,s=>s.backend==='ready'&&s.claude?.models?.some(m=>m.id===haiku)===true);await call('wizardFinish');await call('workingFolder',{folder});
  if(await page.getByLabel('Close settings',{exact:true}).count())await page.getByLabel('Close settings',{exact:true}).click();
- const chat=async(name:string,model:string)=>{const id=await call('addProject');await call('sidebarChat',{action:'rename',chatId:id,name});await call('addModel',{chatId:id,model});await call('mode',{projectId:(await call('state')).chats.find((c:any)=>c.id===id).projectId,mode:'bypass'});await page.locator('[data-chat-id="'+id+'"] .chat-link').click();return id;};
+ const chat=async(name:string,model:string)=>{const id=await call('addProject');await call('sidebarChat',{action:'rename',chatId:id,name});await call('addModel',{chatId:id,model});await call('mode',{projectId:(await call('state')).chats.find((c:any)=>c.id===id).projectId,mode:'bypass'});await page.locator('[data-chat-id="'+id+'"] .chat-link').dispatchEvent('click');await page.locator('.chat-title').filter({hasText:name}).waitFor();return id;};
  const submit=async(chatId:string,model:string,text:string)=>{const id=crypto.randomUUID();await call('submit',{id,chatId,text,models:[model]});return id;};
  const main=page.getByRole('region',{name:'Main chat',exact:true});
 
