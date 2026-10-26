@@ -315,7 +315,8 @@ export class ClaudeSession {
     options.signal.throwIfAborted();const unavailable=options.beforePrompt?.();if(unavailable)throw Error(unavailable);
     options.controls?.({setMode:mode=>this.setMode(mode)});
     if(options.inspectCapabilities)return {status:'completed',sessionId:this.sessionId,result:options.scrubber.value({commands:this.initialized.commands||[],agents:this.initialized.agents||[]}),models:this.models};
-    if(options.inspectUsage)return {status:'completed',sessionId:this.sessionId,result:options.scrubber.value(await this.command({subtype:'get_usage'})),models:this.models};
+    // Usage can take 20 s to answer (10-26, a week at 94%): a late or failed answer leaves usage empty, never the models.
+    if(options.inspectUsage)return {status:'completed',sessionId:this.sessionId,result:await this.command({subtype:'get_usage'},60000).then(value=>options.scrubber.value(value),()=>null),models:this.models};
     if(options.inspectMcp){
       const until=Date.now()+30000;let status:any;
       do{status=await this.command({subtype:'mcp_status'});if(!options.mcp?.names.length||status.mcpServers?.length&&!status.mcpServers.some((s:any)=>s.status==='pending'))break;await new Promise(r=>setTimeout(r,250));}while(Date.now()<until);

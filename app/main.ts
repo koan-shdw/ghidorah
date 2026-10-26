@@ -675,8 +675,10 @@ export async function checkClaude(signal?:AbortSignal){
     if(!account.loggedIn||!account.subscription){claude={connected:false,status:account.loggedIn?'Sign in to Claude Code with your subscription':'Claude Code is signed out'};health.observe('claude-code','auth','auth',true,started);return;}
     claudeExecutable=cli.executable;claude={...claude,connected:true,status:'Checking usage…'};emit();
     const exchangeRoot=path.join(data,'claude-exchange');await fs.mkdir(exchangeRoot,{recursive:true});
-    const result=await runClaude({executable:cli.executable,prefixArgs:fixtureClaudeArgs(),python:backend.python,worker:path.join(root,'backend','claude_worker.py'),directory:exchangeRoot,dataRoot:data,exchangeRoot,model:'claude-haiku-4-5',effort:'high',mode:'manual',hasFolder:false,scrubber:backend.scrubber,prompt:'',inspectUsage:true,signal:AbortSignal.any([AbortSignal.timeout(45000),...(signal?[signal]:[])]),event:()=>{},approve:async()=>false});
+    const result=await runClaude({executable:cli.executable,prefixArgs:fixtureClaudeArgs(),python:backend.python,worker:path.join(root,'backend','claude_worker.py'),directory:exchangeRoot,dataRoot:data,exchangeRoot,model:'claude-haiku-4-5',effort:'high',mode:'manual',hasFolder:false,scrubber:backend.scrubber,prompt:'',inspectUsage:true,signal:AbortSignal.any([AbortSignal.timeout(90000),...(signal?[signal]:[])]),event:()=>{},approve:async()=>false});
     if(result.status!=='completed')throw Error('Usage check did not finish');
+    // Signed in with models but no usage answer: Claude stays usable; only the usage line says so.
+    if(!result.result){claude={...claude,connected:true,status:'Usage unavailable',models:result.models};return result.models.map(row=>row.id.replace(/^claude-code:/,''));}
     claude={connected:true,status:'Signed in',...claudeUsage(result.result),models:result.models};
     health.claudeUsage(result.result,started);return result.models.map(row=>row.id.replace(/^claude-code:/,''));
   }catch{claude={...claude,status:'Usage unavailable'};}
