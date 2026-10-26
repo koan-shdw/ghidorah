@@ -138,3 +138,14 @@ test('pushed window states cut long tool results and mark them; the whole result
  assert.equal(state.tools[1].result.output,long,'the stored result is never changed');
  assert.equal(windowTools({turns:[]}).tools,undefined);
 });
+
+test('the main window state carries the shown chats and the chat being opened, cut (SPEED-PLAN 4)',()=>{
+ let asked:string[]=[];const full={turns:[],tools:['every tool']};
+ const env=(layout:boolean)=>({mainShownChats:()=>layout?new Set(['shown']):null,toolsForChats:(_:unknown,ids:Set<string>)=>{asked=[...ids];return ids.size?['scoped']:[];},snapshot:()=>full});
+ const mainSnapshot=main('mainSnapshot',env(true));
+ assert.deepEqual(mainSnapshot({turns:[],tools:[]},'opening').tools,['scoped']);assert.deepEqual(asked,['shown','opening']);
+ assert.deepEqual(mainSnapshot({turns:[],tools:[]}).tools,['scoped']);assert.deepEqual(asked,['shown']);
+ assert.equal(main('mainSnapshot',env(false))({turns:[],tools:[]},'opening'),full,'no saved layout: everything, as a push does');
+ const cut:unknown[]=[],mainWindowState=main('mainWindowState',{mainSnapshot,snapshot:(o:any)=>({turns:[],tools:o?.tools===false?[]:['every tool']}),windowTools:(s:unknown)=>{cut.push(s);return s;}});
+ assert.deepEqual(mainWindowState('opening').tools,['scoped']);assert.equal(cut.length,1,'results are cut');assert.deepEqual(asked,['shown','opening']);
+});

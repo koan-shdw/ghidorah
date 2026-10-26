@@ -1,11 +1,12 @@
 // windows handlers: moved out of app/main.ts unchanged (SPLIT-PLAN step 7); main.ts spreads them into handlers.
 import {chatWindows,requestAppExit,restartBackend,sidebar,win} from '../../main';
-import {snapshot} from '../snapshot';
+import {mainWindowState,snapshot} from '../snapshot';
 import {openChatWindow,openJob} from '../windows';
 import {Menu,shell} from 'electron';
 
 export const windowsHandlers:Record<string,(args:any)=>any>={
-  state:()=>snapshot(),
+  // The window asks with {window:true}; a bare request (tests, tools) still gets every record uncut.
+  state:(args)=>args?.window?mainWindowState(typeof args.chatId==='string'?args.chatId:undefined):snapshot(),
   openChatWindow({chatId}){openChatWindow(chatId);},
   openMainChat({chatId}){sidebar.root(chatId);chatWindows.get(chatId)?.close();win.show();win.focus();win.webContents.send('select-chat',chatId);},
   openJob({id}){openJob(id);},

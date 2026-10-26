@@ -43,7 +43,10 @@ export function mainShownChats(state:{chats:Chat[];turns:Turn[]}){
  for(const turn of state.turns)if(['queued','dispatching','running','waiting','stopping'].includes(turn.status))shown.add(turn.chatId);
  return shown;
 }
-export function mainSnapshot(state:ReturnType<typeof snapshot>){const shown=mainShownChats(state);return shown?{...state,tools:toolsForChats(state,shown)}:snapshot();}
+export function mainSnapshot(state:ReturnType<typeof snapshot>,chatId?:string){const shown=mainShownChats(state);if(shown&&chatId)shown.add(chatId);return shown?{...state,tools:toolsForChats(state,shown)}:snapshot();}
+// The main window's own 'state' request (SPEED-PLAN 4): the same shown chats and cut results as a push, plus the
+// chat being opened, which the saved layout may not name yet. Every tool was about 0.5 s per chat switch.
+export function mainWindowState(chatId?:string){return windowTools(mainSnapshot(snapshot({tools:false}),chatId));}
 export function cutLong(value:any,depth=0):{value:any;cut:boolean}{
   if(typeof value==='string')return value.length>RESULT_CUT?{value:value.slice(0,RESULT_CUT)+'\n… [cut here: open the row for the whole result]',cut:true}:{value,cut:false};
   if(!value||typeof value!=='object'||depth>20)return {value,cut:false};
