@@ -79,11 +79,13 @@ export async function reconcileReplies(){
   }
   // Every wait has its own deadline (TURN-REVIEW rule 3): once Tris tracks nothing in a chat and Hermes has been quiet
   // and idle for 15 s, a Hermes row still busy there ended unseen; it is closed instead of holding the chat (Fork).
-  for(const chat of store.all<Chat>('chat')){
+  // Only chats that hold a busy Hermes row, found through the status index: an idle tick parses no finished turn
+  // (SPEED-PLAN 2).
+  const quiet=(row:Turn)=>Date.now()-(row.lastActivity||row.created)>=15000;
+  const holding=[...new Set(busyHermesRows(store.whereIn<Turn>('turn','status',['running','waiting','dispatching','stopping'])).filter(quiet).map(row=>row.chatId))];
+  for(const chat of holding.map(id=>store.find<Chat>('chat',id)).filter((chat):chat is Chat=>!!chat)){
     const sid=chat.runtimeId,tracked=hermesTurns.has(chat.id)||hermesWaiting(chat.id)>0||preparing.has(chat.id)||commandTurns.has(chat.id);
     if(tracked||sid&&(checkingReplies.has(sid)||Date.now()-(hermesEvents.get(sid)?.at||0)<15000))continue;
-    const quiet=(row:Turn)=>Date.now()-(row.lastActivity||row.created)>=15000;
-    if(!busyHermesRows(store.where<Turn>('turn','chatId',chat.id)).some(quiet))continue;
     if(sid)checkingReplies.add(sid);const generation=backend.generation;
     try{
       const live:any=sid?await backend.rpc.request('session.active_list',{profile:projectFor(chat).profile},10000):{sessions:[]},row=(live.sessions||[]).find((row:any)=>row.id===sid);

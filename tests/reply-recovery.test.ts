@@ -106,3 +106,20 @@ test('a busy Hermes row nothing tracks closes once the chat is quiet and Hermes 
   store.db.close();
  }
 });
+
+test('an idle recovery tick reads no chat whose turns are all finished (SPEED-PLAN 2)',async()=>{
+ const source=mainSource();
+ const code=source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='reconcileReplies')!.getText(source);
+ const store=new Store(':memory:'),project=store.project(),done=store.chat(project.id),busy=store.chat(project.id);
+ for(let i=0;i<5;i++){store.accept('done'+i,done.id,'Old work','gpt-6');store.update<any>('turn','done'+i,{status:'completed'});}
+ store.accept('ghost',busy.id,'Lost','gpt-6');store.update<any>('turn','ghost',{status:'running'});
+ const reads:string[]=[],where=store.where.bind(store),all=store.all.bind(store);
+ store.where=((kind:string,field:any,value:string)=>{if(kind==='turn')reads.push(value);return where(kind,field,value);}) as any;
+ store.all=((kind:string)=>{if(kind==='turn')reads.push('all');return all(kind);}) as any;
+ const later=Date.now()+60000,backend={status:'ready',generation:'g',rpc:{request:async()=>({sessions:[]})}};
+ const env={quitting:false,store,hermesTurns:new Map(),checkingReplies:new Set(),hermesEvents:new Map(),hermesErrors:new Map(),hermesSent:new Map(),waitingFor:()=>new Set(),hermesWaiting:()=>0,preparing:new Map(),commandTurns:new Map(),hermesStarted:new Set(),busyHermesRows,wake:()=>{},emit:()=>{},backend,projectFor:()=>project,receive:()=>{},Date:{now:()=>later}};
+ await new Function(...Object.keys(env),ts.transpile(code,{target:ts.ScriptTarget.ES2022})+';return reconcileReplies;')(...Object.values(env))();
+ assert.equal(store.get<any>('turn','ghost').status,'failed','the lost turn still closes');
+ assert.ok(!reads.includes(done.id)&&!reads.includes('all'),'the finished chat is never read: '+reads.join(','));
+ store.db.close();
+});

@@ -8,8 +8,11 @@ export function joinTurn(store:Store,id:string,ownerId:string,readAt?:Turn['read
   readAt:row.answeredIn===ownerId&&row.readAt?row.readAt:readAt||{text:owner.text.length,tools:store.where<ToolCall>('tool','turnId',ownerId).length}});
 }
 
+// Joined messages always sit in their owner's chat (joinTurn refuses otherwise), so only that chat is read.
+const ownerChat=(store:Store,ownerId:string)=>{const owner=store.find<Turn>('turn',ownerId);return owner?store.where<Turn>('turn','chatId',owner.chatId):store.all<Turn>('turn');};
+
 export function resetJoinedText(store:Store,ownerId:string){
- for(const row of store.all<Turn>('turn'))if(row.answeredIn===ownerId&&row.readAt)store.update<Turn>('turn',row.id,{readAt:{...row.readAt,text:0}});
+ for(const row of ownerChat(store,ownerId))if(row.answeredIn===ownerId&&row.readAt)store.update<Turn>('turn',row.id,{readAt:{...row.readAt,text:0}});
 }
 
 // A Hermes tool result that belongs to an earlier reply of this chat, not the one running now: exactly one recorded
@@ -27,7 +30,7 @@ const busy=['queued','running','waiting','dispatching','stopping'];
 
 // A finished reply settles every message it read that is still busy; ones the engine still holds run next.
 export function settleJoined(store:Store,ownerId:string,status:'completed'|'stopped'|'failed',error:string|null,held:Set<string>){
- const rows=store.all<Turn>('turn').filter(row=>row.answeredIn===ownerId&&row.id!==ownerId&&busy.includes(row.status)&&!held.has(row.id));
+ const rows=ownerChat(store,ownerId).filter(row=>row.answeredIn===ownerId&&row.id!==ownerId&&busy.includes(row.status)&&!held.has(row.id));
  for(const row of rows)store.update<Turn>('turn',row.id,{status,delivery:undefined,activity:undefined,error:status==='failed'?error:null});
  return rows.map(row=>row.id);
 }
