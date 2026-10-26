@@ -76,7 +76,7 @@ export class Goals {
   if(this.running||this.closed)return;this.running=true;
   try{for(const original of this.rows()){
    let goal=this.get(original.id)!;
-   const turns=this.store.all<Turn>('turn'),related=turns.filter(turn=>this.root(turn).goal?.key===goal.key);
+   const turns=this.store.ownedTurns<Turn>(goal.id),related=turns.filter(turn=>this.root(turn).goal?.key===goal.key);
    const settled=related.filter(turn=>terminal.has(turn.status)&&!goal.accounted.includes(turn.id));
    if(settled.length){let tokens=goal.tokens,incomplete=goal.usageIncomplete;for(const turn of settled){if(!turn.jobs?.length){if(measured(turn.usage?.turn_total))tokens+=turn.usage.turn_total;else incomplete=true;}if(turn.routingUsage){for(const value of [turn.routingUsage.summaryTokens,pickerTokens(turn.routingUsage)].filter(value=>value!==undefined)){if(measured(value))tokens+=value;else incomplete=true;}}}goal=this.update(goal,{tokens,usageIncomplete:incomplete,accounted:[...goal.accounted,...settled.map(turn=>turn.id)]});}
    if(goal.status!=='active')continue;

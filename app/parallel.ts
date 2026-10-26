@@ -38,7 +38,7 @@ export function createParallel(store:Store,parent:Turn,models:string[]){
 
 export function settleParallel(store:Store){
  const finished:string[]=[];
- for(const parent of store.all<Turn>('turn').filter(t=>t.jobs?.length)){
+ for(const parent of store.turnsWith<Turn>('jobs').filter(t=>t.jobs?.length)){
   const attempts=parent.jobs!.map(id=>store.get<Turn>('turn',id));
   const jobs=[...new Map(attempts.map(job=>[job.chatId,job])).values()];
   if(!attempts.every(job=>terminalJobStates.has(job.status)))continue;

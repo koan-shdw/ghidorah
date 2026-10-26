@@ -9,6 +9,7 @@ const contextOverflow=(error:unknown)=>/context|too long|too large|maximum.{0,20
 
 const indexedFields=['turnId','job','status','signature','chatId'] as const;
 type IndexedField=typeof indexedFields[number];
+const turnFields=['jobs','remote'] as const;
 
 export class Store {
   db:DatabaseSync;
@@ -21,6 +22,9 @@ export class Store {
       CREATE TABLE IF NOT EXISTS events(id TEXT PRIMARY KEY);
       PRAGMA user_version=1;`);
     for(const field of indexedFields)this.db.exec(`CREATE INDEX IF NOT EXISTS records_${field} ON records(kind,json_extract(data,'$.${field}'))`);
+    // Partial indexes hold only the few rows that carry the field, so these reads never parse the rest (SPEED-PLAN 1a).
+    for(const field of turnFields)this.db.exec(`CREATE INDEX IF NOT EXISTS records_turn_${field} ON records(kind) WHERE kind='turn' AND json_extract(data,'$.${field}') IS NOT NULL`);
+    this.db.exec(`CREATE INDEX IF NOT EXISTS records_chat_parent ON records(json_extract(data,'$.parentChatId')) WHERE kind='chat'`);
     // Retired picker preferences migrate without changing chat selectors or past usage.
     this.transaction(()=>{
       const engine=this.all<{id:string;engine?:string}>('settings').find(row=>row.id==='decision-engine');
@@ -36,6 +40,14 @@ export class Store {
     const rows:{rowid:number;data:string}[]=[];
     for(let i=0;i<values.length;i+=900){const chunk=values.slice(i,i+900);rows.push(...this.db.prepare(`SELECT rowid,data FROM records WHERE kind=? AND json_extract(data,'$.${field}') IN (${chunk.map(()=>'?').join(',')})`).all(kind,...chunk) as any[]);}
     return rows.sort((a,b)=>a.rowid-b.rowid).map(r=>JSON.parse(r.data));
+  }
+  // Turns that carry parallel jobs or came from remote, in saved order.
+  turnsWith<T=Turn>(field:typeof turnFields[number]):T[] {if(!turnFields.includes(field))throw Error('Unknown turn field');return this.db.prepare(`SELECT data FROM records WHERE kind='turn' AND json_extract(data,'$.${field}') IS NOT NULL ORDER BY rowid`).all().map((r:any)=>JSON.parse(r.data));}
+  // A chat's turns and those of its job chats, in saved order: every turn whose root message is in this chat.
+  // Automatic follow-ups are saved in their own chat, parallel jobs in a child chat (SPEED-PLAN 1a, 3).
+  ownedTurns<T=Turn>(chatId:string):T[] {
+    const children=this.db.prepare(`SELECT id FROM records WHERE kind='chat' AND json_extract(data,'$.parentChatId')=?`).all(chatId).map((r:any)=>String(r.id));
+    return this.whereIn<T>('turn','chatId',[chatId,...children]);
   }
   find<T>(kind:string,id:string):T|undefined {const r:any=this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind,id);return r?JSON.parse(r.data):undefined;}
   enginePosition(chatId:string,engine:Engine):EnginePosition {

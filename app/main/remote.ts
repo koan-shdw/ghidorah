@@ -86,7 +86,7 @@ export function remoteChats(){return store.all<Chat>('chat').filter(chat=>!chat.
 // The reply to each finished remote turn, sent once; called in emit(), the way settleParallel works.
 export function settleRemote(){
   settleApprovals();
-  for(const turn of store.all<Turn>('turn'))if(turn.remote&&!turn.remote.replied&&!turn.parentTurnId&&!turn.automatic&&['completed','partial','failed','stopped','interrupted'].includes(turn.status)){
+  for(const turn of store.turnsWith<Turn>('remote'))if(turn.remote&&!turn.remote.replied&&!turn.parentTurnId&&!turn.automatic&&['completed','partial','failed','stopped','interrupted'].includes(turn.status)){
     const models=turn.jobs?.length?turn.jobs.map(id=>store.get<Turn>('turn',id)).filter(job=>!job.automatic):[turn];
     const text=models.map(job=>replyFor(job,modelLabel(job.model,claude.models))).join('\n\n')+(turn.remote.fallback?'\nThe picker was unsure; an available model answered.':'');
     enqueueRemoteReply(store,turn.id,backend.scrubber.text(clip(text)));remoteChannel?.notify();

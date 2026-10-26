@@ -113,3 +113,20 @@ test('a tool record keeps when it started and finished, for the action list time
   s.update<any>('tool','t',{result:'again'});assert.equal(s.get<any>('tool','t').finished,done.finished,'the finish is kept');
  }finally{s.db.close();rmSync(dir,{recursive:true,force:true});}
 });
+
+test('turnsWith and ownedTurns read only their rows, through indexes, in saved order (SPEED-PLAN 1a)',()=>{
+ const s=new Store(':memory:');const p=s.project();const main=s.chat(p.id),other=s.chat(p.id);
+ const job={...s.chat(p.id),parentChatId:main.id};s.put('chat',job);
+ const a=s.accept('a',main.id,'one'),b=s.accept('b',other.id,'two'),c=s.accept('c',job.id,'job'),d=s.accept('d',main.id,'three');
+ s.update<Turn>('turn',a.id,{jobs:[c.id]});s.update<Turn>('turn',b.id,{remote:{replied:false}} as any);s.update<Turn>('turn',d.id,{jobs:[]});
+ const ids=(rows:Turn[])=>rows.map(t=>t.id);
+ assert.deepEqual(ids(s.turnsWith('jobs')),ids(s.all<Turn>('turn').filter(t=>t.jobs)));
+ assert.deepEqual(ids(s.turnsWith('remote')),[b.id]);
+ assert.deepEqual(ids(s.ownedTurns(main.id)),[a.id,c.id,d.id],'the chat and its job chat, nothing else');
+ assert.deepEqual(ids(s.ownedTurns(other.id)),[b.id]);
+ assert.throws(()=>s.turnsWith('prompt' as any),/Unknown turn field/);
+ const plan=(sql:string,...args:string[])=>JSON.stringify(s.db.prepare('EXPLAIN QUERY PLAN '+sql).all(...args));
+ assert.match(plan(`SELECT data FROM records WHERE kind='turn' AND json_extract(data,'$.jobs') IS NOT NULL ORDER BY rowid`),/records_turn_jobs/);
+ assert.match(plan(`SELECT id FROM records WHERE kind='chat' AND json_extract(data,'$.parentChatId')=?`,main.id),/records_chat_parent/);
+ s.db.close();
+});
