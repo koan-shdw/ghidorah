@@ -14,7 +14,7 @@ function handler(name:string,environment:Record<string,unknown>){
 
 test('ordinary sends queue during work; stopping requires the explicit correction action',async()=>{
  for(const name of ['submit','correct']){
-  const sent:{method:string;args:any}[]=[],env={sending:{current:false},otherEditor:false,chat:{attachments:[] as object[]},draft:'Additional direction',busy:false,state:{availableModels:['gpt-6-astra']},working:true,ordinary:true,chatId:'chat',editorRevision:{current:0},draftEdits:{current:0},setBusy:()=>{},setDraft:()=>{},call:async(method:string,args:any)=>{sent.push({method,args});}};
+  const sent:{method:string;args:any}[]=[],env={sending:{current:false},otherEditor:false,chat:{attachments:[] as object[]},draft:'Additional direction',busy:false,state:{availableModels:['gpt-6-astra']},working:true,ordinary:true,chatId:'chat',editorRevision:{current:0},draftEdits:{current:0},drafts:{flush:()=>{}},setBusy:()=>{},setDraft:()=>{},call:async(method:string,args:any)=>{sent.push({method,args});}};
   await handler(name,env)();
   assert.equal(sent.pop()?.method,'submit',name+' must keep the running reply alive');
   await handler(name,env)(...(name==='submit'?[undefined,false]:[false]));
