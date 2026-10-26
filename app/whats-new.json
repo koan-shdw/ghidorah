@@ -135,5 +135,8 @@
     "Typing in a long chat no longer lags: only the message that changed redraws.",
     "Streamed replies are saved in batches, so a long reply no longer slows the app.",
     "Sends and tool results read only their own chat, not the whole history."
+  ]},
+  {"version":"0.1.28","date":"2026-10-26","notes":[
+    "Claude Code works again when its usage check is slow; only the usage line says it is unavailable."
   ]}
 ]
