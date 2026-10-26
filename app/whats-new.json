@@ -129,5 +129,11 @@
     "Replies show their plan as a checklist at the top, ticked off as the model works and folded to \"4 of 4 steps done\" when it ends. Hermes models can now keep a task list too.",
     "Handover mode: the old chat's comments finish on their own; it no longer asks to leave Plan mode after each one.",
     "Switching ChatGPT accounts no longer waits on messages paused by a restart, and says which chat is still working."
+  ]},
+  {"version":"0.1.27","date":"2026-10-26","notes":[
+    "Switching chats and opening a split or pane is about ten times faster on a long history.",
+    "Typing in a long chat no longer lags: only the message that changed redraws.",
+    "Streamed replies are saved in batches, so a long reply no longer slows the app.",
+    "Sends and tool results read only their own chat, not the whole history."
   ]}
 ]
