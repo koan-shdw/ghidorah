@@ -548,7 +548,7 @@ export function screenShow(turn:Turn,app:string){
 // An Esc the model sends to an app must not stop it: the global Esc steps aside for 2 s.
 export function screenEscPause(){globalShortcut.unregister('Escape');clearTimeout(screenEsc!);screenEsc=setTimeout(()=>{screenEsc=null;screenEscOn();},2000);}
 export function screenEnd(){if(screenTurn||screenEsc)globalShortcut.unregister('Escape');clearTimeout(screenEsc!);screenEsc=null;screenTurn=null;screenText='';if(screenBar&&!screenBar.isDestroyed())screenBar.destroy();screenBar=null;}
-app.on('will-quit',()=>{screenEnd();screenDriver.stop();});
+app.on('will-quit',()=>{screenEnd();screenDriver.stop();store?.flush();});
 export let shareStatus='',shareBusy:Promise<unknown>=Promise.resolve();
 // One wrangler at a time: setup, sharing, approvals and password changes wait for each other.
 export function shareQueue<T>(work:()=>Promise<T>){const next=shareBusy.catch(()=>{}).then(work);shareBusy=next;return next;}
@@ -982,7 +982,7 @@ export function bindClaude(chat:Chat,turn:Turn,project:Project,controller:AbortC
           try{store.update<Approval>('approval',id,{status:'expired'});}catch{}if(store.get<Turn>('turn',turn.id).status==='waiting'&&!store.all<Approval>('approval').some(a=>a.turnId===turn.id&&a.status==='pending'))store.update<Turn>('turn',turn.id,{status:'running'});emit();return;
         }
         const update=claudeTurnEvent(store.get<Turn>('turn',turn.id),event);
-        if(update.patch)store.update<Turn>('turn',turn.id,update.patch);
+        if(update.patch){if(event.type==='stream_event')store.stream(turn.id,update.patch);else store.update<Turn>('turn',turn.id,update.patch);}
         for(const tool of update.tools||[]){let previous:Partial<ToolCall>={};try{previous=store.get<ToolCall>('tool',tool.id!);}catch{}store.put('tool',{result:null,status:'running',...previous,...tool,id:tool.id!});}
         if(update.tools?.length)store.update<Turn>('turn',turn.id,{activity:store.where<ToolCall>('tool','turnId',turn.id).some(t=>t.status==='running')?'Running tools':'Waiting for model'});
         if(event.type==='stream_event'&&update.patch)emitStream(turn.id);else emit();
@@ -1051,7 +1051,7 @@ export function receive(event:any){
     }else if(['message.delta','reasoning.delta','thinking.delta'].includes(event.type)){
       const field=event.type==='message.delta'?'text':'reasoning';const key=id+field;
       let scrub=streamScrubbers.get(key);if(!scrub){scrub=backend.scrubber.stream();streamScrubbers.set(key,scrub);}
-      store.update<Turn>('turn',id,{[field]:turn[field]+scrub(String(payload.text||'')),activity:field==='text'?'Writing reply':'Thinking'});
+      store.stream(id,{[field]:turn[field]+scrub(String(payload.text||'')),activity:field==='text'?'Writing reply':'Thinking'});
     }else if(event.type==='message.interim'){
       // Text Hermes did not stream (commentary beside tool calls) is shown when it arrives and kept at the end; what
       // streams next starts a new paragraph.

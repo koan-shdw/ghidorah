@@ -34,17 +34,34 @@ export class Store {
       this.remove('settings','laya');
     });
   }
-  all<T>(kind:string):T[] {return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map((r:any)=>JSON.parse(r.data));}
+  // Streamed reply text waits here and goes to disk at most every 250 ms (SPEED-PLAN 5: each piece rewrote the whole
+  // growing row with a full sync, 1.8 s of main-process work for 600 pieces). Every read in this process sees it; any
+  // other change to the turn writes it at once. A crash can lose the last 250 ms of a reply's partial text.
+  private streamed=new Map<string,Partial<Turn>>();private streamTimer?:NodeJS.Timeout;
+  private parse(kind:string,data:string){const value=JSON.parse(data);if(kind==='turn'&&this.streamed.size){const pending=this.streamed.get(value.id);if(pending)Object.assign(value,pending);}return value;}
+  stream(id:string,patch:Pick<Partial<Turn>,'text'|'reasoning'|'activity'>):Turn {
+    const previous=this.get<Turn>('turn',id),v:Turn={...previous,...patch,lastActivity:Date.now()};
+    if(v.activity!==previous.activity)v.stageSince=Date.now();
+    this.streamed.set(id,{text:v.text,reasoning:v.reasoning,activity:v.activity,lastActivity:v.lastActivity,stageSince:v.stageSince});
+    this.streamTimer??=setTimeout(()=>this.flush(),250);this.streamTimer.unref?.();
+    return v;
+  }
+  flush(){
+    clearTimeout(this.streamTimer);this.streamTimer=undefined;if(!this.streamed.size||!this.db.isOpen)return;
+    const pending=[...this.streamed];this.streamed.clear();
+    this.transaction(()=>{for(const [id,patch] of pending){const r:any=this.db.prepare("SELECT data FROM records WHERE kind='turn' AND id=?").get(id);if(r)this.db.prepare("UPDATE records SET data=? WHERE kind='turn' AND id=?").run(JSON.stringify({...JSON.parse(r.data),...patch}),id);}});
+  }
+  all<T>(kind:string):T[] {return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map((r:any)=>this.parse(kind,r.data));}
   // Per-tool lookups read only matching rows through expression indexes; all() parses every row (RUN-PLAN 3c:
   // 244 ms for Koan's 7,179 tool rows, several times per tool call).
-  where<T>(kind:string,field:IndexedField,value:string):T[] {return this.db.prepare(`SELECT data FROM records WHERE kind=? AND json_extract(data,'$.${field}')=? ORDER BY rowid`).all(kind,value).map((r:any)=>JSON.parse(r.data));}
+  where<T>(kind:string,field:IndexedField,value:string):T[] {return this.db.prepare(`SELECT data FROM records WHERE kind=? AND json_extract(data,'$.${field}')=? ORDER BY rowid`).all(kind,value).map((r:any)=>this.parse(kind,r.data));}
   whereIn<T>(kind:string,field:IndexedField,values:string[]):T[] {
     const rows:{rowid:number;data:string}[]=[];
     for(let i=0;i<values.length;i+=900){const chunk=values.slice(i,i+900);rows.push(...this.db.prepare(`SELECT rowid,data FROM records WHERE kind=? AND json_extract(data,'$.${field}') IN (${chunk.map(()=>'?').join(',')})`).all(kind,...chunk) as any[]);}
-    return rows.sort((a,b)=>a.rowid-b.rowid).map(r=>JSON.parse(r.data));
+    return rows.sort((a,b)=>a.rowid-b.rowid).map(r=>this.parse(kind,r.data));
   }
   // Turns that carry parallel jobs or came from remote, in saved order.
-  turnsWith<T=Turn>(field:typeof turnFields[number]):T[] {if(!turnFields.includes(field))throw Error('Unknown turn field');return this.db.prepare(`SELECT data FROM records WHERE kind='turn' AND json_extract(data,'$.${field}') IS NOT NULL ORDER BY rowid`).all().map((r:any)=>JSON.parse(r.data));}
+  turnsWith<T=Turn>(field:typeof turnFields[number]):T[] {if(!turnFields.includes(field))throw Error('Unknown turn field');return this.db.prepare(`SELECT data FROM records WHERE kind='turn' AND json_extract(data,'$.${field}') IS NOT NULL ORDER BY rowid`).all().map((r:any)=>this.parse('turn',r.data));}
   // A chat's turns and those of its job chats, in saved order: every turn whose root message is in this chat.
   // Automatic follow-ups are saved in their own chat, parallel jobs in a child chat (SPEED-PLAN 1a, 3).
   ownedTurns<T=Turn>(chatId:string):T[] {return this.whereIn<T>('turn','chatId',[chatId,...this.chatsWhere('parentChatId',chatId).map(chat=>chat.id)]);}
@@ -59,7 +76,7 @@ export class Store {
     return ids.sort((a,b)=>a.rowid-b.rowid).map(row=>String(row.id));
   }
   has(kind:string,id:string){return !!this.db.prepare('SELECT 1 FROM records WHERE kind=? AND id=?').get(kind,id);}
-  find<T>(kind:string,id:string):T|undefined {const r:any=this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind,id);return r?JSON.parse(r.data):undefined;}
+  find<T>(kind:string,id:string):T|undefined {const r:any=this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind,id);return r?this.parse(kind,r.data):undefined;}
   enginePosition(chatId:string,engine:Engine):EnginePosition {
     this.get('chat',chatId);
     try{return this.get('engine',chatId+':'+engine);}catch{return {id:chatId+':'+engine,chatId,engine,sessionId:null,throughTurnId:null,uncertain:false};}
@@ -104,10 +121,10 @@ export class Store {
       for(const position of this.all<EnginePosition>('engine'))this.put('engine',{...position,sessionId:null,uncertain:true});
     });
   }
-  get<T>(kind:string,id:string):T {const r:any=this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind,id);if(!r)throw Error(`${kind} not found`);return JSON.parse(r.data);}
+  get<T>(kind:string,id:string):T {const r:any=this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind,id);if(!r)throw Error(`${kind} not found`);return this.parse(kind,r.data);}
   // A tool record keeps when it started and finished, for the action list's times (TRIS-TODO 4.1, A2).
-  put<T extends {id:string}>(kind:string,value:T) {if(kind==='tool'){const tool:any=value;tool.started??=Date.now();if(!tool.finished&&['completed','failed','stopped'].includes(tool.status))tool.finished=Date.now();}this.db.prepare('INSERT INTO records(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind,value.id,JSON.stringify(value));return value;}
-  remove(kind:string,id:string){this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind,id);}
+  put<T extends {id:string}>(kind:string,value:T) {if(kind==='tool'){const tool:any=value;tool.started??=Date.now();if(!tool.finished&&['completed','failed','stopped'].includes(tool.status))tool.finished=Date.now();}if(kind==='turn')this.streamed.delete(value.id);this.db.prepare('INSERT INTO records(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind,value.id,JSON.stringify(value));return value;}
+  remove(kind:string,id:string){if(kind==='turn')this.streamed.delete(id);this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind,id);}
   update<T extends {id:string}>(kind:string,id:string,patch:Partial<T>):T {const previous:any=this.get<T>(kind,id),v:any={...previous,...patch};if(kind==='turn'){v.lastActivity=Date.now();if(['stopped','interrupted','failed'].includes(v.status)&&!v.stopReason)v.stopReason='unknown';if(v.status!==previous.status||v.preparation!==previous.preparation||v.activity!==previous.activity)v.stageSince=Date.now();}if(kind==='turn'&&!v.finished&&['completed','stopped','failed','interrupted'].includes(v.status))v.finished=Date.now();this.put(kind,v);return v;}
   transaction<T>(fn:()=>T):T {if(this.db.isTransaction)return fn();this.db.exec('BEGIN IMMEDIATE');try{const v=fn();this.db.exec('COMMIT');return v;}catch(e){this.db.exec('ROLLBACK');throw e;}}
   event(id:string,fn:()=>void){return this.transaction(()=>{if(!this.db.prepare('INSERT OR IGNORE INTO events VALUES(?)').run(id).changes)return false;fn();return true;});}

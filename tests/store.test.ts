@@ -130,3 +130,28 @@ test('turnsWith and ownedTurns read only their rows, through indexes, in saved o
  assert.match(plan(`SELECT id FROM records WHERE kind='chat' AND json_extract(data,'$.parentChatId')=?`,main.id),/records_chat_parent/);
  s.db.close();
 });
+
+test('streamed text is read at once, written within 250 ms, and kept by any other change to the turn (SPEED-PLAN 5)',async()=>{
+ const folder=mkdtempSync(path.join(tmpdir(),'tris-stream-')),file=path.join(folder,'s.sqlite');let s=new Store(file);
+ const chat=s.chat(s.project().id),turn=s.accept('t',chat.id,'Hello'),other=s.accept('o',chat.id,'Other');
+ const disk=(id:string)=>JSON.parse((s.db.prepare("SELECT data FROM records WHERE kind='turn' AND id=?").get(id) as any).data);
+ s.update<Turn>('turn',turn.id,{status:'running'});
+ for(const piece of ['Hel','lo ','there'])s.stream(turn.id,{text:s.get<Turn>('turn',turn.id).text+piece,activity:'Writing reply'});
+ assert.equal(disk(turn.id).text,'','nothing written yet');
+ for(const read of [s.get<Turn>('turn',turn.id),s.find<Turn>('turn',turn.id)!,s.all<Turn>('turn').find(t=>t.id===turn.id)!,s.where<Turn>('turn','chatId',chat.id)[0],s.whereIn<Turn>('turn','status',['running'])[0],s.snapshot().turns.find(t=>t.id===turn.id)!])
+  assert.equal(read.text,'Hello there','every read sees the streamed text');
+ assert.equal(s.get<Turn>('turn',other.id).text,'','other turns are untouched');
+ // Stop mid-stream: the status change writes the text with it.
+ s.update<Turn>('turn',turn.id,{status:'stopping'});assert.equal(disk(turn.id).text,'Hello there');assert.equal(disk(turn.id).status,'stopping');
+ s.stream(turn.id,{text:s.get<Turn>('turn',turn.id).text+'!',activity:'Writing reply'});
+ await new Promise(resolve=>setTimeout(resolve,300));
+ assert.equal(disk(turn.id).text,'Hello there!','the timer writes it');assert.equal(disk(turn.id).status,'stopping','only stream fields are written');
+ // Completion right after a piece: the final row wins.
+ s.stream(turn.id,{text:'partial',activity:'Writing reply'});s.finishEngine(turn.id,'hermes','sid',{status:'completed',text:'Final'});
+ await new Promise(resolve=>setTimeout(resolve,300));assert.equal(disk(turn.id).text,'Final');
+ // A pending piece is written on flush (quit) and survives reopening; a removed turn is not brought back.
+ s.stream(turn.id,{text:'Final more',activity:'Writing reply'});s.stream(other.id,{text:'gone',activity:'Writing reply'});s.remove('turn',other.id);
+ s.flush();s.db.close();s=new Store(file);
+ assert.equal(s.get<Turn>('turn',turn.id).text,'Final more');assert.equal(s.find('turn',other.id),undefined);
+ s.db.close();rmSync(folder,{recursive:true,force:true});
+});
