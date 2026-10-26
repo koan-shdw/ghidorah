@@ -61,7 +61,9 @@ export function saveApp(store:Store,args:any):SavedApp {
  const stage=text('stage',40),current=text('current',2000),ideas=text('ideas',2000),planned=text('planned',2000);
  if(!Array.isArray(args.chatIds)||args.chatIds.length>500||args.chatIds.some((id:unknown)=>typeof id!=='string'))throw Error('Choose linked chats.');
  const unlinkedChatIds=args.unlinkedChatIds||[];if(!Array.isArray(unlinkedChatIds)||unlinkedChatIds.length>500||unlinkedChatIds.some((id:unknown)=>typeof id!=='string'))throw Error('Invalid unlinked chats.');
- const chatIds=[...new Set<string>(args.chatIds)];for(const id of chatIds)if(store.get<Chat>('chat',id).parentChatId)throw Error('Link the parent chat.');
+ // Deleting a chat leaves its id on linked apps; drop those stale ids instead of failing every later save.
+ const stored=new Set(args.id?store.get<SavedApp>('saved-app',args.id).chatIds:[]),exists=(id:string)=>!!store.db.prepare("SELECT 1 FROM records WHERE kind='chat' AND id=?").get(id);
+ const chatIds=[...new Set<string>(args.chatIds)].filter(id=>!stored.has(id)||exists(id));for(const id of chatIds)if(store.get<Chat>('chat',id).parentChatId)throw Error('Link the parent chat.');
  if(args.id!==undefined&&typeof args.id!=='string')throw Error('Invalid app.');
  if(args.id)store.get('saved-app',args.id);
  const questions=args.questions===undefined?'':text('questions',2000);

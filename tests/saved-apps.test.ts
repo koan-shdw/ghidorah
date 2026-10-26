@@ -25,6 +25,11 @@ test('saved apps link chats across folders, preserve chat data and validate edit
  assert.throws(()=>saveApp(store,{...input,chatIds:['missing']}));assert.throws(()=>saveApp(store,{...input,icon:'https://example.com/logo.png'}));assert.throws(()=>saveApp(store,{...input,id:'missing'}));
  removeApp(store,app.id);assert.equal(store.all('saved-app').length,0);assert.equal(store.all('chat').length,2);store.db.close();
 });
+test('a deleted chat left on an app does not block later links',()=>{
+ const store=new Store(':memory:'),p=store.project(),gone=store.chat(p.id),next=store.chat(p.id),app=saveApp(store,{name:'Studio',chatIds:[gone.id]});
+ store.remove('chat',gone.id);
+ assert.deepEqual(linkAppChat(store,app.id,next.id,true).chatIds,[next.id]);store.db.close();
+});
 
 test('app reports include nested jobs without mixing unrelated chats',()=>{
  const turns=[{id:'parent',chatId:'linked'},{id:'child',chatId:'job',parentTurnId:'parent'},{id:'nested',chatId:'job2',parentTurnId:'child'},{id:'other',chatId:'elsewhere'}] as any;
