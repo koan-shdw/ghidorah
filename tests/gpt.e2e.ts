@@ -45,7 +45,7 @@ try{
   await page.getByLabel('Connection supplier',{exact:true}).first().click();await page.locator('.choice-options label').filter({hasText:/^OpenAI$/}).click();
   await page.getByRole('button',{name:'Switch account',exact:true}).waitFor({state:'visible'});
   await page.keyboard.press('Escape');
-  await page.getByRole('button',{name:'New project',exact:true}).first().click();
+  await page.getByRole('button',{name:'New chat',exact:true}).first().click();
   const otherId=(await wait(s=>s.chats.length===2)).chats.at(-1).id;
   assert.deepEqual((await call('state')).chats.find((c:any)=>c.id===otherId).pool,['deepseek-flash']);
   await page.getByRole('button',{name:'Add model',exact:true}).click();

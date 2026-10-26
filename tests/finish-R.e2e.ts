@@ -25,8 +25,8 @@ try{
  await wait(s=>s.backend==='ready'&&s.claude?.models?.some((m:any)=>m.id==='claude-code:haiku'));
  const closeSettings=page.getByRole('button',{name:'Close settings',exact:true});if(await closeSettings.isVisible())await closeSettings.click();
  await call('workingFolder',{folder});
- // R2: the New project button's right-click menu starts a chat in a worktree of the chosen repository.
- await page.getByRole('button',{name:'New project',exact:true}).first().click({button:'right'});
+ // R2: the New chat button's right-click menu starts a chat in a worktree of the chosen repository.
+ await page.getByRole('button',{name:'New chat',exact:true}).first().click({button:'right'});
  await page.getByRole('menuitem',{name:'New chat in a worktree',exact:true}).click();
  const dialog=page.getByRole('dialog',{name:'New chat in a worktree',exact:true});await dialog.getByRole('button',{name:'Working folder',exact:true}).click();await dialog.waitFor({state:'hidden'});
  let s=await wait(s=>s.chats.some((chat:any)=>chat.title.startsWith('Worktree · ')));

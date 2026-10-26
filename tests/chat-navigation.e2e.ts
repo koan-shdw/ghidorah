@@ -69,12 +69,12 @@ try {
   assert.equal(await composer.inputValue(),review,'A late navigation response must not erase a review added to the draft');
 
   await app.evaluate(()=>{const gate=(globalThis as any).auditStateGate;gate.hold=true;gate.releases=[];gate.created=null;});
-  await page.locator('.sidebar-tools button.nav').filter({hasText:'New project'}).click();
+  await page.locator('.sidebar-tools button.nav').filter({hasText:'New chat'}).click();
   const created=await app.evaluate(async()=>{const gate=(globalThis as any).auditStateGate;for(let n=0;n<300;n++){if(gate.created&&gate.releases.length)return gate.created;await new Promise(resolve=>setTimeout(resolve,10));}throw Error('New chat did not reach the response gate');});
   await page.locator('[data-chat-id="'+created+'"] .chat-link[aria-current="page"]').waitFor();
   await app.evaluate(()=>{const gate=(globalThis as any).auditStateGate;gate.hold=false;for(const resolve of gate.releases)resolve();});
   await until(s=>s.chatLayout?.chatId===created);
-  assert.equal(await composer.inputValue(),'','A new project stays selected while its state response arrives');
+  assert.equal(await composer.inputValue(),'','A new chat stays selected while its state response arrives');
 
 } finally {
   await app.close();

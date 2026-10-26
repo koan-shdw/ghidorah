@@ -135,7 +135,7 @@ export class Store {
     return valid(mode)?mode:'manual';
   }
   project(folder:string|null=null):Project {const id=randomUUID();const p:Project={id,name:"New project",folder,profile:"p-"+id,mode:this.defaultMode(),group:"Ungrouped"};this.put("project",p);return p;}
-  chat(projectId:string):Chat {this.get('project',projectId);const c:Chat={id:randomUUID(),projectId,title:'New project',draft:'',model:'deepseek-flash',effort:'high',runtimeId:null,storedId:null,created:Date.now(),updated:Date.now(),position:this.all<Chat>('chat').length,readThrough:''};this.put('chat',c);return c;}
+  chat(projectId:string):Chat {this.get('project',projectId);const c:Chat={id:randomUUID(),projectId,title:'New chat',draft:'',model:'deepseek-flash',effort:'high',runtimeId:null,storedId:null,created:Date.now(),updated:Date.now(),position:this.all<Chat>('chat').length,readThrough:''};this.put('chat',c);return c;}
   accept(id:string,chatId:string,prompt:string,model?:string,source?:Pick<Turn,'remote'|'routine'|'voice'|'handoff'>):Turn {
     try{return this.get<Turn>('turn',id);}catch{}
     const c=this.get<Chat>('chat',chatId);
