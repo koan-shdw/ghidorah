@@ -24,7 +24,7 @@ export function createParallel(store:Store,parent:Turn,models:string[]){
  if(!models.length||models.length<2&&!parent.review||new Set(models).size!==models.length)throw Error('Choose distinct models for parallel work.');
  const chat=store.get<Chat>('chat',parent.chatId);
  if(chat.parentChatId)throw Error('A side job cannot start another parallel group.');
- const context=handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),parent,undefined,chat.context,chat.contextInstructions);
+ const {turns,tools}=store.chatRecords(chat.id),context=handover(turns,tools,parent,undefined,chat.context,chat.contextInstructions);
  return store.transaction(()=>{
   const jobs=models.map(model=>{
    const id=randomUUID();

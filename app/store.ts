@@ -48,6 +48,9 @@ export class Store {
   // A chat's turns and those of its job chats, in saved order: every turn whose root message is in this chat.
   // Automatic follow-ups are saved in their own chat, parallel jobs in a child chat (SPEED-PLAN 1a, 3).
   ownedTurns<T=Turn>(chatId:string):T[] {return this.whereIn<T>('turn','chatId',[chatId,...this.chatsWhere('parentChatId',chatId).map(chat=>chat.id)]);}
+  // What a send needs from history: the chat's own and job turns, and their tools (SPEED-PLAN 3: the whole database
+  // was read two or three times per send).
+  chatRecords(chatId:string):{turns:Turn[];tools:ToolCall[]} {const turns=this.ownedTurns<Turn>(chatId);return {turns,tools:this.whereIn<ToolCall>('tool','turnId',turns.map(turn=>turn.id))};}
   chatsWhere(field:typeof chatFields[number],value:string):Chat[] {if(!chatFields.includes(field))throw Error('Unknown chat field');return this.db.prepare(`SELECT data FROM records WHERE kind='chat' AND json_extract(data,'$.${field}')=? ORDER BY rowid`).all(value).map((r:any)=>JSON.parse(r.data));}
   // Record ids only, straight from the index: nothing is parsed (SPEED-PLAN 1).
   idsWhere(kind:string,field:IndexedField,values:string[]):string[] {

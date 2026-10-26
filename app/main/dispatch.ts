@@ -8,7 +8,7 @@ import {saveChatOutput} from '../chat-files';
 import type {ClaudeResult,ClaudeRun} from '../claude';
 import {claudeTurnUsage} from '../claude-turn';
 import {documentMutations,documentToolCall} from '../documents';
-import {handover,managementText} from '../history';
+import {handover,managementText,resumable} from '../history';
 import {imageToolCall} from '../images';
 import {apiChanging,apiProviders,backend,background,bindClaude,checkpointChanging,claude,claudeAutomatic,claudeControllers,claudeExecutable,commandTurns,connected,coordination,data,emit,folderRecoveryRequired,gitOperation,goals,handlers,health,hermesFixed,hermesModels,hermesQueued,hermesSent,hermesSessionRows,hermesStarted,hermesTurns,hermesWaiting,holds,mcp,mcpToolRequests,memoryCache,modeChanges,namespace,native,pluginGate,pluginRuntime,pluginsChanging,preparing,quitting,requests,root,routeTurn,runAgain,runningChats,runtimeChecked,store,taskScratchHint,testHang,visionModels} from '../main';
 import {modelLabel,providerFor,wireModel} from '../models';
@@ -63,6 +63,9 @@ export function automaticHermes(chat:Chat,sid:string){
   const turn:Turn={id:randomUUID(),chatId:chat.id,automatic:{originTurnId:origin?.id||'',taskId:'',runtimeId:sid,source:'self'},prompt:'',text:'',reasoning:'',model:hermesModels.get(sid)||origin?.model||chat.model,effort:origin?.effort,status:'running',activity:'Waiting for model',usage:null,error:null,created:Date.now()};
   store.put('turn',turn);hermesStarted.add(turn.id);return turn.id;
 }
+// handover() over this chat's own and job records only, read fresh at each call (SPEED-PLAN 3).
+type HandoverRest=Parameters<typeof handover> extends [any,any,any,...infer Rest]?Rest:never;
+export function chatHandover(chatId:string,current:Turn,...rest:HandoverRest){const {turns,tools}=store.chatRecords(chatId);return handover(turns,tools,current,...rest);}
 export function waitingRow(chatId:string){return store.where<Turn>('turn','chatId',chatId).filter(t=>['queued','needs-model'].includes(t.status)&&!t.paused).sort((a,b)=>a.created-b.created)[0];}
 // Messages typed behind a message while it is prepared join it and reach the model as one message (Koan 10-01, 10-16).
 // Only the next run of his plain messages with the same model choice joins, so nothing is reordered or rerouted.
@@ -80,7 +83,7 @@ export async function joinWaiting(turn:Turn,choice:string,signal:AbortSignal){
   // Stop, or his remove button on a waiting message, may have acted meanwhile.
   if(signal.aborted||store.get<Turn>('turn',turn.id).status==='stopping')return;
   later=later.filter(t=>store.find<Turn>('turn',t.id)?.status==='queued');
-  const earlier=conversationAttachments(store.all<Turn>('turn'),turn),fits=()=>(turn.models||[turn.model]).every(model=>!attachmentMismatch([...earlier,...later.flatMap(t=>t.attachments||[])],visionModels[model]===true,model));
+  const earlier=conversationAttachments(store.where<Turn>('turn','chatId',turn.chatId),turn),fits=()=>(turn.models||[turn.model]).every(model=>!attachmentMismatch([...earlier,...later.flatMap(t=>t.attachments||[])],visionModels[model]===true,model));
   while(later.length&&!fits())later.pop();
   if(!later.length)return;
   // A removal marker keeps a repeated send of a joined message from creating it again.
@@ -158,7 +161,7 @@ export async function dispatch(chat:Chat,turn:Turn){
       }
       // Engines shrink their own live sessions (Claude Code / Hermes). Tris summarises only for a session that must start fresh.
       // A message sent into a live, busy session is never a fresh one (its saved position is uncertain while it answers).
-      const engine=providerFor(turn.model)==='claude-code'?'claude' as const:'hermes' as const,live=engine==='claude'?!!native.processing(chatId):hermesTurns.has(chatId)||hermesWaiting(chatId)>0,fresh=!live&&!handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),turn,store.enginePosition(chatId,engine),chat.context,chat.contextInstructions,'',false).sessionId;
+      const engine=providerFor(turn.model)==='claude-code'?'claude' as const:'hermes' as const,live=engine==='claude'?!!native.processing(chatId):hermesTurns.has(chatId)||hermesWaiting(chatId)>0,fresh=!live&&!resumable(store.where<Turn>('turn','chatId',chatId),turn,store.enginePosition(chatId,engine));
       // A fresh session never waits for a summary (batch 5, 7b; 10-13..20: 21 sends waited up to 285 s): one built in
       // the background earlier is applied now, else the message goes at once with recent history and read_chat_history
       // while one builds for next time.
@@ -175,7 +178,7 @@ export async function dispatch(chat:Chat,turn:Turn){
       const review=turn.parentTurnId?null:reviewRequest(turn.prompt);
       let expanded=turn.parentTurnId?turn.prompt:await pluginCommand(turn.prompt,store.all<NativePluginInstall>('native-plugin'),path.join(data,'native-plugins'));
       if(review){
-        const target=await reviewTarget(p.folder?workingDirectory(p):null,data,review.base,review.repository),brief=await backend.host('review_context',{messages:reviewMessages(store.all<Turn>('turn'),turn),focus:reviewFocus(target,review.focus)},signal);
+        const target=await reviewTarget(p.folder?workingDirectory(p):null,data,review.base,review.repository),brief=await backend.host('review_context',{messages:reviewMessages(store.ownedTurns<Turn>(turn.chatId),turn),focus:reviewFocus(target,review.focus)},signal);
         turn.review=target;store.update<Turn>('turn',turn.id,{review:target});expanded=brief.context;
       }
       if(expanded!==turn.prompt){turn.commandContext=backend.scrubber.text(expanded);store.update<Turn>('turn',turn.id,{commandContext:turn.commandContext});}
@@ -198,9 +201,9 @@ export async function dispatch(chat:Chat,turn:Turn){
       if(!pluginGate.quiet('copies:'+p.profile,[copies],reviewed)){await hermesPluginCopies(plugins,path.join(data,'hermes','profiles',p.profile));pluginGate.pass('copies:'+p.profile,reviewed);}
       // A live session already has every message it was sent: the handover starts after the last of them.
       const busy=hermesTurns.has(chatId)||hermesWaiting(chatId)>0,sessionRows=chat.runtimeId?hermesSessionRows.get(chat.runtimeId):undefined;
-      const rows=store.all<Turn>('turn').filter(t=>t.chatId===chatId),through=busy&&sessionRows?rows.slice(0,rows.findIndex(t=>t.id===turn.id)).reverse().find(t=>sessionRows.has(t.id))?.id:undefined;
+      const rows=store.where<Turn>('turn','chatId',chatId),through=busy&&sessionRows?rows.slice(0,rows.findIndex(t=>t.id===turn.id)).reverse().find(t=>sessionRows.has(t.id))?.id:undefined;
       step('Checking plugins: history');const stored=store.beginEngine(chatId,'hermes'),position=through?{...stored,sessionId:chat.storedId||chat.runtimeId,throughTurnId:through,uncertain:false}:stored;
-      const transfer=handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),turn,position,chat.context,chat.contextInstructions,appChatContext(store,chat)+'\n'+rlmContext(store,chat)+screenContext());
+      const transfer=chatHandover(chatId,turn,position,chat.context,chat.contextInstructions,appChatContext(store,chat)+'\n'+rlmContext(store,chat)+screenContext());
       if(!transfer.sessionId){releaseHermesSession(chat);store.update<Chat>('chat',chatId,{runtimeId:null,storedId:null});chat.runtimeId=null;chat.storedId=null;}
       preparingStep('Opening model session');const sid=await session(chat,turn.model,signal);
       if(store.get<Turn>('turn',turn.id).status==='stopping'){store.update<Turn>('turn',turn.id,{status:'stopped'});return;}
@@ -225,7 +228,7 @@ export async function dispatch(chat:Chat,turn:Turn){
       // Fixed text (scratch hint, memory, jobs, goals, rules) goes once per session and again only when it changed (Koan, 2026-10-08).
       const appText=appChatContext(store,chat)+'\n'+rlmContext(store,chat)+screenContext(),fixedText=taskScratchHint+'\n\n'+backend.scrubber.text(memory)+'\n\n'+background.context(chat)+native.context(chat)+parallelContext(store,turn)+goals.context(turn);
       const resend=resendFixed(!transfer.sessionId,busy,hermesFixed.get(sid),fixedText+appText);
-      const prompt=resend?fixedText+transfer.prompt:handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),turn,position,chat.context,chat.contextInstructions,appText,false).prompt;
+      const prompt=resend?fixedText+transfer.prompt:chatHandover(chatId,turn,position,chat.context,chat.contextInstructions,appText,false).prompt;
       // From here the row is Hermes's. Idle: it starts now and its events name it. Busy: Hermes has it, not started.
       finish('sent');if(busy)waitingFor(chatId).add(turn.id);else hermesTurns.set(chatId,turn.id);done();
       let answer:any;
@@ -253,15 +256,15 @@ export async function sendClaude(chat:Chat,turn:Turn,project:Project,step:(name:
   const controller=new AbortController();claudeControllers.set(turn.id,controller);const link=()=>controller.abort();preparation.addEventListener('abort',link,{once:true});
   const started=Date.now();
   try{
-    const turns=store.all<Turn>('turn'),rows=turns.filter(t=>t.chatId===chat.id),before=rows.slice(0,rows.findIndex(t=>t.id===turn.id)).map(t=>t.id);
+    const records=store.chatRecords(chat.id),rows=records.turns.filter(t=>t.chatId===chat.id),before=rows.slice(0,rows.findIndex(t=>t.id===turn.id)).map(t=>t.id);
     // A live process already has every message it was sent: the handover starts after the last of them.
     const stored=store.beginEngine(chat.id,'claude'),position=native.livePosition(chat.id,before)||stored;
-    const transfer=handover(turns,store.all<ToolCall>('tool'),turn,position,chat.context,chat.contextInstructions,'',false);
+    const transfer=handover(records.turns,records.tools,turn,position,chat.context,chat.contextInstructions,'',false);
     const options=await prepareClaude(chat,turn,project,controller,transfer,undefined,step);
     step('Opening Claude');
     const busy=native.busyRuntime(chat.id),into={...options,sessionId:busy?.sessionId};
     const picked=busy&&busy.compatible(into)?{session:busy,options:into}:await native.acquire(chat,options,()=>{
-      const fresh=handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),turn,undefined,chat.context,chat.contextInstructions,'',false);
+      const fresh=chatHandover(chat.id,turn,undefined,chat.context,chat.contextInstructions,'',false);
       return {...options,sessionId:undefined,prompt:backend.scrubber.text(parallelContext(store,turn)+fresh.prompt)};
     });
     step('Sending');preparation.removeEventListener('abort',link);
@@ -316,7 +319,7 @@ export async function continueNative(chat:Chat,origin:Turn,task:{id:string;model
   emit();
   const complete=(value:ClaudeResult|Error)=>{if(value instanceof Error)store.update<Turn>('turn',turn.id,{status:controller.signal.aborted?'stopped':'interrupted',error:backend.scrubber.text(value.message)});else finishNative(chat,turn,value,task.runtimeId,started);cleanupNative(chat,turn);};
   try{
-    const transfer=handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),turn,native.position(task.runtimeId),chat.context,chat.contextInstructions,appChatContext(store,chat)+'\n'+rlmContext(store,chat)+screenContext());
+    const transfer=chatHandover(chat.id,turn,native.position(task.runtimeId),chat.context,chat.contextInstructions,appChatContext(store,chat)+'\n'+rlmContext(store,chat)+screenContext());
     // Worker configuration retains the parent effort. A native agent resolves
     // its own effort; its saved record stays unknown until native reports it.
     const options=await prepareClaude(chat,{...turn,effort:origin.effort},projectFor(chat),controller,transfer,projectSourceGrant);return {options,complete};

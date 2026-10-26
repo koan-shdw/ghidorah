@@ -26,8 +26,7 @@ const planFirst="Plan first: when the user asks you to build, change, fix, insta
 // Koan, 2026-10-08: grep -r read 150 GB of ignored builds (46 s warm, ~5 min cold); rg takes 0.07 s.
 const searchHint='Search with rg (it skips ignored build and runtime folders); never grep -r over a repository.';
 export function managementText(appContext=''){return [planFirst,searchHint,'Follow the latest user direction over older proposals.',appManagementHint,appContext].filter(Boolean).join('\n\n');}
-export function handover(turns:Turn[],tools:ToolCall[],current:Turn,position?:EnginePosition,context?:ChatContext,instructions=context?.instructions||'',appContext='',fixed=true){
-  const management=fixed?managementText(appContext):'';
+function resumePoint(turns:Turn[],current:Turn,position?:EnginePosition){
   const before=turns.filter(t=>t.chatId===current.chatId);
   const index=before.findIndex(t=>t.id===current.id);
   if(index<0)throw Error('Current turn must be persisted before dispatch.');
@@ -38,6 +37,13 @@ export function handover(turns:Turn[],tools:ToolCall[],current:Turn,position?:En
   // to where it ended, and the history below repeats it with its status. A new session only when the session is gone
   // (10-13..20: 21 sends waited up to 285 s for a summary because an uncertain turn threw the session away).
   const canResume=Boolean(position?.sessionId&&(!position.uncertain||position.engine==='hermes')&&cursor>=0);
+  return {previous,cursor,canResume};
+}
+// The session handover() would resume, without building its prompt (SPEED-PLAN 3).
+export function resumable(turns:Turn[],current:Turn,position?:EnginePosition){const point=resumePoint(turns,current,position);return point.canResume?position!.sessionId:null;}
+export function handover(turns:Turn[],tools:ToolCall[],current:Turn,position?:EnginePosition,context?:ChatContext,instructions=context?.instructions||'',appContext='',fixed=true){
+  const management=fixed?managementText(appContext):'';
+  const {previous,cursor,canResume}=resumePoint(turns,current,position);
   const acknowledged=canResume?cursor:-1;
   const cut=context?previous.findIndex(t=>t.id===context.throughTurnId):-1,includeContext=cut>=0&&acknowledged<cut;
   const missing=previous.slice(Math.max(cut,acknowledged)+1);

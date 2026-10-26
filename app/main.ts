@@ -765,22 +765,23 @@ export async function checkAccount(key:string,signal?:AbortSignal){
 }
 export async function routeTurn(chat:Chat,turn:Turn){
   const controller=new AbortController();jevControllers.set(chat.id,controller);
-  const selected=turn.requestedModels||[],completed=store.all<Turn>('turn').filter(t=>t.status==='completed'&&!t.command&&t.created<turn.created);
-  const previous=completed.filter(t=>t.chatId===chat.id).at(-1)?.model||null;
+  // This chat's own rows; Jev's learning below still reads every chat (SPEED-PLAN 3).
+  const own=store.where<Turn>('turn','chatId',chat.id),selected=turn.requestedModels||[],completed=own.filter(t=>t.status==='completed'&&!t.command&&t.created<turn.created);
+  const previous=completed.at(-1)?.model||null;
   const input={selected,eligible:availableModels().filter(id=>(chat.pool||['deepseek-flash']).includes(id)&&!inputMismatch({...turn,model:id})),previous,appPrevious:store.all<any>('settings').find(row=>row.id==='last-model')?.model||null};
   // A model put on select duty in this chat picks who answers, ahead of the configured decision engine.
   const selector=chatSelector(chat);
   // The label names whoever picks now: the selector, or the decision engine when the selector is not available.
   if(turn.routeBy!==(selector||decisionEngine())){turn.routeBy=selector||decisionEngine();store.update<Turn>('turn',turn.id,{routeBy:turn.routeBy});emit();}
   // Recent outcomes for the same kind of task go to the picker with the question (3c).
-  const stateFor=(summary:string,kind?:string):JevState=>({history:learningState(outcomes(store.all<Turn>('turn'),store.all<LearningRow>('learning'),[...store.all<any>('model-choice'),...store.all<any>('model-lock')]),kind),summary,current:previous,selected,models:(chat.pool||['deepseek-flash']).map(id=>({id,label:modelLabel(id,claude.models),available:input.eligible.includes(id),capabilities:['text','coding','tools',...(visionModels[id]?['image','pdf']:[])]})),health:health.rows().filter(row=>stateProviderInChat(row.provider,chat)),attachmentTypes:[...new Set(conversationAttachments(store.all<Turn>('turn'),turn).map(a=>a.kind))]});
+  const stateFor=(summary:string,kind?:string):JevState=>({history:learningState(outcomes(store.all<Turn>('turn'),store.all<LearningRow>('learning'),[...store.all<any>('model-choice'),...store.all<any>('model-lock')]),kind),summary,current:previous,selected,models:(chat.pool||['deepseek-flash']).map(id=>({id,label:modelLabel(id,claude.models),available:input.eligible.includes(id),capabilities:['text','coding','tools',...(visionModels[id]?['image','pdf']:[])]})),health:health.rows().filter(row=>stateProviderInChat(row.provider,chat)),attachmentTypes:[...new Set(conversationAttachments(own,turn).map(a=>a.kind))]});
   let decision:any,notice='';const engine=selector?'selector':decisionEngine(),engineName=selector?modelLabel(selector,claude.models):picker(engine)!.short;
   try{
     if(selected.length){decision=await route(input);}
     else if(selector){
       if(!input.eligible.length)throw Error('No model in this chat is available.');
       const settings={...jevSettings(),summaryModel:selector,timeoutMs:Math.max(jevSettings().timeoutMs,30000)};
-      const history=store.all<Turn>('turn').filter(t=>t.chatId===chat.id&&t.created<turn.created&&t.status==='completed'&&!t.parentTurnId);
+      const history=own.filter(t=>t.created<turn.created&&t.status==='completed'&&!t.parentTurnId);
       const state=stateFor(redactPastedKeys(backend.scrubber.text(selectorSummary(history,turn.prompt)))),started=Date.now();
       const answer=providerFor(selector)==='claude-code'
         ?await claudeOneShot(claudeExecutable!,selector.slice(12),selectorSystem,selectorPrompt(state),await fs.mkdir(path.join(data,'selector'),{recursive:true}).then(()=>path.join(data,'selector')),data,controller.signal,settings.timeoutMs)
@@ -797,7 +798,7 @@ export async function routeTurn(chat:Chat,turn:Turn){
       if(!input.eligible.length)throw Error('No model in this chat is available.');
       const settings=pickerSettings(engine as PickerId);
       if(!availableModels().includes(settings.summaryModel))throw Error('The routing summary model is unavailable.');
-      const prior=store.all<any>('routing-summary').find(row=>row.id===chat.id),history=store.all<Turn>('turn').filter(t=>t.chatId===chat.id&&t.created<turn.created);
+      const prior=store.all<any>('routing-summary').find(row=>row.id===chat.id),history=own.filter(t=>t.created<turn.created);
       const from=prior?Math.max(0,history.findIndex(t=>t.id===prior.throughTurnId)):0;
       const result=await routingSummaryHost({profile:projectFor(chat).profile,model:settings.summaryModel,provider_access:backend.providerAccess,
         provider_urls:providerUrls(),

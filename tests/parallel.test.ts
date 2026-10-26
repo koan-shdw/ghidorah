@@ -32,6 +32,31 @@ test('parallel runs share a frozen starting history and have independent engine 
  assert.doesNotMatch(context.prompt,/FOREIGN SECRET/);store.db.close();
 });
 
+// SPEED-PLAN 3: a send reads only its chat's records; the prompt must match the one built from every record.
+test('the history prompt is the same from the chat records as from every record',()=>{
+ const store=new Store(':memory:'),chat=store.chat(store.project().id),foreign=store.chat(store.project().id);
+ const done=(id:string,text:string)=>store.update<Turn>('turn',id,{text,status:'completed'});
+ const old=store.accept('old',chat.id,'Old request');done(old.id,'Old answer');
+ store.put('tool',{id:'old-tool',turnId:old.id,name:'Read',args:{path:'a.txt'},result:'old read',status:'completed'});
+ const auto=store.accept('auto',chat.id,'');store.update<Turn>('turn',auto.id,{automatic:{originTurnId:old.id} as any,text:'Background note',status:'completed'});
+ const parent=store.accept('parent',chat.id,'Same task'),jobs=createParallel(store,parent,['deepseek-flash','claude-code:haiku']);
+ for(const job of jobs)store.finishEngine(job.id,'hermes','s-'+job.id,{status:'completed',text:'Result '+job.model});
+ store.put('tool',{id:'job-tool',turnId:jobs[0].id,name:'Write',args:{path:'b.txt'},result:'job wrote',status:'completed'});settleParallel(store);
+ const review=store.accept('review',chat.id,'Review it');store.update<Turn>('turn',review.id,{review:true} as any);createParallel(store,store.get<Turn>('turn',review.id),['deepseek-flash']);
+ store.accept('foreign',foreign.id,'FOREIGN');store.put('tool',{id:'foreign-tool',turnId:'foreign',name:'Read',args:{},result:'FOREIGN TOOL',status:'completed'});
+ const next=store.accept('next',chat.id,'Next request'),context={id:'c',throughTurnId:old.id,summary:'Summary',instructions:'Keep it short',created:1,model:'m',sourceCharacters:1,tokens:null};
+ const {turns,tools}=store.chatRecords(chat.id);
+ for(const ctx of [undefined,context]){
+  const all=handover(store.all<Turn>('turn'),store.all('tool'),next,undefined,ctx),own=handover(turns,tools,next,undefined,ctx);
+  assert.equal(own.prompt,all.prompt);assert.deepEqual(own.attachments,all.attachments);assert.doesNotMatch(own.prompt,/FOREIGN/);
+  assert.match(own.prompt,/job wrote/);assert.match(own.prompt,ctx?/old read/:/Background note/);
+ }
+ // A job chat's own send: its records are its own turns.
+ const job=store.get<Turn>('turn',jobs[0].id),mine=store.chatRecords(job.chatId);
+ assert.equal(handover(mine.turns,mine.tools,job).prompt,handover(store.all<Turn>('turn'),store.all('tool'),job).prompt);
+ store.db.close();
+});
+
 test('crash recovery retains completed siblings and interrupts queued or running side jobs without replay',()=>{
  const folder=fs.mkdtempSync(path.join(os.tmpdir(),'tris-parallel-')),file=path.join(folder,'state.sqlite');let store=new Store(file);
  const chat=store.chat(store.project().id),parent=store.accept('parent',chat.id,'Build together');
