@@ -142,5 +142,9 @@
   {"version":"0.1.29","date":"2026-10-26","notes":[
     "Claude Code is only in Connections, Anthropic: sign-in, plan and usage in one place.",
     "Saving an app no longer fails with chat not found after a linked chat was deleted."
+  ]},
+  {"version":"0.1.30","date":"2026-10-26","notes":[
+    "The sidebar button says New chat.",
+    "Images can use your ChatGPT sign-in: choose OpenAI, ChatGPT sign-in in Settings, Images. No API key needed."
   ]}
 ]
