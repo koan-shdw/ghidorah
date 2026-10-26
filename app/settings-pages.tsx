@@ -1,4 +1,4 @@
-// Settings pages added by the finish plan: Always on, Claude Code, Security. The wizard reuses them.
+// Settings pages added by the finish plan: Always on, Security, and the Claude Code connection. The wizard reuses them.
 import React from 'react';
 import type {Snapshot} from './types';
 import {ChoiceMenu,Switch} from './kit';
@@ -31,20 +31,22 @@ export function StayAwake({state,call}:{state:Snapshot;call:Call}){
   <p className="hint">Computer stays awake, screen still locks.{state.alwaysOn?.awake?' Awake now.':''}</p></>;
 }
 
-// Runs Claude Code's own sign-in; on the Anthropic panel and the Claude Code page.
-export function ClaudeSignIn({state,call}:{state:Snapshot;call:Call}){
+// Runs Claude Code's own sign-in.
+function ClaudeSignIn({state,call}:{state:Snapshot;call:Call}){
  if(state.claude?.status==='Claude Code not installed')return null;
  return <button className="primary" disabled={state.claude?.status==='Waiting for sign-in'} onClick={()=>void call('claudeLogin').catch(()=>{})}>{state.claude?.connected?'Switch account':'Sign in to Claude Code'}</button>;
 }
 
-export function ClaudeCodeSettings({state,call}:{state:Snapshot;call:Call}){
- const status=state.claude?.status||'Not checked',missing=status==='Claude Code not installed';
- return <section className="claude-code-settings"><h3>Claude Code</h3><SettingsCard title="Connection">
-  <div className="connection-field"><span>Status</span><span className="supplier-status"><span className={'health-dot '+healthOf(status)} aria-hidden="true"/>{status}</span></div>
+// Claude Code's one home (Koan, 10-26: "it should only be in the connections page"): the body of Connections >
+// Anthropic, also the wizard's Claude Code step. Plan and usage read like the OpenAI panel.
+export function ClaudeConnection({state,call}:{state:Snapshot;call:Call}){
+ const claude=state.claude,missing=claude?.status==='Claude Code not installed';
+ return <div className="claude-connection"><p>Uses your installed Claude Code and its subscription sign-in.</p>
   {missing&&<p>Install Claude Code, then sign in with your Claude subscription.</p>}
-  <div className="actions">{missing&&<button className="primary" onClick={()=>void call('link',{kind:'claude-install'}).catch(()=>{})}>Install Claude Code ↗</button>}<ClaudeSignIn state={state} call={call}/><button onClick={()=>void call('claudeCheck').catch(()=>{})}>{missing?'Check again':'Check Claude Code'}</button></div>
-  <p className="hint">Claude turns use your installed Claude Code and its own sign-in.</p></SettingsCard>
- </section>;
+  <div className="actions">{missing&&<button className="primary" onClick={()=>void call('link',{kind:'claude-install'}).catch(()=>{})}>Install Claude Code ↗</button>}<ClaudeSignIn state={state} call={call}/><button onClick={()=>void call('claudeCheck').catch(()=>{})}>{missing?'Check again':'Check connection'}</button></div>
+  {claude?.connected&&<><p>{claude.plan?claude.plan+' plan':'Claude subscription'} · Usage windows {claude.windows?.length?'':'unavailable'}</p>{claude.windows?.map(window=><p key={window.label}>{window.label}: {window.usedPercent==null?'unavailable':window.usedPercent+'% used'}{window.resetAt?' · Resets '+new Date(window.resetAt).toLocaleString():''}</p>)}</>}
+  <p className="hint">Claude turns use your installed Claude Code and its own sign-in.</p>
+ </div>;
 }
 
 export function SecuritySettings({state,call,openSupplier}:{state:Snapshot;call:Call;openSupplier:(id:string)=>void}){

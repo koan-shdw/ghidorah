@@ -52,7 +52,7 @@ try{
  // A step's next action opens its page in Settings.
  await wizard.locator('.wizard-summary li').filter({hasText:'Remote'}).getByRole('button').click();
  await page.getByRole('dialog',{name:'Settings',exact:true}).getByRole('switch',{name:'Remote',exact:true}).waitFor();
- for(const name of ['Connections','Claude Code','Always on','Remote'])assert.equal(await page.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name,exact:true}).count(),1);
+ for(const name of ['Connections','Always on','Remote'])assert.equal(await page.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name,exact:true}).count(),1);
  const close=page.getByRole('button',{name:'Close settings',exact:true});await close.waitFor();await close.click();
  await call('wizardOpen');await wizard.getByRole('button',{name:'Finish',exact:true}).click();await wizard.waitFor({state:'hidden'});
  // The first message gets a reply.

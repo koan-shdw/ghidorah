@@ -23,6 +23,8 @@ let app:ElectronApplication=await launch(fixture),page:Page;
 const call=(method:string,args:any={})=>page.evaluate(({method,args})=>window.desktop.invoke(method,args),{method,args});
 const wait=async(predicate:(s:any)=>boolean)=>{const end=Date.now()+90000;while(Date.now()<end){const s=await call('state');if(predicate(s))return s;await page.waitForTimeout(150);}throw Error('Timed out: '+JSON.stringify(await call('state')));};
 const settings=async(name:string)=>{if(!await page.getByRole('dialog',{name:'Settings'}).count())await page.locator('.settings-link').click();await page.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name,exact:true}).click();};
+// Claude Code lives in Connections > Anthropic; opens that panel.
+const anthropic=async()=>{await settings('Connections');const panel=page.locator('details.supplier-pill').filter({has:page.locator('summary strong',{hasText:/^Anthropic$/})});if(!await panel.evaluate(element=>(element as HTMLDetailsElement).open))await panel.locator('summary').click();return panel;};
 try{
  page=await app.firstWindow();
  let s=await wait(s=>s.backend==='ready'&&s.claude?.status==='Signed in'&&s.availableModels.includes('deepseek-flash'));
@@ -53,8 +55,7 @@ try{
  assert.match(await page.locator('.always-on-settings').innerText(),/Computer stays awake, screen still locks\./);
  console.log('PASS 1e stay awake: Always keeps the computer awake; Off and Only while remote is on (remote off) do not');
 
- await settings('Claude Code');
- assert.match(await page.locator('.claude-code-settings').innerText(),/Signed in/);
+ assert.match(await (await anthropic()).innerText(),/Signed in/);
  assert.equal(await page.getByRole('button',{name:'Install Claude Code ↗',exact:true}).count(),0);
  console.log('PASS 1c installed Claude Code shows its status and no install link');
 
@@ -82,7 +83,7 @@ try{
  assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().some(window=>window.isVisible())),false,'--hidden also keeps restored maximized chat windows hidden');
  assert.equal((await call('state')).keyRotation.deepseek>0,true,'the checklist survives a restart');
  await app.evaluate(({BrowserWindow,shell})=>{(globalThis as any).opened=[];shell.openExternal=async(url:string)=>{(globalThis as any).opened.push(url);};BrowserWindow.getAllWindows()[0].show();});
- await settings('Claude Code');
+ await anthropic();
  await page.getByRole('button',{name:'Install Claude Code ↗',exact:true}).click();
  await page.waitForFunction(()=>true);assert.deepEqual(await app.evaluate(()=>(globalThis as any).opened),['https://code.claude.com/docs/en/setup']);
  await call('openChatWindow',{chatId:chat});

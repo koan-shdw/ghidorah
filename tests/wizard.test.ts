@@ -7,7 +7,7 @@ const fresh:any={connected:false,providerStatus:'Not connected',codex:{connected
 test('a fresh profile reads as skipped everywhere, each row with its next action',()=>{
  const rows=wizardSummary(fresh);
  assert.deepEqual(rows.map(row=>[row.name,row.outcome]),[['Suppliers','skipped'],['Claude Code','skipped'],['Jev','skipped'],['Start with Windows','skipped'],['Remote','skipped'],['Share with clients','skipped']]);
- assert.deepEqual(rows.map(row=>row.page),['connections','claude-code','connections','always-on','remote','sharing']);
+ assert.deepEqual(rows.map(row=>row.page),['connections','connections:anthropic','connections','always-on','remote','sharing']);
 });
 
 test('connected, not verified yet and failed come from the live statuses, one row per supplier',()=>{

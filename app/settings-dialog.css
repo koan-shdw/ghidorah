@@ -27,7 +27,7 @@ dialog.settings-dialog::backdrop{background:var(--overlay);backdrop-filter:blur(
 .settings-dialog small{font-size:var(--fs-meta);line-height:1.5;color:var(--muted)}
 .settings-dialog .hint{line-height:1.65}
 .settings-dialog .settings-body>section>h3:first-child{margin-top:0}
-.settings-dialog .settings-body>:is(.model-pool,.plugins-settings,.publishing-settings,.browser-settings,.remote-settings,.routines-settings,.always-on-settings,.claude-code-settings)>h3:first-child{display:none}
+.settings-dialog .settings-body>:is(.model-pool,.plugins-settings,.publishing-settings,.browser-settings,.remote-settings,.routines-settings,.always-on-settings)>h3:first-child{display:none}
 .settings-dialog .settings-card{padding:18px 20px;border:1px solid var(--line);border-radius:var(--r-lg);background:color-mix(in srgb,var(--surface) 55%,var(--bg));margin:0 0 16px;min-width:0}
 .settings-dialog .settings-card>h3:first-child{margin:0 0 12px}
 .settings-dialog .settings-card>:last-child{margin-bottom:0}

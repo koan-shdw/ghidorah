@@ -3,7 +3,7 @@
 // back. The live state decides what the Summary says, so it cannot claim a connection that is not there.
 import React,{useState,useEffect,useRef} from 'react';
 import type {Snapshot} from './types';
-import {ClaudeCodeSettings,AlwaysOnSettings,RemoteSettings} from './settings-pages';
+import {ClaudeConnection,AlwaysOnSettings,RemoteSettings} from './settings-pages';
 import {apiSuppliers,type ApiProvider} from './api-catalog';
 import {healthOf} from './availability';
 import {ShareSetup} from './share-ui';
@@ -11,7 +11,7 @@ import {ShareSetup} from './share-ui';
 type Call=(method:string,args?:any)=>Promise<any>;
 export type WizardStep='suppliers'|'claude'|'jev'|'always-on'|'remote'|'sharing';
 export const STEPS:{id:WizardStep;label:string;page:string}[]=[
- {id:'suppliers',label:'Suppliers',page:'connections'},{id:'claude',label:'Claude Code',page:'claude-code'},{id:'jev',label:'Jev',page:'connections'},
+ {id:'suppliers',label:'Suppliers',page:'connections'},{id:'claude',label:'Claude Code',page:'connections:anthropic'},{id:'jev',label:'Jev',page:'connections'},
  {id:'always-on',label:'Start with Windows',page:'always-on'},{id:'remote',label:'Remote',page:'remote'},{id:'sharing',label:'Share with clients',page:'sharing'},
 ];
 export type Outcome='connected'|'unverified'|'failed'|'skipped';
@@ -24,7 +24,7 @@ export function wizardSummary(state:Snapshot):SummaryRow[]{
  for(const row of suppliers)rows.push({name:row.name,outcome:outcomeOf(row.status),detail:row.status,page:'connections',action:'Open Connections'});
  if(!suppliers.length)rows.push({name:'Suppliers',outcome:'skipped',detail:'No supplier connected. Chats need one.',page:'connections',action:'Connect a supplier'});
  const claude=state.claude?.status||'Not checked';
- rows.push({name:'Claude Code',outcome:state.claude?.connected?outcomeOf(claude):/not installed|Not checked/i.test(claude)?'skipped':'unverified',detail:claude,page:'claude-code',action:'Open Claude Code'});
+ rows.push({name:'Claude Code',outcome:state.claude?.connected?outcomeOf(claude):/not installed|Not checked/i.test(claude)?'skipped':'unverified',detail:claude,page:'connections:anthropic',action:'Open Connections'});
  rows.push({name:'Jev',outcome:state.jev?.connected?outcomeOf(state.jev.status):'skipped',detail:state.jev?.connected?state.jev.status:'Not connected. The other pickers work without it.',page:'connections',action:'Open Connections'});
  rows.push({name:'Start with Windows',outcome:state.alwaysOn?.startWithWindows?'connected':'skipped',detail:state.alwaysOn?.startWithWindows?'On':'Off',page:'always-on',action:'Open Always on'});
  const remote=state.remote;
@@ -48,7 +48,7 @@ export function Wizard({state,call,suppliers,jev,openSettings,appError}:{state:S
   <header className="wizard-header"><h2 tabIndex={-1}>Set up Ghidorah</h2><ol className="wizard-steps">{[...STEPS.map(item=>item.label),'Summary'].map((label,position)=><li key={label} aria-current={position===index?'step':undefined} className={position<index?'past':''}>{label}</li>)}</ol></header>
   <div className="wizard-body">
    {step?.id==='suppliers'&&<>{suppliers}<p className="hint">Connect at least one supplier so chats have a model. You can add more later in Settings.</p></>}
-   {step?.id==='claude'&&<ClaudeCodeSettings state={state} call={call}/>}
+   {step?.id==='claude'&&<section className="connections"><h3>Claude Code</h3><ClaudeConnection state={state} call={call}/></section>}
    {step?.id==='jev'&&jev}
    {step?.id==='always-on'&&<AlwaysOnSettings state={state} call={call}/>}
    {step?.id==='remote'&&<RemoteSettings state={state} call={call}/>}
