@@ -12,7 +12,7 @@ test('each live chat uses its current Bypass mode; questions and stopped turns n
   const chats=[{id:'a',runtimeId:'sa',mode:'bypass'},{id:'b',runtimeId:'sb',mode:'manual'}];
   const turns:any={a:{status:'running'},b:{status:'running'}};
   const saved:any[]=[],answers:any[]=[],requests=new Map();
-  const store={all:()=>chats,get:(_kind:string,id:string)=>turns[id],put:(_kind:string,value:any)=>saved.push(value),update:()=>{}};
+  const store={all:()=>chats,chatsWhere:(_field:string,id:string)=>chats.filter(chat=>chat.runtimeId===id),get:(_kind:string,id:string)=>turns[id],put:(_kind:string,value:any)=>saved.push(value),update:()=>{}};
   const request=new Function('store','hermesTurns','projectFor','backend','requests','emit','askApproval',code+';return request;')(store,new Map(chats.map(c=>[c.id,c.id])),(chat:any)=>chat,{generation:'test',scrubber:{value:(v:any)=>v}},requests,()=>{},(row:any)=>store.put('approval',row));
   const send=(method:string,session_id='sa')=>request({id:'request-'+answers.length,method,params:{session_id,description:'AGENTS.md or private file approval'},respond:(v:any)=>answers.push(v)});
   for(const method of ['approval','approval.request']){send(method);assert.deepEqual(answers.at(-1),{choice:'once'});}

@@ -12,6 +12,17 @@ export function resetJoinedText(store:Store,ownerId:string){
  for(const row of store.all<Turn>('turn'))if(row.answeredIn===ownerId&&row.readAt)store.update<Turn>('turn',row.id,{readAt:{...row.readAt,text:0}});
 }
 
+// A Hermes tool result that belongs to an earlier reply of this chat, not the one running now: exactly one recorded
+// tool must end in ":<toolId>", or nothing is attached. The reply running now owns its own tools, so the search runs
+// only for a tool it lacks, and reads record ids from the index, never tool bodies (SPEED-PLAN 1: 0.5 s per tool).
+export function lateToolOwner(store:Store,chatId:string,toolId:string,current?:string):ToolCall|undefined{
+ const suffix=':'+toolId;
+ if(current&&store.has('tool',current+suffix))return;
+ const matches=store.idsWhere('tool','turnId',store.idsWhere('turn','chatId',[chatId])).filter(id=>id.endsWith(suffix));
+ const tool=matches.length===1?store.get<ToolCall>('tool',matches[0]):undefined;
+ return tool&&tool.turnId!==current?tool:undefined;
+}
+
 const busy=['queued','running','waiting','dispatching','stopping'];
 
 // A finished reply settles every message it read that is still busy; ones the engine still holds run next.

@@ -10,6 +10,7 @@ const contextOverflow=(error:unknown)=>/context|too long|too large|maximum.{0,20
 const indexedFields=['turnId','job','status','signature','chatId'] as const;
 type IndexedField=typeof indexedFields[number];
 const turnFields=['jobs','remote'] as const;
+const chatFields=['parentChatId','runtimeId'] as const;
 
 export class Store {
   db:DatabaseSync;
@@ -24,7 +25,8 @@ export class Store {
     for(const field of indexedFields)this.db.exec(`CREATE INDEX IF NOT EXISTS records_${field} ON records(kind,json_extract(data,'$.${field}'))`);
     // Partial indexes hold only the few rows that carry the field, so these reads never parse the rest (SPEED-PLAN 1a).
     for(const field of turnFields)this.db.exec(`CREATE INDEX IF NOT EXISTS records_turn_${field} ON records(kind) WHERE kind='turn' AND json_extract(data,'$.${field}') IS NOT NULL`);
-    this.db.exec(`CREATE INDEX IF NOT EXISTS records_chat_parent ON records(json_extract(data,'$.parentChatId')) WHERE kind='chat'`);
+    for(const field of chatFields)this.db.exec(`CREATE INDEX IF NOT EXISTS records_chat_${field} ON records(json_extract(data,'$.${field}')) WHERE kind='chat'`);
+    this.db.exec(`DROP INDEX IF EXISTS records_chat_parent`);
     // Retired picker preferences migrate without changing chat selectors or past usage.
     this.transaction(()=>{
       const engine=this.all<{id:string;engine?:string}>('settings').find(row=>row.id==='decision-engine');
@@ -45,10 +47,15 @@ export class Store {
   turnsWith<T=Turn>(field:typeof turnFields[number]):T[] {if(!turnFields.includes(field))throw Error('Unknown turn field');return this.db.prepare(`SELECT data FROM records WHERE kind='turn' AND json_extract(data,'$.${field}') IS NOT NULL ORDER BY rowid`).all().map((r:any)=>JSON.parse(r.data));}
   // A chat's turns and those of its job chats, in saved order: every turn whose root message is in this chat.
   // Automatic follow-ups are saved in their own chat, parallel jobs in a child chat (SPEED-PLAN 1a, 3).
-  ownedTurns<T=Turn>(chatId:string):T[] {
-    const children=this.db.prepare(`SELECT id FROM records WHERE kind='chat' AND json_extract(data,'$.parentChatId')=?`).all(chatId).map((r:any)=>String(r.id));
-    return this.whereIn<T>('turn','chatId',[chatId,...children]);
+  ownedTurns<T=Turn>(chatId:string):T[] {return this.whereIn<T>('turn','chatId',[chatId,...this.chatsWhere('parentChatId',chatId).map(chat=>chat.id)]);}
+  chatsWhere(field:typeof chatFields[number],value:string):Chat[] {if(!chatFields.includes(field))throw Error('Unknown chat field');return this.db.prepare(`SELECT data FROM records WHERE kind='chat' AND json_extract(data,'$.${field}')=? ORDER BY rowid`).all(value).map((r:any)=>JSON.parse(r.data));}
+  // Record ids only, straight from the index: nothing is parsed (SPEED-PLAN 1).
+  idsWhere(kind:string,field:IndexedField,values:string[]):string[] {
+    const ids:{rowid:number;id:string}[]=[];
+    for(let i=0;i<values.length;i+=900){const chunk=values.slice(i,i+900);ids.push(...this.db.prepare(`SELECT rowid,id FROM records WHERE kind=? AND json_extract(data,'$.${field}') IN (${chunk.map(()=>'?').join(',')})`).all(kind,...chunk) as any[]);}
+    return ids.sort((a,b)=>a.rowid-b.rowid).map(row=>String(row.id));
   }
+  has(kind:string,id:string){return !!this.db.prepare('SELECT 1 FROM records WHERE kind=? AND id=?').get(kind,id);}
   find<T>(kind:string,id:string):T|undefined {const r:any=this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind,id);return r?JSON.parse(r.data):undefined;}
   enginePosition(chatId:string,engine:Engine):EnginePosition {
     this.get('chat',chatId);

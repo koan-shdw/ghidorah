@@ -95,7 +95,7 @@ import {Sidebar} from './sidebar';
 import {claudeUsage,claudeRateUsage} from './usage';
 import {claudeTurnEvent,claudeTurnUsage} from './claude-turn';
 import {handover,managementText} from './history';
-import {joinTurn,resetJoinedText,settleJoined,busyHermesRows} from './turn-joins';
+import {joinTurn,resetJoinedText,settleJoined,busyHermesRows,lateToolOwner} from './turn-joins';
 import {finalText} from './turn-text';
 import {inspectProjectTrust,projectSkillFolders,type ProjectSourceGrant,type ProjectTrustReview} from './project-trust';
 import {nativePluginCatalog,reviewNativePlugin,reviewHermesPlugin,installNativePlugin,nativePluginDirectories,verifyPlugins,checkRuntimeOnChange,ChangeGate,hermesPluginCopies,hermesPluginKey,pluginCommand,pluginServer,sharedCommands,type NativePlugin,type NativePluginInstall} from './native-plugins';
@@ -1015,11 +1015,11 @@ export function receive(event:any){
     mcpToolRequests.get(id)?.controller.abort();
     try{const approval=store.get<Approval>('approval',id);if(approval.status==='pending'){if(approval.method==='approval')coordination.denied(approval.turnId,approval.params.description,approval.params.command,'Approval expired before execution.');store.update<Approval>('approval',id,{status:'expired'});if(replyRow(approval.chatId)===approval.turnId&&store.get<Turn>('turn',approval.turnId).status==='waiting'&&!store.all<Approval>('approval').some(a=>a.turnId===approval.turnId&&a.status==='pending'))store.update<Turn>('turn',approval.turnId,{status:'running',activity:'Waiting for model',routeNotice:event.payload?.reason==='timeout'?'Approval expired before execution. Send a message to request it again.':undefined});}}catch{}emit();return;
   }
-  const chat=store.all<Chat>('chat').find(c=>c.runtimeId===event.session_id);if(!chat)return;
+  const chat=typeof event.session_id==='string'?store.chatsWhere('runtimeId',event.session_id)[0]:undefined;if(!chat)return;
   if(event.type==='tool.complete'&&event.payload?.tool_id){
-    const owners=new Set(store.all<Turn>('turn').filter(t=>t.chatId===chat.id).map(t=>t.id)),matches=store.all<ToolCall>('tool').filter(t=>owners.has(t.turnId)&&t.id.endsWith(':'+event.payload.tool_id));
-    if(matches.length===1&&matches[0].turnId!==hermesTurns.get(chat.id)){
-      const tool=matches[0],finish=()=>{if(['running','uncertain'].includes(tool.status)){const p=backend.scrubber.value(event.payload),result=p.result??p.result_text??p.summary;store.update<ToolCall>('tool',tool.id,{result,status:toolResultFailed(result)?'failed':'completed'});}};
+    const tool=lateToolOwner(store,chat.id,String(event.payload.tool_id),hermesTurns.get(chat.id));
+    if(tool){
+      const finish=()=>{if(['running','uncertain'].includes(tool.status)){const p=backend.scrubber.value(event.payload),result=p.result??p.result_text??p.summary;store.update<ToolCall>('tool',tool.id,{result,status:toolResultFailed(result)?'failed':'completed'});}};
       if(event.seq!=null)store.event(`${backend.generation}:${event.session_id}:${event.seq}`,finish);else finish();emit();return;
     }
   }

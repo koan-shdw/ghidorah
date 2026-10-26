@@ -6,6 +6,7 @@ import {Store} from '../app/store';
 import {readChatHistory,readRuntimeHistory,clearHistoryReads} from '../app/chat-context';
 import {turnActivity} from '../app/turn-status';
 import {toolResultFailed} from '../app/tool-result';
+import {lateToolOwner} from '../app/turn-joins';
 import type {Turn,ToolCall} from '../app/types';
 import {mainSource} from './fixtures/main-source';
 
@@ -32,7 +33,7 @@ test('replaying an in-flight desktop request keeps its owner; finished requests 
 });
 test('real event handler exposes compression, parallel tools, failures and ignores another session',()=>{
  const store=new Store(':memory:'),chat=store.chat(store.project().id),turn=store.accept('current',chat.id,'Work');store.update<any>('chat',chat.id,{runtimeId:'session'});store.update<Turn>('turn',turn.id,{status:'running'});
- const hermesTurns=new Map([[chat.id,turn.id]]),receive=main('receive',{nextWatermark:main('nextWatermark',{}),hermesErrors:new Map(),wake:()=>{},replyRow:(id:string)=>hermesTurns.get(id),store,hermesTurns,backend:{generation:'one',scrubber:{value:(v:any)=>v}},hermesEvents:new Map(),emit:()=>{},emitStream:()=>{},toolResultFailed,clearHistoryReads,requests:new Map(),mcpToolRequests:new Map(),coordination:{denied:()=>{}}});
+ const hermesTurns=new Map([[chat.id,turn.id]]),receive=main('receive',{nextWatermark:main('nextWatermark',{}),hermesErrors:new Map(),wake:()=>{},replyRow:(id:string)=>hermesTurns.get(id),store,hermesTurns,backend:{generation:'one',scrubber:{value:(v:any)=>v}},hermesEvents:new Map(),emit:()=>{},emitStream:()=>{},toolResultFailed,clearHistoryReads,lateToolOwner,requests:new Map(),mcpToolRequests:new Map(),coordination:{denied:()=>{}}});
  let seq=0;const send=(type:string,payload:any={},session_id='session')=>receive({type,payload,session_id,seq:++seq});
  const activity=()=>turnActivity(store.get('turn',turn.id),store.all('tool'),[]);
  send('status.update',{kind:'compacting'});assert.equal(activity(),'Compressing context');const since=store.get<Turn>('turn',turn.id).stageSince;

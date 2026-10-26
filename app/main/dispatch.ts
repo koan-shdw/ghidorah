@@ -383,7 +383,7 @@ export function request(request:any){
       return {enabled:true};
     })().then(value=>request.respond(value),error=>request.respond({error:backend.scrubber.text(String(error))}));return true;
   }
-  const chat=store.all<Chat>('chat').find(c=>c.runtimeId===request.params.session_id);
+  const chat=typeof request.params?.session_id==='string'?store.chatsWhere('runtimeId',request.params.session_id)[0]:undefined;
   if(!chat)return false;
   // Session replay can include a live request still owned by this handler.
   if(['trismegistus.work','trismegistus.mcp'].includes(request.method)&&mcpToolRequests.get(backend.generation+':'+request.id)?.chatId===chat.id)return true;

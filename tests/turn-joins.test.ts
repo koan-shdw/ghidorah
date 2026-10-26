@@ -1,8 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Store} from '../app/store';
-import {joinTurn,resetJoinedText,replyParts,isJoinedTurn,settleJoined,busyHermesRows} from '../app/turn-joins';
+import {joinTurn,resetJoinedText,replyParts,isJoinedTurn,settleJoined,busyHermesRows,lateToolOwner} from '../app/turn-joins';
 import type {Turn,ToolCall} from '../app/types';
+
+test('a late tool result finds its own earlier reply, never the running one, another chat or an ambiguous pair (SPEED-PLAN 1)',()=>{
+ const store=new Store(':memory:'),project=store.project(),chat=store.chat(project.id),other=store.chat(project.id);
+ const old=store.accept('old',chat.id,'First'),now=store.accept('now',chat.id,'Second'),elsewhere=store.accept('elsewhere',other.id,'Other');
+ const tool=(id:string,turnId:string)=>store.put<ToolCall>('tool',{id,turnId,name:'terminal',args:{},result:null,status:'running'});
+ tool('old:late',old.id);tool('now:live',now.id);tool('elsewhere:foreign',elsewhere.id);
+ assert.equal(lateToolOwner(store,chat.id,'late',now.id)?.id,'old:late','a late result goes to the reply that owns it');
+ assert.equal(lateToolOwner(store,chat.id,'late',undefined)?.id,'old:late','also when nothing runs');
+ assert.equal(lateToolOwner(store,chat.id,'live',now.id),undefined,'the running reply handles its own tools');
+ assert.equal(lateToolOwner(store,chat.id,'foreign',now.id),undefined,'another chat is never searched');
+ assert.equal(lateToolOwner(store,chat.id,'missing',now.id),undefined);
+ tool('now:a:late',now.id);
+ assert.equal(lateToolOwner(store,chat.id,'late',undefined),undefined,'two tools ending the same way: nothing is attached');
+ store.db.close();
+});
 
 test('read points split text and tools once, survive replacement and keep old messages visible',()=>{
  const store=new Store(':memory:'),chat=store.chat(store.project().id),owner=store.accept('owner',chat.id,'Start');
