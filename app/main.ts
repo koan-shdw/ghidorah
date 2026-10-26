@@ -237,6 +237,9 @@ let codexCheckVersion=0;
 let codexCheckController:AbortController|null=null,codexCheckTask:Promise<any>|null=null;
 export let claude:ClaudeConnection={connected:false,status:'Not checked'};
 let checkingClaude=false,claudeSignIn:ChildProcess|undefined;
+// Claude Code's first check of this run has not ended, so its models are not listed yet. A message Jev routes waits for
+// it (10-26: a message sent 84 s after a restart found no Claude model and held its chat).
+export let claudeFirstCheck=true;
 export let claudeExecutable:string|null=null;
 // Each Claude message row's controller (its preparation, approvals and his remove button), by row.
 export const claudeControllers=new Map<string,AbortController>();
@@ -682,7 +685,7 @@ export async function checkClaude(signal?:AbortSignal){
     claude={connected:true,status:'Signed in',...claudeUsage(result.result),models:result.models};
     health.claudeUsage(result.result,started);return result.models.map(row=>row.id.replace(/^claude-code:/,''));
   }catch{claude={...claude,status:'Usage unavailable'};}
-  finally{checkingClaude=false;emit();}
+  finally{checkingClaude=false;claudeFirstCheck=false;emit();}
 }
 export const streamWindows=new WeakMap<BrowserWindow,Set<string>>(),streamTurns=new Set<string>();
 let streamTimer:NodeJS.Timeout|undefined;
@@ -741,7 +744,8 @@ export async function startBackend(){
   await loadPluginCommands();folderRecoveryRequired=false;await syncWake();emit();
   // Once per session: one check after the suppliers have answered, whatever windows open later.
   void Promise.allSettled(apiProviders.rows().filter(row=>row.connected).map(row=>apiProviders.check(row.provider))).then(()=>{if(discoverySettings().mode==='session'&&!discoveredThisSession){discoveredThisSession=true;void runDiscovery().catch(error=>{discoveryStatus=String(error).replace(/^Error: /,'');emit();});}});
-  void Promise.allSettled([checkCodex(),...(!process.env.TRISMEGISTUS_TEST_DATA||fixtureClaude()?[checkClaude()]:[])]).then(()=>{wizardConnectionsChecked=true;emit();});
+  const checksClaude=!process.env.TRISMEGISTUS_TEST_DATA||!!fixtureClaude();if(!checksClaude)claudeFirstCheck=false;
+  void Promise.allSettled([checkCodex(),...(checksClaude?[checkClaude()]:[])]).then(()=>{wizardConnectionsChecked=true;emit();});
   if(credential.key)void checkAccount(credential.key);
   }catch(error){backend.status='failed';emit();throw error;}
 }
@@ -765,6 +769,7 @@ export async function checkAccount(key:string,signal?:AbortSignal){
   }catch{/* Missing checks do not clear a known account failure or block an unverified account. */}
   emit();
 }
+const NO_PICK='No model could be picked for this message. Choose one below, or skip it.';
 export async function routeTurn(chat:Chat,turn:Turn){
   const controller=new AbortController();jevControllers.set(chat.id,controller);
   // This chat's own rows; Jev's learning below still reads every chat (SPEED-PLAN 3).
@@ -828,7 +833,8 @@ export async function routeTurn(chat:Chat,turn:Turn){
     if(engine in pickerKeyNames&&[401,402,403].includes((error as any).status))pickerKeyStatus[engine as PickerId]=notice;
     if(engine==='jev'&&[401,402].includes((error as any).status)){jevStatus=notice;store.put('settings',{...jevSettings(),id:'jev',blocked:(error as any).status===402?'credit':'auth',observedAt:Date.now(),status:notice});}
     recordRoute(turn.id,{reason:engine+'-unavailable',message:notice,detail,selected});
-    try{decision=await route(input);}catch(fallback){const model=remoteFallback(turn,input);if(!model){store.update<Turn>('turn',turn.id,{routePending:false,status:'needs-model',error:backend.scrubber.text(String(fallback))});return false;}decision={model,reason:'remote-fallback'};}
+    // The model row only sets later messages: a message no one could pick for names the box on it (10-26).
+    try{decision=await route(input);}catch(fallback){const model=remoteFallback(turn,input);if(!model){store.update<Turn>('turn',turn.id,{routePending:false,status:'needs-model',error:selected.length?backend.scrubber.text(String(fallback).replace(/^Error: /,'')):NO_PICK});return false;}decision={model,reason:'remote-fallback'};}
   }finally{jevControllers.delete(chat.id);}
   if(!decision)return false;
   Object.assign(turn,{model:decision.model,models:decision.models,collaboration:decision.collaboration,effort:turn.efforts?.[decision.model]||'high',routePending:false,routeNotice:notice,fallbacks:decision.order?.slice(1)||[]});

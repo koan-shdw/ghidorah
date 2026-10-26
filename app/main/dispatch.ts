@@ -10,7 +10,7 @@ import {claudeTurnUsage} from '../claude-turn';
 import {documentMutations,documentToolCall} from '../documents';
 import {handover,managementText,resumable} from '../history';
 import {imageToolCall} from '../images';
-import {apiChanging,apiProviders,backend,background,bindClaude,checkpointChanging,claude,claudeAutomatic,claudeControllers,claudeExecutable,commandTurns,connected,coordination,data,emit,folderRecoveryRequired,gitOperation,goals,handlers,health,hermesFixed,hermesModels,hermesQueued,hermesSent,hermesSessionRows,hermesStarted,hermesTurns,hermesWaiting,holds,mcp,mcpToolRequests,memoryCache,modeChanges,namespace,native,pluginGate,pluginRuntime,pluginsChanging,preparing,quitting,requests,root,routeTurn,runAgain,runningChats,runtimeChecked,store,taskScratchHint,testHang,visionModels} from '../main';
+import {apiChanging,apiProviders,backend,background,bindClaude,checkpointChanging,claude,claudeAutomatic,claudeControllers,claudeExecutable,claudeFirstCheck,commandTurns,connected,coordination,data,emit,folderRecoveryRequired,gitOperation,goals,handlers,health,hermesFixed,hermesModels,hermesQueued,hermesSent,hermesSessionRows,hermesStarted,hermesTurns,hermesWaiting,holds,mcp,mcpToolRequests,memoryCache,modeChanges,namespace,native,pluginGate,pluginRuntime,pluginsChanging,preparing,quitting,requests,root,routeTurn,runAgain,runningChats,runtimeChecked,store,taskScratchHint,testHang,visionModels} from '../main';
 import {modelLabel,providerFor,wireModel} from '../models';
 import {NativePluginInstall,checkRuntimeOnChange,hermesPluginCopies,nativePluginDirectories,pluginCommand,verifyPlugins} from '../native-plugins';
 import {createParallel,parallelContext} from '../parallel';
@@ -28,6 +28,7 @@ import {fixtureClaudeArgs,projectSettingsReview,trustRecord} from './accounts';
 import {session} from './backend';
 import {applyReadyDraft,compactForTurn,compactInBackground,dispatchPluginCommand,queryHistory,submitTurn} from './context';
 import {availableModels,checkDispatch,inputMismatch,loadInputCapabilities,unavailableMessage} from './models';
+import {classifierActive,decisionEngine,pickerSettings} from './pickers';
 import {addAppTask,createApp,linkCurrentApp,listAppTasks,projectFor,updateApp,updateAppTask,workingDirectory} from './projects';
 import {claudeScreenEnv,screenContext,screenSettings,screenStep} from './screen';
 import {previewTool_,publish,shareWithClient} from './sharing';
@@ -43,7 +44,8 @@ export function providerUrls():Record<string,string>{return {deepseek:process.en
 export function stateProviderInChat(provider:string,chat:Chat){return (chat.pool||['deepseek-flash']).some(model=>providerFor(model)===provider);}
 export function engineState(chatId:string){return [preparing.has(chatId)&&'preparing='+preparing.get(chatId)!.turnId,commandTurns.has(chatId)&&'command='+commandTurns.get(chatId),hermesTurns.has(chatId)&&'hermes='+hermesTurns.get(chatId),hermesWaiting(chatId)>0&&'hermes-waiting='+hermesWaiting(chatId),...(native?.processingReasons(chatId)||[])].filter(Boolean).join(' ')||'idle';}
 export function hold(chatId:string,turn:Turn|undefined,reason:string){
-  if(turn&&(turn.hold||'')!==reason){try{store.update<Turn>('turn',turn.id,{hold:reason||undefined});setImmediate(emit);}catch{}}
+  // The row in hand follows too: routing later writes the whole row back.
+  if(turn&&(turn.hold||'')!==reason){try{store.update<Turn>('turn',turn.id,{hold:reason||undefined});turn.hold=reason||undefined;setImmediate(emit);}catch{}}
   const previous=holds.get(chatId),line=turn&&reason?`turn=${turn.id} held: ${reason} | engine: ${engineState(chatId)}`:'';
   if(line===(previous?.line||''))return;
   if(line)holds.set(chatId,{turn:turn!.id,line});else holds.delete(chatId);
@@ -66,7 +68,7 @@ export function automaticHermes(chat:Chat,sid:string){
 // handover() over this chat's own and job records only, read fresh at each call (SPEED-PLAN 3).
 type HandoverRest=Parameters<typeof handover> extends [any,any,any,...infer Rest]?Rest:never;
 export function chatHandover(chatId:string,current:Turn,...rest:HandoverRest){const {turns,tools}=store.chatRecords(chatId);return handover(turns,tools,current,...rest);}
-export function waitingRow(chatId:string){return store.where<Turn>('turn','chatId',chatId).filter(t=>['queued','needs-model'].includes(t.status)&&!t.paused).sort((a,b)=>a.created-b.created)[0];}
+export function waitingRow(chatId:string,rows=store.where<Turn>('turn','chatId',chatId)){return rows.filter(t=>['queued','needs-model'].includes(t.status)&&!t.paused).sort((a,b)=>a.created-b.created)[0];}
 // Messages typed behind a message while it is prepared join it and reach the model as one message (Koan 10-01, 10-16).
 // Only the next run of his plain messages with the same model choice joins, so nothing is reordered or rerouted.
 export const plainMessage=(t:Turn)=>t.status==='queued'&&!t.paused&&!t.command&&!t.contextCommand&&!t.prompt.trimStart().startsWith('/')&&!t.goal&&!t.remote&&!t.routine&&!t.voice&&!t.handoff&&!t.review&&!t.automatic&&!t.parentTurnId&&!t.jobs?.length;
@@ -93,11 +95,34 @@ export async function joinWaiting(turn:Turn,choice:string,signal:AbortSignal){
 // One step: the first waiting message goes out (true: look again), or names what it waits for (false).
 export async function runStep(chatId:string){
   let chat:Chat;try{chat=store.get<Chat>('chat',chatId);}catch{return false;}
-  const turn=waitingRow(chatId);
+  const rows=store.where<Turn>('turn','chatId',chatId),turn=waitingRow(chatId,rows);
   if(!turn){hold(chatId,undefined,'');return false;}
+  nameBehind(rows,turn);
   if(turn.status==='needs-model'){hold(chatId,turn,'Choose a model');return false;}
   const reason=holdReason(chat,turn);hold(chatId,turn,reason);if(reason)return false;
   await dispatch(chat,turn);return true;
+}
+// Messages behind one that waits for a model choice say so instead of "Sending" (10-26: three showed "Sending" for
+// minutes behind it). The text goes once the first message has its model or is skipped.
+export const BEHIND='Waiting for a model for the message above';
+export function nameBehind(rows:Turn[],head:Turn){
+  let changed=false;
+  for(const t of rows){
+    if(t.status!=='queued'||t.id===head.id)continue;
+    const text=head.status==='needs-model'&&!t.paused?BEHIND:t.hold===BEHIND?'':t.hold||'';
+    if((t.hold||'')!==text){store.update<Turn>('turn',t.id,{hold:text||undefined});changed=true;}
+  }
+  if(changed)setImmediate(emit);
+}
+// While Claude Code's first check of this run is still going, a message to be routed waits for it when routing would
+// lean on a Claude model: the picker's summary model, the chat's selector, a requested model, or the chat's or app's
+// last model. Without the wait it found none of them and held its chat at "Choose a model" (10-26).
+export function claudeRouteWait(chat:Chat,turn:Turn){
+  if(!turn.routePending||!claudeFirstCheck)return '';
+  const previous=store.where<Turn>('turn','chatId',chat.id).filter(t=>t.status==='completed'&&!t.command&&t.created<turn.created).at(-1)?.model;
+  const leans=[classifierActive()?pickerSettings(decisionEngine()).summaryModel:null,chat.selector,...(turn.requestedModels||[]),previous,store.all<any>('settings').find(row=>row.id==='last-model')?.model];
+  const ready=availableModels();
+  return leans.some(model=>typeof model==='string'&&providerFor(model)==='claude-code'&&!ready.includes(model))?'Waiting for Claude Code to connect':'';
 }
 export function holdReason(chat:Chat,turn:Turn){
   if(folderRecoveryRequired)return 'Waiting for the backend restart that restores the working folder';
@@ -108,6 +133,7 @@ export function holdReason(chat:Chat,turn:Turn){
   if(modeChanges.has(chat.projectId))return 'Waiting for the permission mode change';
   const hermes=backend?.status==='ready';
   if((turn.command||turn.routePending||turn.contextCommand)&&!hermes)return 'Waiting for the backend to start';
+  const claudeWait=claudeRouteWait(chat,turn);if(claudeWait)return claudeWait;
   if(!turn.command&&!turn.routePending&&!turn.contextCommand){const ready=new Set(availableModels()),missing=(turn.models||[turn.model]).find(model=>!ready.has(model)||!hermes&&!model.startsWith('claude-code:'));if(missing)return 'Waiting for '+modelLabel(missing,claude.models)+' to connect';}
   return switchReason(chat,turn);
 }

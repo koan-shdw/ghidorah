@@ -13,7 +13,7 @@ function main(name:string,env:Record<string,unknown>){
 // model, so no Claude chat could run.
 test('a signed-in Claude Code keeps its models when the usage answer is late or missing',async()=>{
  const models=[{id:'claude-code:opus'},{id:'claude-code:haiku'}];
- const env=(result:unknown)=>({checkingClaude:false,claude:{connected:false,status:''},claudeExecutable:null,started:0,
+ const env=(result:unknown)=>({checkingClaude:false,claudeFirstCheck:true,claude:{connected:false,status:''},claudeExecutable:null,started:0,
   fixtureClaude:()=>undefined,existsSync:()=>true,findClaude:async()=>({executable:'claude.exe',version:'2.1.309 (Claude Code)'}),claudeAccount:async()=>({loggedIn:true,subscription:true}),
   health:{observe:()=>{},claudeUsage:()=>{}},emit:()=>{},path:{join:(...parts:string[])=>parts.join('/')},data:'data',root:'root',fs:{mkdir:async()=>{}},
   fixtureClaudeArgs:()=>[],backend:{python:'python',scrubber:{}},claudeUsage:()=>({windows:[]}),
