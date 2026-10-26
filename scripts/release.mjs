@@ -4,7 +4,8 @@
 // hardens and builds the checked installer (scripts/installer.mjs), then commits "Ghidorah X" with a local tag vX.
 // npm run release -- --publish then pushes main and the tag to koan-shdw/ghidorah and puts that version on its Releases:
 // Ghidorah-X-Setup.exe, the same file as Ghidorah-Windows-Setup.exe for the download button, latest.yml and the
-// blockmap. Installed copies find it there and update themselves.
+// blockmap. Installed copies find it there and update themselves. Last, it refreshes the launch page's Recent updates on
+// www.shdw.work/Ghidorah and redeploys that site (shdw-work/scripts/ghidorah-news.mjs).
 import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -50,5 +51,9 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   run('git',['push','origin','HEAD:main','v'+version]);
   run('gh',['release','create','v'+version,'--repo',RELEASES,'--title','Ghidorah '+version,'--notes',entry.notes.map(note=>'- '+note).join('\n'),installer,button,installer+'.blockmap',path.join(installers,'latest.yml')]);
   console.log(`Published on https://github.com/${RELEASES}/releases/tag/v${version}`);
+  // the launch page at www.shdw.work/Ghidorah lists every public version and names the newest on its download line:
+  // refresh its list and redeploy the site (his ask 10-26, as Video Dancer's release does). A failure here leaves the release up.
+  const site='I:/DEV/shdw-work/scripts/ghidorah-news.mjs';
+  if(fs.existsSync(site))try{execFileSync(process.execPath,[site,'--deploy'],{stdio:'inherit',windowsHide:true});}catch(error){console.log(`The release is up; the launch page was not refreshed (${error.message}). Run: node ${site} --deploy`);}
  }
 }
