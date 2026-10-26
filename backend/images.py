@@ -11,6 +11,9 @@ CATALOG = {
     'openai-api': {'label': 'OpenAI API', 'models': ['gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'], 'references': 4, 'transparency': True},
     'gemini': {'label': 'Google · Gemini', 'models': ['gemini-3.1-flash-image', 'gemini-3-pro-image'], 'references': 4, 'transparency': False},
     'xai': {'label': 'xAI · Grok', 'models': ['grok-imagine-image-2.0'], 'references': 4, 'transparency': False},
+    # Koan, 10-26: images on the ChatGPT sign-in, no API key. Same route as the official Codex client and the Hermes
+    # openai-codex image plugin; that route only makes opaque backgrounds.
+    'openai-codex': {'label': 'OpenAI · ChatGPT sign-in', 'models': ['gpt-image-2'], 'references': 4, 'transparency': False},
 }
 
 
@@ -19,6 +22,10 @@ def credentials(provider, namespace):
     from security import install_codec
     install_codec(namespace + '/encryption')
     install(Path(os.environ['HERMES_HOME']), namespace)
+    if provider == 'openai-codex':
+        # The ChatGPT sign-in from Connections > OpenAI; refreshed here when it is about to expire.
+        from hermes_cli.auth import resolve_codex_runtime_credentials
+        return resolve_codex_runtime_credentials()
     from hermes_cli.auth import resolve_api_key_provider_credentials
     return resolve_api_key_provider_credentials(provider)
 
@@ -31,7 +38,7 @@ def information(namespace):
         except Exception:
             connected = False
         rows.append({'id': provider, **spec, 'connected': connected})
-    return {'providers': rows, 'billing': 'Uses the selected API account. ChatGPT and Claude subscriptions are separate. Access and credit are checked by the supplier when an image is requested.',
+    return {'providers': rows, 'billing': 'API connections use that API account and its credit. OpenAI · ChatGPT sign-in uses your ChatGPT plan and its limits. Access is checked by the supplier when an image is requested.',
             'workflow': 'Choose a provider and model in Settings > Images first. generate_image creates one PNG in a fresh destination and saves it in Chat files. For edits, supply reference paths in the working folder or owned Chat files IDs. Originals are preserved. Inspect the output before claiming visual verification.',
             'limits': 'Up to 4 PNG/JPEG/WebP references, 25 MB total and 16 million pixels each. Cancellation stops local work; the supplier may finish and charge an already submitted request. Requests are never automatically retried.'}
 
@@ -91,11 +98,16 @@ def generate(request, namespace):
         key = auth.get('api_key')
         if not key:
             raise ValueError('Connect ' + spec['label'] + ' in Settings > Connections.')
-        base = {'openai-api': 'https://api.openai.com/v1', 'gemini': 'https://generativelanguage.googleapis.com/v1beta', 'xai': 'https://api.x.ai/v1'}[provider]
+        base = {'openai-api': 'https://api.openai.com/v1', 'gemini': 'https://generativelanguage.googleapis.com/v1beta', 'xai': 'https://api.x.ai/v1', 'openai-codex': (auth.get('base_url') or 'https://chatgpt.com/backend-api/codex').rstrip('/')}[provider]
         # host.py has already validated that each fixture URL is loopback and test-only.
         if namespace.startswith('Trismegistus/Test/'):
             base = json.loads(os.environ.get('TRISMEGISTUS_TEST_API_URLS', '{}')).get(provider, base).rstrip('/')
         headers = {'x-goog-api-key': key} if provider == 'gemini' else {'Authorization': 'Bearer ' + key}
+        if provider == 'openai-codex':
+            # The identity and account headers the Codex backend requires, as Hermes sends them for chat.
+            import uuid
+            from agent.codex_headers import codex_cloudflare_headers
+            headers = {**codex_cloudflare_headers(key, base_url=base), 'Authorization': 'Bearer ' + key, 'x-codex-image-turn-id': str(uuid.uuid4())}
         ratio = {'square': '1:1', 'landscape': '3:2', 'portrait': '2:3'}[aspect]
         encoded = [base64.b64encode(raw).decode() for raw, _, _ in images]
         files = None
@@ -113,6 +125,12 @@ def generate(request, namespace):
                     body['image'] = refs[0]
                 elif refs:
                     body['images'] = refs
+            elif provider == 'openai-codex':
+                # Fields of the official client's ImageGenerationRequest / ImageEditRequest; edits take inline data URLs.
+                from plugins.image_gen._common import size_for
+                body.update(size=size_for(aspect), quality='medium', background='opaque')
+                if images:
+                    body['images'] = [{'image_url': 'data:' + image[1] + ';base64,' + data} for image, data in zip(images, encoded)]
             else:
                 from plugins.image_gen._common import size_for
                 body.update(size=size_for(aspect), quality='auto', output_format='png', background='transparent' if transparent else 'auto')
@@ -126,7 +144,7 @@ def generate(request, namespace):
                 if response.status_code != 200:
                     status = response.status_code
                     definite = 400 <= status < 500 and status not in (408, 409)
-                    hints = {401: 'Check the API key in Connections.', 403: 'Check image-model access or account verification.', 402: 'Check the API account balance.', 429: 'Check account credit and rate limits.'}
+                    hints = {401: 'Sign in again in Connections > OpenAI.', 403: 'Check that your ChatGPT plan includes image generation.', 429: 'Your ChatGPT plan image limit is reached; wait for it to reset.'} if provider == 'openai-codex' else {401: 'Check the API key in Connections.', 403: 'Check image-model access or account verification.', 402: 'Check the API account balance.', 429: 'Check account credit and rate limits.'}
                     return {'error': f'{spec["label"]} returned HTTP {status}. ' + hints.get(status, 'Check the supplier status before trying again.'), 'attempted': True, 'outcome': 'refused' if definite else 'unknown'}
                 chunks, total = [], 0
                 for chunk in response.iter_bytes():

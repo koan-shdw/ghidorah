@@ -78,6 +78,35 @@ class Images(unittest.TestCase):
         result, _ = self.run_request(body={'data': [{'b64_json': picture(), 'respect_moderation': False}]})
         self.assertEqual(result['outcome'], 'finished')
 
+    def test_chatgpt_sign_in_route(self):
+        # 10-26: OpenAI images on the ChatGPT sign-in, no API key; the Codex images endpoint with its own fields.
+        calls = []
+        def serve(request):
+            calls.append(request)
+            return httpx.Response(200, json={'data': [{'b64_json': picture()}]})
+        for references in ([], [picture()]):
+            calls.clear()
+            client = httpx.Client(transport=httpx.MockTransport(serve))
+            auth = {'api_key': 'test-private-key', 'base_url': 'https://chatgpt.example/backend-api/codex'}
+            with patch.object(images, 'credentials', return_value=auth), patch('httpx.Client', return_value=client):
+                result = images.generate({'provider': 'openai-codex', 'model': 'gpt-image-2', 'prompt': 'A blue square', 'aspect': 'landscape', 'sources': references}, 'Ghidorah/images')
+            self.assertNotIn('error', result)
+            request = calls[0]
+            self.assertEqual(str(request.url), 'https://chatgpt.example/backend-api/codex/images/' + ('edits' if references else 'generations'))
+            self.assertEqual(request.headers['authorization'], 'Bearer test-private-key')
+            self.assertIn('x-codex-image-turn-id', request.headers)
+            self.assertIn('originator', request.headers)
+            payload = json.loads(request.content)
+            self.assertEqual({key: payload[key] for key in ('model', 'n', 'quality', 'background')}, {'model': 'gpt-image-2', 'n': 1, 'quality': 'medium', 'background': 'opaque'})
+            if references:
+                self.assertTrue(payload['images'][0]['image_url'].startswith('data:image/png;base64,'))
+            else:
+                self.assertNotIn('images', payload)
+        result, calls = self.run_request('openai-codex', transparent=True)
+        self.assertEqual(calls, [])
+        result, _ = self.run_request('openai-codex', status=429, body={})
+        self.assertIn('ChatGPT plan image limit', result['error'])
+
     def test_openai_transparency(self):
         result, calls = self.run_request('openai-api', transparent=True)
         self.assertNotIn('error', result)
