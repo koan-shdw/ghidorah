@@ -18,6 +18,7 @@ const paths={
  popout:'M14 4h6v6M10 14 20 4M18 14v6H4V6h6',image:'M4 4h16v16H4V4zm0 12 5-5 4 4 3-3 4 4M9 8.5h.01',code:'M9 8l-4 4 4 4m6-8 4 4-4 4',
  doc:'M6 3h8l4 4v14H6V3zm8 0v4h4M9 12h6m-6 4h6',file:'M6 3h8l4 4v14H6V3zm8 0v4h4',
  art:'M4 20c2.5 0 4.5-1.2 4.5-4 0-1.7 1.1-2.8 2.8-2.8L20 4.5 18.5 3l-8.7 8.7C8 11.7 7 12.8 7 14.5 7 17 5.5 18.5 4 20z',
+ plug:'M9 2v6m6-6v6M6 8h12v4a6 6 0 0 1-12 0V8zm6 10v4',
  restart:'M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5',
 };
 export type IconName=keyof typeof paths;

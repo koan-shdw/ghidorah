@@ -47,7 +47,7 @@ export function ClaudeConnection({state,call}:{state:Snapshot;call:Call}){
   {claude?.connected&&<><p>{claude.plan?claude.plan+' plan':'Claude subscription'} · Usage windows {claude.windows?.length?'':'unavailable'}</p>{claude.windows?.map(window=><p key={window.label}>{window.label}: {window.usedPercent==null?'unavailable':window.usedPercent+'% used'}{window.resetAt?' · Resets '+new Date(window.resetAt).toLocaleString():''}</p>)}</>}
   <p className="hint">Claude turns use your installed Claude Code and its own sign-in.</p>
   {!missing&&<><div className="connection-field"><span>Use my claude.ai connectors</span><Switch checked={!!state.claudeConnectors} ariaLabel="Use my claude.ai connectors" label={state.claudeConnectors?'On':'Off'} onChange={()=>void call('claudeConnectors',{enabled:!state.claudeConnectors}).catch(()=>{})}/></div>
-   <p className="hint">Claude chats also get the connectors on your claude.ai account (Gmail, Drive, Shopify…). Other models don't. Each use still asks for approval. A connector also added in MCP connections is used from there instead. Applies to new Claude sessions.</p></>}
+   <p className="hint">Claude chats also get the connectors on your claude.ai account (Gmail, Drive, Shopify…). Other models don't. Each use still asks for approval. A connector also added in Settings, MCP is used from there instead. Applies to new Claude sessions.</p></>}
  </div>;
 }
 

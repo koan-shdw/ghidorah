@@ -16,3 +16,6 @@ __pycache__/
 notes/
 /CLAUDE.md
 /AGENTS.md
+
+# Ghidorah's Google sign-in app, built in by scripts/build.mjs.
+/google-client.json

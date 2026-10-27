@@ -22,26 +22,16 @@ function OfferRow({offer,added,run,busy,call}:{offer:Offer;added:boolean;run:(ke
  </li>;
 }
 // Google admits no app-registered sign-in, so Workspace runs locally (taylorwilsdon/google_workspace_mcp, pinned)
-// with a Desktop OAuth client the user makes in their own Google Cloud project.
+// with Ghidorah's own Desktop OAuth client (Google Cloud project ghidorah-512910), built in from google-client.json
+// (kept out of git: GitHub push protection refuses OAuth secrets). ponytail: the app is in Google's testing mode until verified, so only its listed test
+// users can sign in and grants expire after 7 days; publish it (Branding page, then verification) for everyone.
 const googleArgs=['workspace-mcp==2.2.1','--single-user','--tools','gmail','drive','calendar','docs','sheets','slides'];
+const googleClient=JSON.parse(process.env.GOOGLE_CLIENT||'null') as {id:string;secret:string}|null;
 function GoogleWorkspace({state,call,run,busy}:{state:Snapshot;call:Call;run:(key:string,action:()=>Promise<any>)=>Promise<void>;busy:boolean}){
- const [open,setOpen]=useState(false),[id,setId]=useState(''),[secret,setSecret]=useState('');
  const added=!!state.mcp?.some(row=>row.transport==='stdio'&&row.address==='uvx'&&row.name==='Google Workspace');
- const link=(kind:string,text:string)=><button className="link-button" onClick={()=>void call('link',{kind}).catch(()=>{})}>{text} ↗</button>;
- async function add(){await call('mcpAdd',{name:'Google Workspace',config:{command:'uvx',args:googleArgs,env:{GOOGLE_OAUTH_CLIENT_ID:id.trim(),GOOGLE_OAUTH_CLIENT_SECRET:secret.trim()}}});setOpen(false);setId('');setSecret('');}
- return <li className="mcp-offer" data-offer="google-workspace"><div><strong>Google Workspace</strong><p className="hint">Gmail, Drive, Calendar, Docs, Sheets and Slides for every model. Runs on this PC with your own Google sign-in app; needs uv.</p></div>
-  {added?<span>Added</span>:!open&&<button disabled={busy} onClick={()=>setOpen(true)}>Set up</button>}
-  {open&&!added&&<div className="mcp-offer-token"><ol className="google-steps">
-   <li>{link('google-project','Create a Google Cloud project')} (any name).</li>
-   <li>{link('google-apis','Enable the five APIs')} in that project, then Slides if you want it.</li>
-   <li>{link('google-consent','Set up the sign-in screen')}: External, your email as support contact.</li>
-   <li>{link('google-audience','Add yourself as a test user')}.</li>
-   <li>{link('google-client','Create an OAuth client')}: type Desktop app. Copy its client ID and secret here.</li>
-  </ol>
-   <label>Client ID<input aria-label="Google client ID" value={id} onChange={event=>setId(event.target.value)} autoComplete="off" placeholder="…apps.googleusercontent.com"/></label>
-   <label>Client secret<input type="password" aria-label="Google client secret" value={secret} onChange={event=>setSecret(event.target.value)} autoComplete="off"/></label>
-   <p className="hint">Saved in Windows Credential Manager. The first Google tool a chat uses opens Google sign-in in your browser.</p>
-   <div className="actions"><button className="primary" disabled={busy||!id.trim().endsWith('.apps.googleusercontent.com')||!secret.trim()} onClick={()=>void run('offer:google',add)}>Save</button><button onClick={()=>setOpen(false)}>Cancel</button></div></div>}
+ const add=()=>call('mcpAdd',{name:'Google Workspace',config:{command:'uvx',args:googleArgs,env:{GOOGLE_OAUTH_CLIENT_ID:googleClient!.id,GOOGLE_OAUTH_CLIENT_SECRET:googleClient!.secret}}});
+ return <li className="mcp-offer" data-offer="google-workspace"><div><strong>Google Workspace</strong><p className="hint">Gmail, Drive, Calendar, Docs, Sheets and Slides for every model. Runs on this PC; needs uv. Google sign-in opens the first time a chat uses it.</p></div>
+  {added?<span>Added</span>:<button disabled={busy||!googleClient} title={googleClient?undefined:'This build has no Google sign-in app'} onClick={()=>void run('offer:google',add)}>Add</button>}
  </li>;
 }
 function Discover({state,call,run,busy}:{state:Snapshot;call:Call;run:(key:string,action:()=>Promise<any>)=>Promise<void>;busy:string[]}){
@@ -56,7 +46,7 @@ function Discover({state,call,run,busy}:{state:Snapshot;call:Call;run:(key:strin
   {!shown.length&&<p className="hint">Not in the list.</p>}
   <div className="actions"><button disabled={!query.trim()||busy.includes('registry')} onClick={()=>void run('registry',search)}>{busy.includes('registry')?'Searching…':'Search the MCP Registry'}</button></div>
   {found&&(found.length?<><p className="hint">From the public MCP Registry. Anyone can list a server there: add only ones from developers you trust.</p><ul className="mcp-offers">{found.map(row)}</ul></>:<p className="hint">No remote servers found for “{query}”.</p>)}
-  <p className="hint">Not here, like Shopify, Xero or Figma? Claude chats can use your claude.ai connectors: Connections, Anthropic. Any other server: Yours, Add MCP server.</p>
+  <p className="hint">Not here, like Shopify, Xero or Figma? Claude chats can use your claude.ai connectors: Settings, Connections, Anthropic. Any other server: Yours, Add MCP server.</p>
  </div>;
 }
 export function ImportedServer({entry,call,saved}:{entry:McpImportEntry;call:Call;saved:()=>void}){

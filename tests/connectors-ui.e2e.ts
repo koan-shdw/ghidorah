@@ -31,18 +31,17 @@ try{
  await toggle.click();await pollState(page,s=>s.claudeConnectors===true);await top(anthropic);await screenshot('1-anthropic-switch-on');
  await anthropic.locator(':scope > summary').click();
 
- // MCP connections: Yours first, then Discover.
+ // Settings > MCP: Yours first, then Discover.
+ await dialog.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name:'MCP',exact:true}).click();await page.locator('[data-settings-page="mcp"]').waitFor();
  const tabs=page.getByRole('navigation',{name:'MCP connections view'});await tabs.scrollIntoViewIfNeeded();
  await page.getByText('No MCP servers added. Find one in Discover.').waitFor();await top(section);await screenshot('2-mcp-yours-empty');
  await tabs.getByRole('button',{name:'Discover',exact:true}).click();await page.getByLabel('Search connectors',{exact:true}).scrollIntoViewIfNeeded();
  for(const name of ['Google Workspace','Notion','Webflow','Klaviyo','GitHub'])await page.locator('.mcp-offer strong',{hasText:new RegExp('^'+name+'$')}).waitFor();
  await top(section);await screenshot('3-mcp-discover');
 
- // Google Workspace: guided setup; Save waits for a real client ID.
- const google=page.locator('[data-offer="google-workspace"]');await google.getByRole('button',{name:'Set up',exact:true}).click();
- const save=google.getByRole('button',{name:'Save',exact:true});await page.getByLabel('Google client ID',{exact:true}).fill('not-a-client');await page.getByLabel('Google client secret',{exact:true}).fill('synthetic-secret');assert.equal(await save.isDisabled(),true);
- await page.getByLabel('Google client ID',{exact:true}).fill('123-synthetic.apps.googleusercontent.com');assert.equal(await save.isDisabled(),false);await top(google);await screenshot('4-google-setup');
- await save.click();let state=await pollState(page,s=>!!s.mcp?.some((row:any)=>row.name==='Google Workspace'));
+ // Google Workspace: one click with Ghidorah's own Google sign-in app.
+ const google=page.locator('[data-offer="google-workspace"]');await top(google);await screenshot('4-google-setup');
+ await google.getByRole('button',{name:'Add',exact:true}).click();let state=await pollState(page,s=>!!s.mcp?.some((row:any)=>row.name==='Google Workspace'));
  const saved=state.mcp!.find((row:any)=>row.name==='Google Workspace')!;assert.equal(saved.transport,'stdio');assert.equal(saved.address,'uvx');await google.getByText('Added',{exact:true}).waitFor();
 
  // A token server asks for the token, then saves it as a header.

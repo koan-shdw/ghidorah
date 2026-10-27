@@ -13,9 +13,9 @@ async function launch(){
 }
 try{
  instance=await launch();let page=await instance.firstWindow();page.setDefaultTimeout(25000);
- await page.getByRole('dialog',{name:'Settings',exact:true}).waitFor();
+ await page.getByRole('dialog',{name:'Settings',exact:true}).waitFor();await page.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name:'MCP',exact:true}).click();
  const section=()=>page.getByRole('region',{name:'MCP connections',exact:true});
- await section().getByText('No MCP servers added.',{exact:true}).waitFor();
+ await section().getByText('No MCP servers added.').waitFor();
  await section().getByText('Add MCP server',{exact:true}).click();
  await page.getByLabel('MCP setup',{exact:true}).selectOption('paste');
  const config={mcpServers:{'Local fixture':{command:path.join(root,'runtime/python/cpython-3.12.10-windows-x86_64-none/python.exe'),args:[path.join(root,'tests/fixtures/mcp_stdio.py')],env:{SERVICE_KEY:'synthetic-ui-mcp-secret'}}}};
@@ -36,15 +36,15 @@ try{
  const remote=()=>section().locator('details[data-mcp-id]').filter({has:page.locator('summary strong',{hasText:'OAuth fixture'})});
  await remote().locator('summary').click();await remote().getByRole('button',{name:'Sign in',exact:true}).click();await remote().getByText('Connected',{exact:true}).waitFor();assert.equal(fixture.observed.exchanges,1);
  await page.screenshot({path:path.join(root,'work','mcp-connections.png')});
- await page.keyboard.press('Escape');await page.getByRole('button',{name:'Connections',exact:true}).click();await section().getByText('OAuth fixture',{exact:true}).waitFor();
+ await page.keyboard.press('Escape');await page.locator('.settings-link').click();await page.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name:'MCP',exact:true}).click();await section().getByText('OAuth fixture',{exact:true}).waitFor();
  await instance.evaluate(({app})=>app.quit());await instance.close();
- instance=await launch();page=await instance.firstWindow();page.setDefaultTimeout(25000);await page.getByRole('dialog',{name:'Settings',exact:true}).waitFor();
+ instance=await launch();page=await instance.firstWindow();page.setDefaultTimeout(25000);await page.getByRole('dialog',{name:'Settings',exact:true}).waitFor();await page.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name:'MCP',exact:true}).click();
  await remote().locator('summary').click();await remote().getByRole('button',{name:'Test connection',exact:true}).click();await remote().getByText('Connected',{exact:true}).waitFor();assert.equal(fixture.observed.exchanges,1);
  await remote().getByRole('button',{name:'Forget sign-in',exact:true}).click();await remote().getByRole('switch').filter({hasText:'Off'}).waitFor();
  await remote().getByRole('switch').click();const before=fixture.observed.headers.length;await remote().getByRole('button',{name:'Test connection',exact:true}).click();
  await page.waitForFunction(()=>window.desktop.invoke('state').then((state:any)=>state.mcp.find((row:any)=>row.name==='OAuth fixture').status!=='Not connected'));
  assert.ok(fixture.observed.headers.slice(before).every(header=>header===undefined),'revoked credential is not sent');
- await remote().getByRole('button',{name:'Remove server',exact:true}).click();await local().locator('summary').click();await local().getByRole('button',{name:'Remove server',exact:true}).click();await section().getByText('No MCP servers added.',{exact:true}).waitFor();
+ await remote().getByRole('button',{name:'Remove server',exact:true}).click();await local().locator('summary').click();await local().getByRole('button',{name:'Remove server',exact:true}).click();await section().getByText('No MCP servers added.').waitFor();
  await assert.rejects(page.evaluate(()=>window.desktop.invoke('mcpCall',{})),/refused/);
  console.log('PASS desktop MCP setup: reviewed import, no execution on save, local test/on/off, real OAuth loopback with simulated browser consent, saved grant after app restart, revocation, removal and no renderer tool-call API');
 }finally{if(instance!){await instance.evaluate(({app})=>app.quit()).catch(()=>{});await instance.close().catch(()=>{});}await fixture.close();}
