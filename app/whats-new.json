@@ -156,5 +156,9 @@
     "Google Workspace (Gmail, Drive, Calendar, Docs, Sheets, Slides) for every model, with a guided setup.",
     "Claude chats can use your claude.ai connectors: Connections, Anthropic. Each use still asks for approval.",
     "An MCP server with a short setting such as DEBUG=1 no longer stalls MCP connections."
+  ]},
+  {"version":"0.1.33","date":"2026-10-27","notes":[
+    "Settings has its own MCP section, under Tools after Plugins. Connections now lists only model suppliers.",
+    "Google Workspace (Gmail, Drive, Calendar, Docs, Sheets, Slides) is one click: Settings, MCP, Discover, Add. Google sign-in opens the first time a chat uses it."
   ]}
 ]
