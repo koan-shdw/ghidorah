@@ -150,5 +150,11 @@
   {"version":"0.1.31","date":"2026-10-27","notes":[
     "A new chat started while an app is selected in the sidebar belongs to that app: the model starts with its repositories and repo map.",
     "After a restart, a routed message waits for Claude Code to connect instead of holding its chat."
+  ]},
+  {"version":"0.1.32","date":"2026-10-27","notes":[
+    "Connectors: Settings, MCP connections has Discover, with one-click sign-in for Webflow, Klaviyo, Notion, Linear, Stripe, PayPal, Zapier and more, plus search of the public MCP Registry.",
+    "Google Workspace (Gmail, Drive, Calendar, Docs, Sheets, Slides) for every model, with a guided setup.",
+    "Claude chats can use your claude.ai connectors: Connections, Anthropic. Each use still asks for approval.",
+    "An MCP server with a short setting such as DEBUG=1 no longer stalls MCP connections."
   ]}
 ]
