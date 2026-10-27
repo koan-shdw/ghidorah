@@ -103,7 +103,7 @@ import {redactPastedKeys} from './redaction';
 import {webTools,researchTool} from './web-research';
 import artFonts from '../third-party/taag/fonts.json';
 import type {Project,Chat,Turn,Approval,ToolCall,Mode,CodexConnection,ClaudeConnection,ModelPrice,Snapshot,SideAnswer} from './types';
-import {alwaysOn,fixtureClaudeArgs,projectSettingsReview,trustRecord} from './main/accounts';
+import {alwaysOn,claudeConnectorsOn,fixtureClaudeArgs,projectSettingsReview,trustRecord} from './main/accounts';
 import {defaultFolder,defaultModels,dockableJobChats,favouriteModels,repositoryStatus,routingSummaryHost,runAppWatch,savedAppRows,summaryHost,watchApp,watchHost,watchModel,watchRow} from './main/apps';
 import {availableModels,checkDispatch,connectedModels,deepseekModels,fixtureClaude,inputMismatch,loadInputCapabilities,recordRoute,unavailableMessage,videoModel} from './main/models';
 import {chatSelector,classifierActive,decidePick,decisionEngine,jevSettings,jevUrl,kevAddress,pickerConnected,pickerSettings,pickerStatus} from './main/pickers';
@@ -955,7 +955,7 @@ export function bindClaude(chat:Chat,turn:Turn,project:Project,controller:AbortC
       const value=name==='inspect_action'?await coordination.inspectAction(turn.id,directory||workingDirectory(project),backend.scrubber.value(args)):await coordination.board(turn.parentTurnId!,turn.id,directory||workingDirectory(project),backend.scrubber.value(args));
       return {content:[{type:'text',text:JSON.stringify(value)}]};
     }};
-    return {...base,turnId:turn.id,work,signal:controller.signal,mcp:mcpExchange(mcp,mcpRows,localTools,screenServer(turn)),controls:controls=>{if(!turn.automatic)claudeControls.set(chat.id,controls);},beforePrompt:model=>model?(availableModels().includes('claude-code:'+model)?undefined:unavailableMessage('claude-code:'+model)):checkDispatch(chat,turn)?undefined:unavailableMessage(turn.model),
+    return {...base,turnId:turn.id,work,signal:controller.signal,mcp:mcpExchange(mcp,mcpRows,localTools,screenServer(turn)),claudeConnectors:claudeConnectorsOn()?{hide:mcpRows.filter(row=>row.enabled).map(row=>row.name)}:undefined,controls:controls=>{if(!turn.automatic)claudeControls.set(chat.id,controls);},beforePrompt:model=>model?(availableModels().includes('claude-code:'+model)?undefined:unavailableMessage('claude-code:'+model)):checkDispatch(chat,turn)?undefined:unavailableMessage(turn.model),
       adoptProjectSources:grant=>{projectSourceGrant=grant;},
       wakeUps:()=>store.get<Chat>('chat',chat.parentChatId||chat.id).wakeUps!==false,
       delegation:task=>continueNative(chat,turn,task,projectSourceGrant),

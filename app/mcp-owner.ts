@@ -49,7 +49,8 @@ export class McpOwner {
     if(!child||child.stdin.destroyed||child.stdin.writableEnded)throw Error('MCP service stopped. Try connecting again.');
     const request=randomUUID();
     if(operation==='add'){
-      for(const values of [args.config?.headers,args.config?.env])for(const value of Object.values(values||{}))if(typeof value==='string')this.backend.scrubber.register(value);
+      // ponytail: values under 8 characters (DEBUG=1) are settings, not secrets; hiding every "1" broke request IDs.
+      for(const values of [args.config?.headers,args.config?.env])for(const value of Object.values(values||{}))if(typeof value==='string'&&value.length>=8)this.backend.scrubber.register(value);
       if(typeof args.config?.oauth?.client_secret==='string')this.backend.scrubber.register(args.config.oauth.client_secret);
       if(typeof args.config?.url==='string')try{const url=new URL(args.config.url);if(url.search){this.backend.scrubber.register(url.href);for(const value of url.searchParams.values())this.backend.scrubber.register(value);}}catch{}
     }

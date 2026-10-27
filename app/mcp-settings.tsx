@@ -1,9 +1,64 @@
 import React,{useRef,useState} from 'react';
-import {Switch} from './kit';
+import {Switch,Tabs} from './kit';
 import type {Snapshot} from './types';
 import {parseMcpImport,type McpImportEntry} from './upstream/mcp-import';
+import {mcpCatalog} from './mcp-catalog';
 
 type Call=(method:string,args?:any)=>Promise<any>;
+type Offer={key:string;name:string;about:string;url:string;type?:'http'|'sse';headers:string[];prefix?:string;hint?:string;oauth:boolean};
+const catalogOffers:Offer[]=mcpCatalog.map(entry=>({key:entry.url,name:entry.name,about:entry.about,url:entry.url,headers:entry.token?[entry.token.header]:[],prefix:entry.token?.prefix,hint:entry.token?.hint,oauth:!entry.token}));
+// One Discover row: OAuth servers save and open sign-in at once; token servers ask for the token first.
+function OfferRow({offer,added,run,busy,call}:{offer:Offer;added:boolean;run:(key:string,action:()=>Promise<any>)=>Promise<void>;busy:boolean;call:Call}){
+ const [values,setValues]=useState<Record<string,string>>({}),[open,setOpen]=useState(false),asks=offer.headers.length>0;
+ async function add(){
+  const headers=Object.fromEntries(offer.headers.map(name=>[name,(offer.prefix||'')+(values[name]||'').trim()]));
+  const id=await call('mcpAdd',{name:offer.name,config:{url:offer.url,...(offer.type==='sse'?{type:'sse'}:{}),...(asks?{headers}:{auth:'oauth'})}});
+  setOpen(false);setValues({});if(!asks&&offer.oauth&&typeof id==='string')await call('mcpLogin',{id});
+ }
+ return <li className="mcp-offer" data-offer={offer.key}><div><strong>{offer.name}</strong><p className="hint">{offer.about||offer.url}</p></div>
+  {added?<span>Added</span>:asks&&!open?<button disabled={busy} onClick={()=>setOpen(true)}>Add</button>:!asks?<button disabled={busy} onClick={()=>void run('offer:'+offer.key,add)}>{offer.oauth?'Add and sign in':'Add'}</button>:null}
+  {asks&&open&&!added&&<div className="mcp-offer-token">{offer.headers.map(name=><label key={name}>{offer.hint||name}<input type="password" aria-label={offer.name+' '+name} value={values[name]||''} onChange={event=>setValues(previous=>({...previous,[name]:event.target.value}))} autoComplete="off"/></label>)}
+   <p className="hint">Saved in Windows Credential Manager and sent only to this server.</p><div className="actions"><button className="primary" disabled={busy||offer.headers.some(name=>!(values[name]||'').trim())} onClick={()=>void run('offer:'+offer.key,add)}>Save</button><button onClick={()=>setOpen(false)}>Cancel</button></div></div>}
+ </li>;
+}
+// Google admits no app-registered sign-in, so Workspace runs locally (taylorwilsdon/google_workspace_mcp, pinned)
+// with a Desktop OAuth client the user makes in their own Google Cloud project.
+const googleArgs=['workspace-mcp==2.2.1','--single-user','--tools','gmail','drive','calendar','docs','sheets','slides'];
+function GoogleWorkspace({state,call,run,busy}:{state:Snapshot;call:Call;run:(key:string,action:()=>Promise<any>)=>Promise<void>;busy:boolean}){
+ const [open,setOpen]=useState(false),[id,setId]=useState(''),[secret,setSecret]=useState('');
+ const added=!!state.mcp?.some(row=>row.transport==='stdio'&&row.address==='uvx'&&row.name==='Google Workspace');
+ const link=(kind:string,text:string)=><button className="link-button" onClick={()=>void call('link',{kind}).catch(()=>{})}>{text} ↗</button>;
+ async function add(){await call('mcpAdd',{name:'Google Workspace',config:{command:'uvx',args:googleArgs,env:{GOOGLE_OAUTH_CLIENT_ID:id.trim(),GOOGLE_OAUTH_CLIENT_SECRET:secret.trim()}}});setOpen(false);setId('');setSecret('');}
+ return <li className="mcp-offer" data-offer="google-workspace"><div><strong>Google Workspace</strong><p className="hint">Gmail, Drive, Calendar, Docs, Sheets and Slides for every model. Runs on this PC with your own Google sign-in app; needs uv.</p></div>
+  {added?<span>Added</span>:!open&&<button disabled={busy} onClick={()=>setOpen(true)}>Set up</button>}
+  {open&&!added&&<div className="mcp-offer-token"><ol className="google-steps">
+   <li>{link('google-project','Create a Google Cloud project')} (any name).</li>
+   <li>{link('google-apis','Enable the five APIs')} in that project, then Slides if you want it.</li>
+   <li>{link('google-consent','Set up the sign-in screen')}: External, your email as support contact.</li>
+   <li>{link('google-audience','Add yourself as a test user')}.</li>
+   <li>{link('google-client','Create an OAuth client')}: type Desktop app. Copy its client ID and secret here.</li>
+  </ol>
+   <label>Client ID<input aria-label="Google client ID" value={id} onChange={event=>setId(event.target.value)} autoComplete="off" placeholder="…apps.googleusercontent.com"/></label>
+   <label>Client secret<input type="password" aria-label="Google client secret" value={secret} onChange={event=>setSecret(event.target.value)} autoComplete="off"/></label>
+   <p className="hint">Saved in Windows Credential Manager. The first Google tool a chat uses opens Google sign-in in your browser.</p>
+   <div className="actions"><button className="primary" disabled={busy||!id.trim().endsWith('.apps.googleusercontent.com')||!secret.trim()} onClick={()=>void run('offer:google',add)}>Save</button><button onClick={()=>setOpen(false)}>Cancel</button></div></div>}
+ </li>;
+}
+function Discover({state,call,run,busy}:{state:Snapshot;call:Call;run:(key:string,action:()=>Promise<any>)=>Promise<void>;busy:string[]}){
+ const [query,setQuery]=useState(''),[found,setFound]=useState<Offer[]|null>(null);
+ const added=(url:string)=>!!state.mcp?.some(row=>row.address===url.split('?')[0]),term=query.trim().toLowerCase();
+ const shown=catalogOffers.filter(offer=>!term||(offer.name+' '+offer.about).toLowerCase().includes(term));
+ async function search(){const rows=await call('mcpRegistry',{search:query});setFound((rows as any[]).map(row=>({key:row.id,name:row.name,about:row.id+(row.about?' · '+row.about:''),url:row.url,type:row.type,headers:row.headers,oauth:!row.headers.length})));}
+ const row=(offer:Offer)=><OfferRow key={offer.key} offer={offer} added={added(offer.url)} busy={busy.includes('offer:'+offer.key)} run={run} call={call}/>;
+ return <div className="mcp-discover">
+  <label>Search<input aria-label="Search connectors" value={query} onChange={event=>{setQuery(event.target.value);setFound(null);}} onKeyDown={event=>{if(event.key==='Enter'&&query.trim())void run('registry',search);}} placeholder="Notion, Stripe, Webflow…" autoComplete="off"/></label>
+  <ul className="mcp-offers">{(!term||'google workspace gmail drive calendar docs sheets slides'.includes(term))&&<GoogleWorkspace state={state} call={call} run={run} busy={busy.includes('offer:google')}/>}{shown.map(row)}</ul>
+  {!shown.length&&<p className="hint">Not in the list.</p>}
+  <div className="actions"><button disabled={!query.trim()||busy.includes('registry')} onClick={()=>void run('registry',search)}>{busy.includes('registry')?'Searching…':'Search the MCP Registry'}</button></div>
+  {found&&(found.length?<><p className="hint">From the public MCP Registry. Anyone can list a server there: add only ones from developers you trust.</p><ul className="mcp-offers">{found.map(row)}</ul></>:<p className="hint">No remote servers found for “{query}”.</p>)}
+  <p className="hint">Not here, like Shopify, Xero or Figma? Claude chats can use your claude.ai connectors: Connections, Anthropic. Any other server: Yours, Add MCP server.</p>
+ </div>;
+}
 export function ImportedServer({entry,call,saved}:{entry:McpImportEntry;call:Call;saved:()=>void}){
  const [name,setName]=useState(entry.name),[json,setJson]=useState(()=>JSON.stringify(entry.config,null,2)),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const lock=useRef(false);
@@ -11,7 +66,7 @@ export function ImportedServer({entry,call,saved}:{entry:McpImportEntry;call:Cal
  return <section className="mcp-import"><label>Connection name<input aria-label="Imported connection name" value={name} onChange={event=>setName(event.target.value)}/></label><label>Server configuration<textarea aria-label="Imported server configuration" spellCheck={false} value={json} onChange={event=>setJson(event.target.value)}/></label><p className="hint">Review the command, server address and credentials before saving. Saving does not start the server.</p>{error&&<p role="alert">{error}</p>}<button disabled={busy||!name.trim()} onClick={()=>void save()}>{busy?'Saving…':'Save imported server'}</button></section>;
 }
 export function McpSettings({state,call}:{state:Snapshot;call:Call}){
- const [kind,setKind]=useState('http'),[name,setName]=useState(''),[address,setAddress]=useState(''),[oauth,setOauth]=useState(true),[args,setArgs]=useState('[]'),[values,setValues]=useState('{}'),[paste,setPaste]=useState(''),[imports,setImports]=useState<McpImportEntry[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState<string[]>([]);
+ const [kind,setKind]=useState('http'),[name,setName]=useState(''),[address,setAddress]=useState(''),[oauth,setOauth]=useState(true),[args,setArgs]=useState('[]'),[values,setValues]=useState('{}'),[paste,setPaste]=useState(''),[imports,setImports]=useState<McpImportEntry[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState<string[]>([]),[tab,setTab]=useState<'yours'|'discover'>('yours');
  const locks=useRef(new Set<string>());
  async function run(key:string,action:()=>Promise<any>){if(locks.current.has(key))return;locks.current.add(key);setBusy([...locks.current]);setError('');try{await action();}catch(error){setError(String(error).replace(/^Error invoking remote method 'app': (?:Error: )?/,''));}finally{locks.current.delete(key);setBusy([...locks.current]);}}
  function json(text:string,label:string){try{return JSON.parse(text);}catch{throw Error('Enter valid JSON for '+label+'.');}}
@@ -21,8 +76,10 @@ export function McpSettings({state,call}:{state:Snapshot;call:Call}){
  }
  function preview(){const parsed=parseMcpImport(paste);if(!parsed){setError('Paste an MCP configuration, server URL or supported command.');return;}setImports(parsed);setPaste('');setError('');}
  return <section className="mcp-settings" aria-label="MCP connections"><h3>MCP connections</h3><p>One set of connections for all chats.</p>
+  <Tabs label="MCP connections view" items={[{id:'yours',label:'Yours'},{id:'discover',label:'Discover'}]} value={tab} onChange={setTab}/>
+  {tab==='discover'?<Discover state={state} call={call} run={run} busy={busy}/>:<>
   {state.mcpError&&<p className="error" role="alert">{state.mcpError}<button onClick={()=>void run('refresh',()=>call('mcpRefresh'))}>Retry</button></p>}
-  {!state.mcp?.length&&<p className="hint">No MCP servers added.</p>}
+  {!state.mcp?.length&&<p className="hint">No MCP servers added. Find one in Discover.</p>}
   {state.mcp?.map(row=><details key={row.id} className="supplier-pill" data-mcp-id={row.id}><summary><strong>{row.name}</strong><span>{row.signingIn?'Waiting for sign-in':row.status}</span><span className="supplier-chevron">⌄</span></summary><div className="supplier-settings"><p className="mcp-address">{row.address}</p><p>{row.transport==='stdio'?'Local command':'Remote server'} · {row.tools} tools</p>
    {row.transport==='stdio'&&<p className="hint">Test runs this command with your Windows account. Only connect servers you trust.</p>}
    <div className="actions"><Switch disabled={busy.includes(row.id)} checked={row.enabled} ariaLabel={row.name+' connection'} label={row.enabled?'On':'Off'} onChange={()=>void run(row.id,()=>call('mcpAction',{id:row.id,action:row.enabled?'off':'on'}))}/>
@@ -40,6 +97,6 @@ export function McpSettings({state,call}:{state:Snapshot;call:Call}){
     <details><summary>{kind==='http'?'Headers':'Environment values'} (optional)</summary><label>Names and values (JSON object)<textarea aria-label="MCP credential values" value={values} onChange={event=>setValues(event.target.value)} spellCheck={false} autoComplete="off"/></label><p className="hint">Credentials are saved in Windows Credential Manager and supplied only to this server.</p></details>
     <p className="hint">Saving does not start the server. Use {kind==='http'&&oauth?'Sign in':'Test connection'} when ready.</p><button className="primary" disabled={busy.includes('add')||!name.trim()||!address.trim()} onClick={()=>void run('add',add)}>{busy.includes('add')?'Saving…':'Save server'}</button>
    </>}
-  </div></details>{error&&<p className="error" role="alert">{error}</p>}
+  </div></details></>}{error&&<p className="error" role="alert">{error}</p>}
  </section>;
 }

@@ -95,6 +95,15 @@ export async function nativePlanFile(name:string,input:any,planDirectory?:string
   const root=path.resolve(planDirectory),file=path.resolve(input.file_path);
   return pathKey(path.dirname(file))===pathKey(root)&&pathKey(await resolveWorkPath(root))===pathKey(root)&&pathKey(await resolveWorkPath(file))===pathKey(file);
 }
+const connectorsFor=(o:ClaudeRun)=>o.inspectUsage||o.inspectMcp||o.inspectCapabilities?undefined:o.claudeConnectors;
+/** Server names in .mcp.json files from the folder up to its root. */
+export async function projectMcpNames(directory:string){
+  const names:string[]=[];
+  for(let folder=path.resolve(directory);;){
+    try{const servers=JSON.parse(await fs.readFile(path.join(folder,'.mcp.json'),'utf8'))?.mcpServers;if(servers&&typeof servers==='object')names.push(...Object.keys(servers));}catch{}
+    const parent=path.dirname(folder);if(parent===folder)return [...new Set(names)];folder=parent;
+  }
+}
 export interface ClaudeRun {
   // Settings, Browser and computer: Claude's own Chrome link (claude --chrome) when Claude is chosen (4e).
   chrome?:boolean;
@@ -106,6 +115,8 @@ export interface ClaudeRun {
   inspectMcp?:boolean;
   inspectCapabilities?:boolean;
   pluginDirectories?:string[];
+  // Settings, Connections, Anthropic: the claude.ai account's connectors join Claude chats; hide names the app connects directly.
+  claudeConnectors?:{hide:string[]};
   mcp?:{names:string[];managedTools?:string[];handle:(server:string,message:any,signal:AbortSignal,directory?:string)=>Promise<any>};
   projectMemory?:string;
   planDirectory?:string;
@@ -146,7 +157,7 @@ type Sent={id:string;options:ClaudeRun;state:'sent'|'queued'|'started'|'complete
 // joined = messages Claude read mid-reply; a turn Claude started itself has no owner and an automatic row instead.
 type EngineTurn={id:string;scope:Scope;owner?:string;joined:Set<string>;automatic?:{complete:(result:ClaudeResult|Error)=>void};stopping?:boolean};
 type NativeTask={id:string;toolId:string;owner:Scope;status:string;type:string;description:string;background:boolean;execution?:Scope};
-const configuration=(o:ClaudeRun)=>JSON.stringify([o.executable,o.python,o.worker,o.prefixArgs,o.directory,o.dataRoot,o.planDirectory,o.effort,o.trustedProject,o.projectSourceGrant?.sourceHash||o.projectSettingsHash,o.pluginDirectories,o.mcp?.names,o.mcp?.managedTools,!!o.work,o.inspectUsage,o.inspectMcp,o.inspectCapabilities,!!o.chrome,o.env||null]);
+const configuration=(o:ClaudeRun)=>JSON.stringify([o.executable,o.python,o.worker,o.prefixArgs,o.directory,o.dataRoot,o.planDirectory,o.effort,o.trustedProject,o.projectSourceGrant?.sourceHash||o.projectSettingsHash,o.pluginDirectories,o.mcp?.names,o.mcp?.managedTools,o.claudeConnectors||null,!!o.work,o.inspectUsage,o.inspectMcp,o.inspectCapabilities,!!o.chrome,o.env||null]);
 const finished=(status:string)=>['completed','failed','killed','stopped','lost'].includes(status);
 const wakeUpTools=new Set(['ScheduleWakeup','CronCreate']);
 
@@ -217,9 +228,13 @@ export class ClaudeSession {
     const o=this.initial;o.signal.throwIfAborted();
     this.exchange=await fs.mkdtemp(path.join(o.exchangeRoot,'claude-'));
     const settings=path.join(this.exchange,'settings.json'),mcpConfig=path.join(this.exchange,'mcp.json');
-    await fs.writeFile(settings,JSON.stringify(claudeSettings(o.dataRoot,o.mcp?.managedTools,o.planDirectory)));
+    // Off --strict-mcp-config, Claude Code also loads the claude.ai connectors and, with project settings, the project's
+    // .mcp.json, which the trust review does not cover: deny those by name (proven on 2.1.309).
+    const connectors=connectorsFor(o),sources=o.trustedProject&&!o.inspectUsage&&!o.inspectMcp&&!o.inspectCapabilities?'project':'';
+    const denied=connectors?[...connectors.hide.map(name=>'claude.ai '+name),...(sources?await projectMcpNames(o.directory):[])].filter(name=>!o.mcp?.names.includes(name)):[];
+    await fs.writeFile(settings,JSON.stringify({...claudeSettings(o.dataRoot,o.mcp?.managedTools,o.planDirectory),...(denied.length?{deniedMcpServers:denied.map(serverName=>({serverName}))}:{})}));
     await fs.writeFile(mcpConfig,JSON.stringify({mcpServers:Object.fromEntries((o.mcp?.names||[]).map(name=>[name,{type:'sdk',name}]))}));
-    const args=['-p','--model',o.model,'--effort',o.effort==='none'?'low':o.effort,'--input-format','stream-json','--output-format','stream-json','--verbose','--include-partial-messages','--replay-user-messages','--permission-prompt-tool','stdio','--permission-mode','manual','--allow-dangerously-skip-permissions','--setting-sources',o.trustedProject&&!o.inspectUsage&&!o.inspectMcp&&!o.inspectCapabilities?'project':'','--settings',settings,'--strict-mcp-config','--mcp-config',mcpConfig,...(o.pluginDirectories||[]).flatMap(dir=>['--plugin-dir',dir]),...(o.inspectUsage||o.inspectMcp||o.inspectCapabilities?['--tools','']:[]),...(o.chrome?['--chrome']:[]),...(o.sessionId?['--resume',o.sessionId]:[])];
+    const args=['-p','--model',o.model,'--effort',o.effort==='none'?'low':o.effort,'--input-format','stream-json','--output-format','stream-json','--verbose','--include-partial-messages','--replay-user-messages','--permission-prompt-tool','stdio','--permission-mode','manual','--allow-dangerously-skip-permissions','--setting-sources',sources,'--settings',settings,...(connectors?[]:['--strict-mcp-config']),'--mcp-config',mcpConfig,...(o.pluginDirectories||[]).flatMap(dir=>['--plugin-dir',dir]),...(o.inspectUsage||o.inspectMcp||o.inspectCapabilities?['--tools','']:[]),...(o.chrome?['--chrome']:[]),...(o.sessionId?['--resume',o.sessionId]:[])];
     // CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: Claude reports running and idle itself (SDK docs; proven on 2.1.283).
     this.child=spawn(o.python,[o.worker],{env:{...claudeEnvironment(),...o.env,CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS:'1'},windowsHide:true,stdio:'pipe'});
     const stderr=o.scrubber.stream();this.child.stderr!.setEncoding('utf8');this.child.stdout!.setEncoding('utf8');
@@ -479,7 +494,7 @@ export class ClaudeSession {
         if(['TaskStop','TaskOutput'].includes(input.tool_name)&&!this.tasks.has(input.tool_input?.task_id||input.tool_input?.shell_id))throw Error('This native task belongs to another session. Use its desktop controls.');
         if(wakeUpTools.has(input.tool_name)&&o.wakeUps&&!o.wakeUps())throw Error('Wake-ups and timers are off in this chat (Let Claude wake itself up).');
         const location=o.hasFolder?await claudeDirectory(input.cwd||scope.directory,scope.directory,o.dataRoot):{directory:scope.directory,worktree:undefined};
-        const denied=await protectedClaudeTool(input.tool_input,o.dataRoot,location.directory,location.worktree,input.tool_name)||(!o.hasFolder&&!['TodoWrite','AskUserQuestion','ToolSearch','EnterPlanMode','ExitPlanMode',...(o.mcp?.managedTools||[])].includes(input.tool_name));
+        const denied=await protectedClaudeTool(input.tool_input,o.dataRoot,location.directory,location.worktree,input.tool_name)||(!o.hasFolder&&!['TodoWrite','AskUserQuestion','ToolSearch','EnterPlanMode','ExitPlanMode',...(o.mcp?.managedTools||[])].includes(input.tool_name)&&!(connectorsFor(o)&&input.tool_name.startsWith('mcp__claude_ai_')));
         if(denied){const reason=o.hasFolder?'Protected credential access is denied.':'Choose the root working folder in Settings before using file or command tools.';recordTool('failed',reason);respond({hookSpecificOutput:{hookEventName:'PreToolUse',permissionDecision:'deny',permissionDecisionReason:reason}});return;}
         Object.assign(scope,location);this.tools.set(toolId,{owner:scope,name:input.tool_name,input:input.tool_input,permissionMode:input.permission_mode,modeRevision:this.modeRevision,...location,check:entry.controller});await o.work?.before(toolId,input.tool_name,input.tool_input,location.directory,entry.controller.signal);if(scope.cancelled)throw Error('This task was stopped.');const tool=this.tools.get(toolId)!;tool.ready=true;
         const planning=this.mode==='plan'||input.permission_mode==='plan',differentShellMode=this.mode==='plan'&&scope.agentId&&input.tool_name==='Bash'&&input.permission_mode!=='plan';

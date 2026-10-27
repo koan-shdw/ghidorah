@@ -30,6 +30,8 @@ export const settingsHandlers:Record<string,(args:any)=>any>={
     if(!clean||!allPaneIds(clean).includes('main'))throw Error('Invalid pane layout.');
     store.put('settings',{id:'pane-layout',tree:clean,workspace:readPaneWorkspace(workspace)});emit();
   },
+  // New Claude sessions pick it up: the session key includes it.
+  claudeConnectors({enabled}){if(typeof enabled!=='boolean')throw Error('Choose on or off.');store.put('settings',{id:'claude-connectors',enabled});emit();},
   alwaysOn(patch){const before=alwaysOn(),next=readAlwaysOn({...before,...patch});applyAlwaysOn(next.startWithWindows!==before.startWithWindows,next);store.put('settings',{id:'always-on',...next});emit();},
   async screenSettingsSave(patch){
     if(hasWork())throw Error('Wait for active work before changing screen control.');

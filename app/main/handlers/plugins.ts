@@ -2,6 +2,7 @@
 import artFonts from '../../../third-party/taag/fonts.json';
 import {backend,data,emit,handlers,mcp,mcpLogins,mcpRows,namespace,pluginChanges,pluginReviews,pluginRuntime,queuePluginChange,refreshMcp,store} from '../../main';
 import {NativePluginInstall,hermesPluginKey,installNativePlugin,nativePluginCatalog,pluginServer,reviewHermesPlugin,reviewNativePlugin,verifyPlugins} from '../../native-plugins';
+import {registryEntries} from '../../mcp-catalog';
 import {changePlugin} from '../context';
 import {shell} from 'electron';
 import {randomUUID} from 'node:crypto';
@@ -104,5 +105,13 @@ export const pluginsHandlers:Record<string,(args:any)=>any>={
     try{await mcp.login(id,url=>shell.openExternal(url),controller.signal);}catch(error){if(!controller.signal.aborted)throw error;}finally{mcpLogins.delete(id);await refreshMcp();}
   },
   async mcpRefresh(){await refreshMcp();},
+  async mcpRegistry({search}){
+    if(typeof search!=='string'||!search.trim()||search.length>100)throw Error('Enter a name to search for.');
+    const url=new URL('/v0.1/servers',process.env.TRISMEGISTUS_TEST_REGISTRY_URL||'https://registry.modelcontextprotocol.io');
+    url.search=new URLSearchParams({search:search.trim(),version:'latest',limit:'50'}).toString();
+    const response=await fetch(url,{signal:AbortSignal.timeout(15000)});
+    if(!response.ok)throw Error('The MCP Registry did not answer ('+response.status+'). Try again later.');
+    return registryEntries(await response.json());
+  },
   async artFont({font}){if(typeof font!=='string'||!Object.hasOwn(artFonts,font))throw Error('Unknown artwork font');return (await fs.readFile(path.join(__dirname,'taag','fonts',artFonts[font as keyof typeof artFonts]))).toString('base64');}
 };

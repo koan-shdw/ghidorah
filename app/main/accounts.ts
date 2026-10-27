@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 export function alwaysOn(){return readAlwaysOn(store.all<any>('settings').find(row=>row.id==='always-on'));}
+export function claudeConnectorsOn(){return store.all<any>('settings').find(row=>row.id==='claude-connectors')?.enabled===true;}
 export function fixtureClaudeArgs(){return fixtureClaude()?[fixtureClaude()!,'--fixture-record',path.join(data,'claude-requests.jsonl')]:undefined;}
 export function trustRecord(folder:string){return store.all<{id:string;folder:string;hash:string;skillFolders?:string[]}>('trust').find(record=>record.folder===folder);}
 export async function projectSettingsReview(folder:string,skillFolders?:string[]){

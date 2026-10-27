@@ -49,6 +49,8 @@ class Connections:
         from agent.redact import register_vault_redaction_value
         for field in ('env', 'headers'):
             for value in config.get(field, {}).values():
+                # ponytail: short values (DEBUG=1) are settings; redacting every "1" corrupted request IDs.
+                if len(value) < 8: continue
                 register_vault_redaction_value(value)
                 if value.startswith('Bearer '): register_vault_redaction_value(value[7:])
         if config.get('url') and urlsplit(config['url']).query:
