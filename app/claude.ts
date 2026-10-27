@@ -24,6 +24,12 @@ export function claudeEnvironment(source:NodeJS.ProcessEnv=process.env){
   // keyed by that folder and would merge them; the app owns project memory.
   return {...env,PYTHONDONTWRITEBYTECODE:'1',CLAUDE_CODE_DISABLE_AUTO_MEMORY:'1'};
 }
+// Before Claude Code loads the account's models it offers a short list (Opus, Sonnet, Haiku without
+// versions, no Fable). Keep a full list over it; `short` asks for another check.
+export function claudeModelList<T extends {id:string;label:string}>(offered:T[],previous?:T[]){
+  const short=(list:T[])=>list.some(model=>model.id==='claude-code:opus'&&!/\d/.test(model.label));
+  return short(offered)&&previous?.length&&!short(previous)?{models:previous,short:true}:{models:offered,short:short(offered)};
+}
 export async function findClaude(){
   const filename=process.platform==='win32'?'claude.exe':'claude';
   const roots=[path.join(process.env.APPDATA||'', 'npm'),...(process.env.PATH||'').split(path.delimiter)];

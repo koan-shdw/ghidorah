@@ -88,7 +88,7 @@ import {providerAccess} from './provider-access';
 import {providerFor,modelEfforts,modelLabel,wireModel,newestFirst} from './models';
 import {ApiProviders} from './api-providers';
 import {apiSuppliers,isApiProvider} from './api-catalog';
-import {findClaude,claudeAccount,claudeEnvironment,runClaude,claudeOneShot,claudeDirectory,type ClaudeRun,type ClaudeResult} from './claude';
+import {findClaude,claudeModelList,claudeAccount,claudeEnvironment,runClaude,claudeOneShot,claudeDirectory,type ClaudeRun,type ClaudeResult} from './claude';
 import {selectorSystem,selectorPrompt,selectorSummary,parseSelector} from './selector';
 import {NativeSessions} from './native-sessions';
 import {Sidebar} from './sidebar';
@@ -669,6 +669,7 @@ export async function signOutCodex(){
   }catch(error){codex={...codex,status:'Sign-out failed'};throw error;}
   finally{apiChanging=false;emit();}
 }
+let claudeRechecked=false;
 export async function checkClaude(signal?:AbortSignal){
   if(checkingClaude)return;
   checkingClaude=true;const started=Date.now();
@@ -681,10 +682,13 @@ export async function checkClaude(signal?:AbortSignal){
     const exchangeRoot=path.join(data,'claude-exchange');await fs.mkdir(exchangeRoot,{recursive:true});
     const result=await runClaude({executable:cli.executable,prefixArgs:fixtureClaudeArgs(),python:backend.python,worker:path.join(root,'backend','claude_worker.py'),directory:exchangeRoot,dataRoot:data,exchangeRoot,model:'claude-haiku-4-5',effort:'high',mode:'manual',hasFolder:false,scrubber:backend.scrubber,prompt:'',inspectUsage:true,signal:AbortSignal.any([AbortSignal.timeout(90000),...(signal?[signal]:[])]),event:()=>{},approve:async()=>false});
     if(result.status!=='completed')throw Error('Usage check did not finish');
+    const list=claudeModelList(result.models,claude.models),models=list.models;
+    // A short startup list gets one quick recheck; the 5-minute checks cover the rest.
+    if(!list.short)claudeRechecked=false;else if(!claudeRechecked){claudeRechecked=true;setTimeout(()=>void checkClaude(),30000).unref();}
     // Signed in with models but no usage answer: Claude stays usable; only the usage line says so.
-    if(!result.result){claude={...claude,connected:true,status:'Usage unavailable',models:result.models};return result.models.map(row=>row.id.replace(/^claude-code:/,''));}
-    claude={connected:true,status:'Signed in',...claudeUsage(result.result),models:result.models};
-    health.claudeUsage(result.result,started);return result.models.map(row=>row.id.replace(/^claude-code:/,''));
+    if(!result.result){claude={...claude,connected:true,status:'Usage unavailable',models};return models.map(row=>row.id.replace(/^claude-code:/,''));}
+    claude={connected:true,status:'Signed in',...claudeUsage(result.result),models};
+    health.claudeUsage(result.result,started);return models.map(row=>row.id.replace(/^claude-code:/,''));
   }catch{claude={...claude,status:'Usage unavailable'};}
   finally{checkingClaude=false;claudeFirstCheck=false;emit();}
 }
