@@ -1,14 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
-import {readRemote,readInbound,parseRequest,remoteTurnId,gateChannel,GatewaySupervisor,RemoteDesk,replyFor,secretApproval,clip,type DeskDeps} from '../app/remote';
+import {readRemote,readInbound,parseRequest,remoteTurnId,gateChannel,GatewaySupervisor,RemoteDesk,replyFor,secretApproval,clip,topicName,type DeskDeps} from '../app/remote';
+import {Store} from '../app/store';
+import {claimRemoteOutbox,enqueueRemote,type TopicRecord} from '../app/remote-outbox';
 
 test('only the owner\'s direct message is read; a code, Deny and the safe commands are told apart',()=>{
- assert.deepEqual(readRemote({enabled:true,owner:'4242',chatId:'c1'}),{enabled:true,owner:'4242',chatId:'c1',paused:false});
+ assert.deepEqual(readRemote({enabled:true,owner:'4242',chatId:'c1'}),{enabled:true,owner:'4242',chatId:'c1',paused:false,topics:true,topicsSince:null,topicError:''});
  assert.equal(readRemote({owner:'0123'}).owner,'',"an id can't start with 0");
  const message={message_id:'17',chat_id:'4242',user_id:'4242',text:'hello'};
  assert.deepEqual(readInbound(message,'4242'),message);
- for(const bad of [{...message,user_id:'99'},{...message,chat_id:'-100123'},{...message,message_id:'x'},{...message,text:7}])assert.equal(readInbound(bad,'4242'),null);
+ assert.deepEqual(readInbound({...message,thread_id:'55'},'4242'),{...message,thread_id:'55'});
+ for(const bad of [{...message,user_id:'99'},{...message,chat_id:'-100123'},{...message,message_id:'x'},{...message,text:7},{...message,thread_id:'5x'},{...message,thread_id:55}])assert.equal(readInbound(bad,'4242'),null);
  assert.equal(readInbound(message,''),null,'no owner set: nothing is read');
  assert.deepEqual(parseRequest(' 123456 '),{kind:'code',code:'123456'});
  assert.deepEqual(parseRequest('/approve 654321'),{kind:'code',code:'654321'});
@@ -52,11 +55,11 @@ test('a gateway that keeps stopping is restarted, then latched off after three e
 });
 
 function desk(overrides:Partial<DeskDeps>={}){
- const sent:string[]=[],alerts:string[]=[],submitted:any[]=[],seen=new Set<string>();let settings={enabled:true,owner:'4242',chatId:null as string|null,paused:false};
- const deps:DeskDeps={settings:()=>settings,save:patch=>{settings={...settings,...patch};},seen:id=>seen.has(id),done:id=>{seen.add(id);},send:text=>{sent.push(text);},alert:(title,body)=>{alerts.push(title+': '+body);},
-  chats:()=>[{id:'c2',title:'Second'},{id:'c1',title:'First'}],newChat:async()=>'c3',submit:async(id,chatId,text)=>{submitted.push([id,chatId,text]);},stop:async()=>{},status:()=>'Ready',
+ const sent:string[]=[],threads:(string|undefined)[]=[],alerts:string[]=[],submitted:any[]=[],seen=new Set<string>();let settings={enabled:true,owner:'4242',chatId:null as string|null,paused:false,topics:true,topicsSince:null as number|null,topicError:''};
+ const deps:DeskDeps={settings:()=>settings,save:patch=>{settings={...settings,...patch};},seen:id=>seen.has(id),done:id=>{seen.add(id);},send:(text,_deny,thread)=>{sent.push(text);threads.push(thread);},alert:(title,body)=>{alerts.push(title+': '+body);},
+  chats:()=>[{id:'c2',title:'Second'},{id:'c1',title:'First'}],newChat:async()=>'c3',topicChat:thread=>thread==='55'?{id:'c1',title:'First'}:null,linkTopic:async()=>({id:'c9',title:'New chat'}),submit:async(id,chatId,text,thread)=>{submitted.push(thread?[id,chatId,text,thread]:[id,chatId,text]);},stop:async()=>{},status:()=>'Ready',
   waiting:()=>null,code:async()=>'Approved.',deny:async()=>'Denied.',answer:async()=>'Answered.',...overrides};
- return {desk:new RemoteDesk(deps),sent,alerts,submitted,settings:()=>settings};
+ return {desk:new RemoteDesk(deps),sent,threads,alerts,submitted,settings:()=>settings};
 }
 const from=(id:string,text:string)=>({message_id:id,chat_id:'4242',user_id:'4242',text});
 
@@ -94,5 +97,27 @@ test('replies name their model; secrets-list approvals are recognised',()=>{
  assert.equal(replyFor({status:'completed',text:'Done.'},'DeepSeek'),'Done.\n\nDeepSeek');
  assert.equal(replyFor({status:'failed',error:'No credit'},'x'),'Failed: No credit');
  assert.equal(secretApproval({description:'Access to protected credentials requires your approval.'}),true);
+ assert.equal(secretApproval({description:'Access to private app data or credentials requires your approval. Use skills_list and skill_view for installed skills.'}),true,'the permissions plugin wording');
  assert.equal(secretApproval({description:'Run npm test',command:'npm test'}),false);
+});
+
+test("a message in a topic goes to that topic's chat and is answered there; an unknown topic gets a new chat",async()=>{
+ const run=desk();
+ await run.desk.receive({...from('1','in the topic'),thread_id:'55'});
+ assert.deepEqual(run.submitted,[['telegram-4242-1','c1','in the topic','55']]);assert.deepEqual([run.sent.at(-1),run.threads.at(-1)],['Sent to First.','55']);
+ await run.desk.receive({...from('2','/status'),thread_id:'55'});assert.deepEqual([run.sent.at(-1),run.threads.at(-1)],['First: Ready','55']);
+ await run.desk.receive({...from('3','a topic made in Telegram'),thread_id:'77'});assert.deepEqual(run.submitted.at(-1),['telegram-4242-3','c9','a topic made in Telegram','77']);
+ await run.desk.receive(from('4','no topic'));assert.deepEqual([run.submitted.at(-1),run.threads.at(-1)],[['telegram-4242-4','c2','no topic'],undefined]);
+ assert.equal(topicName({title:'Plan',pinned:true}),'📌 Plan');assert.equal(topicName({title:'  '}),'New chat');assert.equal(topicName({title:'x'.repeat(300)}).length,128);
+});
+
+test("a row for a chat's topic waits for the topic, goes into it, and is dropped if the topic was never made",()=>{
+ const store=new Store(':memory:');
+  store.put<TopicRecord>('remote-topic',{id:'c1',name:'First',status:'creating',created:0});
+  enqueueRemote(store,'4242','First',undefined,false,{op:'topic',topicChat:'c1'});enqueueRemote(store,'4242','copied',undefined,false,{topicChat:'c1'});enqueueRemote(store,'4242','lost',undefined,false,{topicChat:'c2'});
+  assert.deepEqual(claimRemoteOutbox(store,0,'4242'),[{seq:1,chat_id:'4242',text:'First',op:'topic'}],'the topic is made first');
+  store.update<TopicRecord>('remote-topic','c1',{status:'ready',threadId:'55'});
+  assert.deepEqual(claimRemoteOutbox(store,1,'4242'),[{seq:2,chat_id:'4242',text:'copied',thread_id:'55'}]);
+  assert.deepEqual(claimRemoteOutbox(store,2,'4242'),[],'no topic for c2: the row is cancelled, not sent to the main chat');
+  assert.equal(store.get<any>('remote-out','3').status,'cancelled');
 });

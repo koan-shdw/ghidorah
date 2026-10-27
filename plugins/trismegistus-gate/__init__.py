@@ -32,6 +32,11 @@ def _call(path, payload=None, timeout=10):
         return json.loads(response.read() or b'null')
 
 
+def _topic(source):
+    thread = str(getattr(source, 'thread_id', None) or '')
+    return thread if thread.isdigit() and len(thread) <= 20 else None
+
+
 def _owner_dm(source, owner):
     platform = getattr(getattr(source, 'platform', None), 'value', None)
     return (platform == 'telegram' and getattr(source, 'chat_type', None) == 'dm' and not getattr(source, 'is_bot', False)
@@ -43,19 +48,22 @@ async def gate(event=None, gateway=None, session_store=None, **_):
         settings = _settings()
         if not settings or not _owner_dm(event.source, settings['owner']):
             return {'action': 'skip', 'reason': 'not the owner'}
+        # A topic of the owner's bot chat: one per app chat. Answers go back into the same topic.
+        topic = _topic(event.source)
         text = (event.text or '').strip()
         if not text or len(text) > 8000:
-            await _send({'chat_id': settings['owner'], 'text': 'Send a text message of up to 8,000 characters.'})
+            await _send({'chat_id': settings['owner'], 'text': 'Send a text message of up to 8,000 characters.', 'thread_id': topic})
             return {'action': 'skip', 'reason': 'invalid text length'}
         command = text[1:].split(maxsplit=1)[0].split('@', 1)[0].lower() if text.startswith('/') and len(text) > 1 else ''
         if command and command not in ALLOWED:
             # /yolo, /update, /debug and every other command stay on the desktop.
-            await _send({'chat_id': settings['owner'], 'text': 'That command is not available from Telegram.'})
+            await _send({'chat_id': settings['owner'], 'text': 'That command is not available from Telegram.', 'thread_id': topic})
             return {'action': 'skip', 'reason': 'refused command'}
         reply_to = getattr(event, 'reply_to_message_id', None)
         await asyncio.to_thread(_call, '/inbound', {'message_id': str(event.message_id), 'chat_id': settings['owner'],
                                                    'user_id': settings['owner'], 'text': text,
-                                                   **({'reply_to_message_id': str(reply_to)} if reply_to else {})})
+                                                   **({'reply_to_message_id': str(reply_to)} if reply_to else {}),
+                                                   **({'thread_id': topic} if topic else {})})
     except Exception as error:
         logger.warning('Ghidorah gate could not hand a message to the app: %s', type(error).__name__)
         try:
@@ -69,13 +77,25 @@ async def _send(row):
     adapter = _adapter
     if adapter is None:
         return {'ok': False}
+    thread = row.get('thread_id')
+    if row.get('op') == 'topic':
+        # A new app chat: its topic in the owner's bot chat. The receipt carries the topic's id.
+        topic = await adapter._bot.create_forum_topic(chat_id=int(row['chat_id']), name=row['text'])
+        return {'ok': True, 'message_id': str(topic.message_thread_id)}
+    if row.get('op') == 'rename':
+        await adapter._bot.edit_forum_topic(chat_id=int(row['chat_id']), message_thread_id=int(thread), name=row['text'])
+        return {'ok': True}
     if row.get('deny'):
         # The button includes the immutable outbox sequence, so a stale Deny cannot target a new approval.
         from telegram import ReplyKeyboardMarkup
         message = await adapter._bot.send_message(chat_id=int(row['chat_id']), text=row['text'],
-                                        reply_markup=ReplyKeyboardMarkup([['Deny #' + str(row['seq'])]], resize_keyboard=True, one_time_keyboard=True))
+                                        reply_markup=ReplyKeyboardMarkup([['Deny #' + str(row['seq'])]], resize_keyboard=True, one_time_keyboard=True),
+                                        **({'message_thread_id': int(thread)} if thread else {}))
         return {'ok': True, 'message_id': str(message.message_id)}
-    result = await adapter.send(str(row['chat_id']), row['text'])
+    if thread:
+        result = await adapter.send(str(row['chat_id']), row['text'], None, {'thread_id': str(thread)})
+    else:
+        result = await adapter.send(str(row['chat_id']), row['text'])
     return {'ok': bool(getattr(result, 'success', False)),
             **({'message_id': str(result.message_id)} if getattr(result, 'message_id', None) else {})}
 

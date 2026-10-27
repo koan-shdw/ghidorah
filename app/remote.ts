@@ -6,19 +6,25 @@ import {createServer,type IncomingMessage} from 'node:http';
 import {randomBytes} from 'node:crypto';
 import type {ChildProcess} from 'node:child_process';
 
-export interface RemoteSettings {enabled:boolean;owner:string;chatId:string|null;paused:boolean}
+// topics: each new chat gets a topic in the owner's bot chat, from topicsSince on; topicError stops that until the
+// switch is turned off and on again.
+export interface RemoteSettings {enabled:boolean;owner:string;chatId:string|null;paused:boolean;topics:boolean;topicsSince:number|null;topicError:string}
 export function readRemote(row:any):RemoteSettings{
- return {enabled:row?.enabled===true,owner:typeof row?.owner==='string'&&/^[1-9]\d{0,19}$/.test(row.owner)?row.owner:'',chatId:typeof row?.chatId==='string'&&row.chatId?row.chatId:null,paused:row?.paused===true};
+ return {enabled:row?.enabled===true,owner:typeof row?.owner==='string'&&/^[1-9]\d{0,19}$/.test(row.owner)?row.owner:'',chatId:typeof row?.chatId==='string'&&row.chatId?row.chatId:null,paused:row?.paused===true,
+  topics:row?.topics!==false,topicsSince:Number.isSafeInteger(row?.topicsSince)?row.topicsSince:null,topicError:typeof row?.topicError==='string'?row.topicError:''};
 }
+// A chat's topic name. Pinned chats lead with a pin, since a bot cannot pin or order topics. Telegram takes 128.
+export function topicName(chat:{title:string;pinned?:boolean}){return clip((chat.pinned?'📌 ':'')+(chat.title.trim()||'New chat'),128);}
 
 // An owner's direct message as the gate plugin hands it over. Anything else is refused.
-export interface Inbound {message_id:string;chat_id:string;user_id:string;text:string;reply_to_message_id?:string}
+export interface Inbound {message_id:string;chat_id:string;user_id:string;text:string;reply_to_message_id?:string;thread_id?:string}
 export function readInbound(value:any,owner:string):Inbound|null{
  if(!owner||!value||typeof value!=='object')return null;
- const {message_id,chat_id,user_id,text,reply_to_message_id}=value;
+ const {message_id,chat_id,user_id,text,reply_to_message_id,thread_id}=value;
+ if(thread_id!==undefined&&(typeof thread_id!=='string'||!/^\d{1,20}$/.test(thread_id)))return null;
  if(typeof message_id!=='string'||!/^\d{1,20}$/.test(message_id)||chat_id!==owner||user_id!==owner||typeof text!=='string'||text.length>8000)return null;
  if(reply_to_message_id!==undefined&&(typeof reply_to_message_id!=='string'||!/^\d{1,20}$/.test(reply_to_message_id)))return null;
- return {message_id,chat_id,user_id,text,...(reply_to_message_id?{reply_to_message_id}:{})};
+ return {message_id,chat_id,user_id,text,...(reply_to_message_id?{reply_to_message_id}:{}),...(thread_id?{thread_id}:{})};
 }
 
 // What a message asks for. A code or Deny answers the approval shown; slash commands are the gate's safe list.
@@ -45,7 +51,8 @@ export function remoteTurnId(owner:string,messageId:string){return 'telegram-'+o
 
 // The private channel the gate plugin talks to: POST /inbound, POST /ready, GET /outbox?after=n (held up to 25
 // seconds while empty), POST /sent. Each call carries the per-spawn token.
-export interface OutRow {seq:number;chat_id:string;text:string;deny?:boolean;approvalId?:string}
+// thread_id: the topic it goes to. op: make a topic named text (its receipt's message id is the topic's id), or rename one.
+export interface OutRow {seq:number;chat_id:string;text:string;deny?:boolean;approvalId?:string;thread_id?:string;op?:'topic'|'rename'}
 export async function gateChannel(handlers:{inbound:(value:any)=>Promise<void>;ready:()=>void;outbox:(after:number)=>OutRow[];sent:(seq:number,ok:boolean,messageId?:string)=>void}){
  let token=randomBytes(32).toString('hex');const waiting=new Set<()=>void>();
  const body=async(request:IncomingMessage)=>{const chunks:Buffer[]=[];let size=0;for await(const chunk of request){size+=chunk.length;if(size>32768)throw Error('Too large.');chunks.push(chunk);}return JSON.parse(Buffer.concat(chunks).toString('utf8')||'null');};
@@ -113,11 +120,13 @@ export interface DeskDeps {
  settings():RemoteSettings;save(patch:Partial<RemoteSettings>):void;
  seen(id:string):boolean;
  done(id:string):void;                      // persist only after handling, never before accepting a turn
- send(text:string,deny?:boolean):void;       // queue a message to the owner
+ send(text:string,deny?:boolean,thread?:string):void; // queue a message to the owner, into a topic if given
  alert(title:string,body:string):void;       // desktop alert
  chats():{id:string;title:string}[];         // the owner's chats, most recent first
  newChat():Promise<string>;
- submit(id:string,chatId:string,text:string):Promise<void>;
+ topicChat(thread:string):{id:string;title:string}|null;    // the chat a topic belongs to
+ linkTopic(thread:string):Promise<{id:string;title:string}>; // a new chat for a topic made in Telegram
+ submit(id:string,chatId:string,text:string,thread?:string):Promise<void>;
  stop(chatId:string):Promise<void>;
  status(chatId:string):string;
  waiting():'approval'|'question'|null;       // what the message shown to the owner waits for
@@ -137,22 +146,24 @@ export class RemoteDesk {
   await this.dispatch(message,settings);this.deps.done(id);
  }
  private async dispatch(message:Inbound,settings:RemoteSettings){
-  const request=parseRequest(message.text),waiting=this.deps.waiting(),chat=this.target(),send=(text:string)=>this.deps.send(text);
+  // A message in a topic belongs to that topic's chat, and every answer goes back into the topic.
+  const thread=message.thread_id,request=parseRequest(message.text),waiting=this.deps.waiting(),send=(text:string)=>this.deps.send(text,false,thread);
+  let chat=thread?this.deps.topicChat(thread):this.target();
   // A code is an authentication step, not a task; it never reaches a chat or a log.
   if(request.kind==='code'){send(waiting==='approval'?await this.deps.code(request.code,message.reply_to_message_id):'No approval is waiting.');return;}
   if(request.kind==='deny'){send(waiting==='approval'?await this.deps.deny(message.reply_to_message_id,request.seq):'No approval is waiting.');return;}
-  if(request.kind==='command'){await this.command(request.name,request.arg,chat);return;}
+  if(request.kind==='command'){await this.command(request.name,request.arg,chat,send);return;}
   this.deps.alert('Remote task',request.text.slice(0,140));
   if(settings.paused){send('Remote messages are paused. Send /pause off to resume.');return;}
   if(waiting==='question'){send(await this.deps.answer(request.text,message.reply_to_message_id));return;}
   if(waiting==='approval'){send('Reply with the code for the approval shown, or Deny.');return;}
   if(message.reply_to_message_id){send('That message is no longer waiting for a reply. Send a new message to start a task.');return;}
+  if(thread&&!chat)chat=await this.deps.linkTopic(thread);
   if(!chat){send('There is no chat yet. Send /new to start one.');return;}
-  try{await this.deps.submit(remoteTurnId(settings.owner,message.message_id),chat.id,request.text);send('Sent to '+chat.title+'.');}
+  try{await this.deps.submit(remoteTurnId(settings.owner,message.message_id),chat.id,request.text,thread);send('Sent to '+chat.title+'.');}
   catch(error){const reason=String(error).replace(/^Error: /,'').slice(0,300);this.deps.alert('Remote task failed',reason);send('Not sent: '+reason);}
  }
- private async command(name:string,arg:string,chat:{id:string;title:string}|null){
-  const send=(text:string)=>this.deps.send(text);
+ private async command(name:string,arg:string,chat:{id:string;title:string}|null,send:(text:string)=>void){
   if(name==='help'||name==='start')return send(Object.entries(COMMANDS).map(([command,what])=>'/'+command+': '+what).join('\n'));
   if(name==='whoami')return send('Telegram user '+this.deps.settings().owner+'. Messages go to '+(chat?chat.title:'a new chat')+'.');
   if(name==='new'){const id=await this.deps.newChat();this.deps.save({chatId:id});return send('New chat. Messages go there now.');}
@@ -178,6 +189,7 @@ export function replyFor(turn:{status:string;text?:string|null;error?:string|nul
  if(turn.status==='stopped')return 'Stopped.';
  return clip('Failed: '+(turn.error||turn.status));
 }
-// Hermes asks before a tool touches the secrets list; from Telegram that is refused, never offered (5.21 H6).
-export function secretApproval(params:unknown){const text=JSON.stringify(params||{});return text.includes('protected credentials')||/"secret:[0-9a-f]{8,}/.test(text);}
+// Hermes asks before a tool touches the secrets list; from Telegram that is refused, never offered (5.21 H6). The
+// permissions plugin's wording is matched too, since its approval reaches here without the secret: rule key.
+export function secretApproval(params:unknown){const text=JSON.stringify(params||{});return text.includes('protected credentials')||text.includes('private app data or credentials')||/"secret:[0-9a-f]{8,}/.test(text);}
 export function approvalPrompt(description:string){return 'Approval needed:\n'+clip(description.trim(),3600)+'\n\nReply to this message with the code from your authenticator, or tap Deny.';}

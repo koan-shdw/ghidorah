@@ -3,10 +3,10 @@ import featureWheels from '../../backend/feature-wheels.json';
 import {backend,claude,data,drainRemoteInbox,emit,handlers,namespace,pluginRuntime,remoteChannel,remoteDesk,remoteEpoch,remoteSecret,root,store} from '../main';
 import {modelLabel} from '../models';
 import {redactPastedKeys} from '../redaction';
-import {OutRow,approvalPrompt,clip,parseRequest,readInbound,readRemote,replyFor,secretApproval} from '../remote';
+import {OutRow,approvalPrompt,clip,parseRequest,readInbound,readRemote,replyFor,secretApproval,topicName} from '../remote';
 import {RemoteCodeState,bindingDigest,checkCode} from '../remote-code';
 import {enqueueRemoteInbound} from '../remote-inbox';
-import {claimRemoteOutbox,enqueueRemote,enqueueRemoteReply,recordRemoteReceipt,recoverRemoteOutbox} from '../remote-outbox';
+import {claimRemoteOutbox,enqueueRemote,enqueueRemoteReply,recordRemoteReceipt,recoverRemoteOutbox,type TopicRecord} from '../remote-outbox';
 import type {Approval,Chat,Turn} from '../types';
 import {alwaysOn} from './accounts';
 import {Notification} from 'electron';
@@ -16,13 +16,22 @@ import path from 'node:path';
 
 // A Telegram message becomes a turn through the normal submit handler; its mark is set as the turn is accepted, so
 // routing and the reply step see it. Only main sets it: a window cannot.
-export function remoteSend(text:string,deny=false,approvalId?:string){
+export function remoteSend(text:string,deny=false,approvalId?:string,thread?:string){
   const owner=remoteSettings().owner;if(!owner)return;
-  const row=enqueueRemote(store,owner,backend.scrubber.text(text),approvalId,deny);remoteChannel?.notify();return row;
+  const row=enqueueRemote(store,owner,backend.scrubber.text(text),approvalId,deny,{thread_id:thread});remoteChannel?.notify();return row;
 }
 export function remoteOutbox(after:number):OutRow[]{return claimRemoteOutbox(store,after,remoteSettings().owner);}
 export function remoteSent(seq:number,ok:boolean,messageId?:string){
   const row=recordRemoteReceipt(store,seq,ok,messageId),shown=remoteShown();
+  if(row.op==='topic'&&row.topicChat&&store.all<TopicRecord>('remote-topic').some(topic=>topic.id===row.topicChat&&topic.status==='creating')){
+    if(row.status==='sent'&&row.messageId)store.update<TopicRecord>('remote-topic',row.topicChat,{status:'ready',threadId:row.messageId});
+    else{
+      // Usually Threaded Mode is off for the bot. Stop making topics until the switch is turned off and on.
+      store.update<TopicRecord>('remote-topic',row.topicChat,{status:'failed'});
+      remoteSave({topicError:'Telegram did not make a topic for a new chat. In BotFather, open your bot, Bot Settings, Threads Settings, and turn on Threaded Mode. Then turn "One topic per chat" off and on.'});
+      remoteAlert('Telegram topic not made','Turn on Threaded Mode for your bot in BotFather.');
+    }
+  }
   if(shown?.seq===seq&&row.approvalId===shown.approvalId){
     if(row.status==='sent'&&row.messageId)store.put('settings',{...shown,id:'remote-shown',messageId:row.messageId});
     else if(row.status==='uncertain'||!row.messageId){store.put('settings',{...shown,id:'remote-shown',kind:'desktop'});remoteAlert('Remote approval delivery unconfirmed','Review the pending approval on the desktop.');}
@@ -31,7 +40,7 @@ export function remoteSent(seq:number,ok:boolean,messageId?:string){
 export async function remoteInbound(value:unknown){
   const message=readInbound(value,remoteSettings().owner);if(!message||!remoteSettings().enabled)return;
   if(parseRequest(message.text).kind==='code'){await remoteDesk.receive(message);return;}
-  if(backend.scrubber.text(message.text)!==message.text||redactPastedKeys(message.text)!==message.text){remoteSend('This looks like an API key. Save it in Settings.');return;}
+  if(backend.scrubber.text(message.text)!==message.text||redactPastedKeys(message.text)!==message.text){remoteSend('This looks like an API key. Save it in Settings.',false,undefined,message.thread_id);return;}
   enqueueRemoteInbound(store,message);void drainRemoteInbox();
 }
 // If the picker is unsure about a Telegram message, the chat's last model answers, else the first available one,
@@ -73,18 +82,69 @@ export function settleApprovals(){
   if(remoteShown()||!remoteSettings().enabled)return;
   const remote=new Set(store.all<Turn>('turn').filter(turn=>turn.remote).map(turn=>turn.id));
   const next=store.all<Approval>('approval').find(row=>row.status==='pending'&&remote.has(row.turnId));if(!next)return;
-  if(next.method!=='clarify'&&secretApproval(next.params)){void handlers.approve({id:next.id,choice:'deny'}).catch(()=>{});remoteSend('Refused: a message from Telegram cannot open the protected credentials. Use the desktop.');remoteAlert('Remote task blocked','Protected credentials were refused.');return;}
+  if(next.method!=='clarify'&&secretApproval(next.params)){void handlers.approve({id:next.id,choice:'deny'}).catch(()=>{});remoteSend('Refused: a message from Telegram cannot open the protected credentials. Use the desktop.',false,undefined,store.get<Turn>('turn',next.turnId).remote?.thread);remoteAlert('Remote task blocked','Protected credentials were refused.');return;}
   const question=next.method==='clarify',description=String(question?(next.params?.question||next.params?.questions?.[0]?.question||'The AI has a question.'):(next.params?.description||next.params?.command||'An action needs your approval.'));
   const kind=description.length>3600||question&&next.params?.questions?.length>1||!question&&!remoteSecret?'desktop':question?'question':'approval';
   store.transaction(()=>{
     const text=kind==='desktop'?'An approval is waiting on the desktop. Open the app to review it.':question?'Question:\n'+description+'\n\nReply to this message with your answer.':approvalPrompt(description);
-    const row=remoteSend(text,kind==='approval',next.id);
+    const row=remoteSend(text,kind==='approval',next.id,store.get<Turn>('turn',next.turnId).remote?.thread);
     store.put('settings',{id:'remote-shown',approvalId:next.id,kind,digest:bindingDigest(remoteBinding(next)),at:Date.now(),seq:row?.seq});
   });
 }
 export function remoteChats(){return store.all<Chat>('chat').filter(chat=>!chat.archived&&!chat.parentChatId).sort((a,b)=>(b.updated??b.created??0)-(a.updated??a.created??0)).map(({id,title})=>({id,title}));}
+// Topics: each chat made while Remote is on gets a topic in the owner's bot chat, named after it (pinned ones lead
+// with a pin). Desktop work in that chat is copied into its topic; a message in the topic goes to the chat.
+export function remoteTopicChat(thread:string){
+  const topic=store.all<TopicRecord>('remote-topic').find(row=>row.threadId===thread);if(!topic)return null;
+  try{const chat=store.get<Chat>('chat',topic.id);return chat.archived?null:{id:chat.id,title:chat.title};}catch{return null;}
+}
+// A topic the owner made in Telegram, or one whose chat is gone: a new chat takes it over, renamed after that chat.
+export async function remoteLinkTopic(thread:string){
+  const id=await handlers.newChat({});
+  for(const old of store.all<TopicRecord>('remote-topic').filter(row=>row.threadId===thread))store.remove('remote-topic',old.id);
+  store.put<TopicRecord>('remote-topic',{id,threadId:thread,name:'',status:'ready',created:Date.now()});
+  return {id,title:store.get<Chat>('chat',id).title};
+}
+let topicTimer:NodeJS.Timeout|undefined;
+function settleTopicsSoon(){topicTimer??=setTimeout(()=>{topicTimer=undefined;try{settleTopics();}catch{}},1000);topicTimer.unref?.();}
+function settleTopics(){
+  const settings=remoteSettings();if(!settings.enabled||!settings.topics||settings.topicError||!settings.owner)return;
+  if(settings.topicsSince===null){remoteSave({topicsSince:Date.now()});return;}
+  const topics=new Map(store.all<TopicRecord>('remote-topic').map(row=>[row.id,row]));let queued=false;
+  store.transaction(()=>{
+    for(const chat of store.all<Chat>('chat')){
+      if(chat.archived||chat.parentChatId||chat.sideSourceId)continue;
+      const topic=topics.get(chat.id),name=topicName(chat);
+      if(!topic){
+        if((chat.created??0)<settings.topicsSince!)continue;
+        store.put<TopicRecord>('remote-topic',{id:chat.id,name,status:'creating',created:chat.created??Date.now()});
+        enqueueRemote(store,settings.owner,name,undefined,false,{op:'topic',topicChat:chat.id});queued=true;
+      }else if(topic.status==='ready'&&topic.threadId&&topic.name!==name){
+        store.update<TopicRecord>('remote-topic',chat.id,{name});
+        enqueueRemote(store,settings.owner,name,undefined,false,{op:'rename',thread_id:topic.threadId});queued=true;
+      }
+    }
+    // Desktop work in a chat with a topic: the message and its final reply, once each.
+    const cursor=store.all<any>('settings').find(row=>row.id==='remote-mirror')?.at;
+    if(typeof cursor!=='number'){store.put('settings',{id:'remote-mirror',at:Date.now()});return;}
+    let at=cursor;
+    for(const turn of store.turnsFinishedAfter<Turn>(cursor)){
+      at=Math.max(at,turn.finished||0);
+      const topic=topics.get(turn.chatId)||store.all<TopicRecord>('remote-topic').find(row=>row.id===turn.chatId);
+      // Work that finished while Remote was off stays on the desktop rather than arriving in a burst.
+      if(!topic||topic.status==='failed'||turn.remote||turn.parentTurnId||turn.automatic||turn.goal?.automatic||turn.created<topic.created||(turn.finished||0)<Date.now()-600000)continue;
+      const models=turn.jobs?.length?turn.jobs.map(id=>store.get<Turn>('turn',id)).filter(job=>!job.automatic):[turn];
+      const text='🖥 '+clip(turn.prompt.trim(),600)+'\n\n'+models.map(job=>replyFor(job,modelLabel(job.model,claude.models))).join('\n\n');
+      enqueueRemote(store,settings.owner,backend.scrubber.text(clip(text)),undefined,false,{topicChat:turn.chatId});queued=true;
+    }
+    // ponytail: a turn finishing in the same millisecond as the cursor is missed; key on ids if that ever matters.
+    if(at!==cursor)store.put('settings',{id:'remote-mirror',at});
+  });
+  if(queued)remoteChannel?.notify();
+}
 // The reply to each finished remote turn, sent once; called in emit(), the way settleParallel works.
 export function settleRemote(){
+  settleTopicsSoon();
   settleApprovals();
   for(const turn of store.turnsWith<Turn>('remote'))if(turn.remote&&!turn.remote.replied&&!turn.parentTurnId&&!turn.automatic&&['completed','partial','failed','stopped','interrupted'].includes(turn.status)){
     const models=turn.jobs?.length?turn.jobs.map(id=>store.get<Turn>('turn',id)).filter(job=>!job.automatic):[turn];

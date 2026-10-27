@@ -152,3 +152,41 @@ def test_the_channel_settings_are_checked():
         except ValueError:
             continue
         raise AssertionError('accepted ' + url)
+
+
+def test_topics_are_made_renamed_and_carried_both_ways():
+    import gate_channel
+    gate = load_gate()
+    server, seen = app_server()
+    calls = []
+
+    class Bot:
+        async def create_forum_topic(self, **kwargs):
+            calls.append(('create', kwargs))
+            return SimpleNamespace(message_thread_id=55)
+
+        async def edit_forum_topic(self, **kwargs):
+            calls.append(('rename', kwargs))
+
+    async def send(chat_id, text, reply_to=None, metadata=None):
+        calls.append(('send', chat_id, text, metadata))
+        return SimpleNamespace(success=True, message_id=9)
+
+    gate._adapter = SimpleNamespace(_bot=Bot(), send=send)
+    try:
+        gate_channel.configure('http://127.0.0.1:%d/' % server.server_address[1], TOKEN, '4242')
+        topic = event('4242', 'in a topic')
+        topic.source.thread_id = 55
+        asyncio.run(gate.gate(event=topic))
+        assert seen[-1][2]['thread_id'] == '55'
+        topic.source.thread_id = 'x'
+        asyncio.run(gate.gate(event=topic))
+        assert 'thread_id' not in seen[-1][2]
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert asyncio.run(gate._send({'seq': 1, 'chat_id': '4242', 'text': 'Plan', 'op': 'topic'})) == {'ok': True, 'message_id': '55'}
+    assert asyncio.run(gate._send({'seq': 2, 'chat_id': '4242', 'text': '📌 Plan', 'op': 'rename', 'thread_id': '55'})) == {'ok': True}
+    assert asyncio.run(gate._send({'seq': 3, 'chat_id': '4242', 'text': 'reply', 'thread_id': '55'}))['ok']
+    assert calls == [('create', {'chat_id': 4242, 'name': 'Plan'}), ('rename', {'chat_id': 4242, 'message_thread_id': 55, 'name': '📌 Plan'}),
+                     ('send', '4242', 'reply', {'thread_id': '55'})]

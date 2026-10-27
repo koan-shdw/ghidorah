@@ -9,6 +9,7 @@ import {Backend,PYTHON} from '../app/backend';
 import {fakeTelegram} from './fixtures/fake-telegram';
 import {createServer} from 'node:http';
 import os from 'node:os';
+import crypto from 'node:crypto';
 import {hotp,fromBase32} from '../app/remote-code';
 import {DatabaseSync} from 'node:sqlite';
 import {mainWindow} from './fixtures/poll-state';
@@ -38,7 +39,7 @@ try{
  s=await call('state');assert.deepEqual([s.remote.tokenSaved,s.remote.owner],[true,String(OWNER)]);assert.equal(JSON.stringify(s).includes('AAEsynthetic'),false,'the token never comes back to the window');
  await assert.rejects(call('remoteSwitch',{on:true}),/Install Telegram support/);
  // Telegram's package installs into this profile's runtime folder from PyPI (section 4 lists it).
- await page.locator('.settings-link').click();await page.getByRole('button',{name:'Remote',exact:true}).click();
+ if(!await page.getByRole('dialog',{name:'Settings'}).count())await page.locator('.settings-link').dispatchEvent('click');await page.getByRole('button',{name:'Remote',exact:true}).click();
  await page.getByRole('button',{name:'Install Telegram support',exact:true}).click();
  await wait(s=>s.remote.installing||s.remote.installed);s=await wait(s=>!s.remote.installing,660000);
  assert.equal(s.remote.installed,true,await page.locator('.remote-settings [role=alert]').textContent().catch(()=>'')||'install did not finish');
@@ -66,6 +67,19 @@ try{
  assert.deepEqual(telegram.sent.slice(before),[],'the repeat, the stranger and the group get no answer');
  assert.equal(s.turns.some((turn:any)=>/stranger|group message/.test(turn.prompt)),false);
  console.log('PASS 6b gate: the owner\'s message runs as one turn and its reply comes back; repeats, strangers and groups get nothing');
+ // Topics: the chat /new made has its own topic in the bot chat. A message there runs in that chat and is answered
+ // in the topic; pinning the chat renames the topic with a pin; desktop work in the chat is copied into the topic.
+ const until=async<T>(find:()=>T|undefined,what:string,timeout=120000)=>{const end=Date.now()+timeout;while(Date.now()<end){const found=find();if(found)return found;await page.waitForTimeout(200);}throw Error('Timed out waiting for '+what+': '+JSON.stringify(telegram.topics));};
+ const made=await until(()=>telegram.topics.find(row=>row.method==='createforumtopic'),'a topic for the new chat');assert.equal(String(made.chat_id),String(OWNER));
+ const thread=made.message_thread_id,inTopic=(pattern:RegExp)=>until(()=>telegram.sent.find(row=>String(row.message_thread_id)===String(thread)&&pattern.test(String(row.text))),'a topic message like '+pattern);
+ telegram.topicMessage(OWNER,thread,'Reply with the word topic.');await inTopic(/^Sent to /);await inTopic(/\n\nDeepSeek/);
+ s=await call('state');const topicTurn=s.turns.find((turn:any)=>turn.remote?.thread===String(thread));assert.equal(topicTurn?.chatId,remoteChat,'a topic message runs in its own chat');
+ await call('sidebarChat',{action:'pin',chatId:remoteChat,pinned:true});
+ await until(()=>telegram.topics.find(row=>row.method==='editforumtopic'&&String(row.message_thread_id)===String(thread)&&String(row.name).startsWith('📌 ')),'the pinned topic name');
+ const desk=crypto.randomUUID();await call('submit',{id:desk,chatId:remoteChat,text:'Desktop message for the topic.',models:['deepseek-flash']});
+ await inTopic(/^🖥 Desktop message for the topic\.\n\n/);
+ await call('sidebarChat',{action:'pin',chatId:remoteChat,pinned:false});
+ console.log('PASS topics: a new chat gets a topic; a topic message runs in that chat and is answered there; a pinned chat\'s topic leads with a pin; desktop work is copied in');
  // 6c: /project lists and switches chats; refused commands stay refused; a paused Remote blocks tasks but still
  // alerts; an unsure picker never makes a Telegram message wait; replies arrive with the window closed.
  telegram.message(OWNER,'/project');assert.match(await replied(/^1\. /),/^1\. .+\(current\)/m);
@@ -135,7 +149,7 @@ try{
  shown=await approval('COMMAND_FIXTURE after restart');
  telegram.message(OWNER,code(1),OWNER,shown.message_id);await replied(/^That code is not right\.$/);
  telegram.message(OWNER,code(2),OWNER,shown.message_id);await replied(/^Approved\.$/);
- await page.locator('.settings-link').click();await page.getByRole('button',{name:'Remote',exact:true}).click();await page.getByRole('button',{name:'Pair again',exact:true}).waitFor();
+ await page.locator('.settings-link').dispatchEvent('click');await page.getByRole('button',{name:'Remote',exact:true}).click();await page.getByRole('button',{name:'Pair again',exact:true}).waitFor();
  await screenshot('remote-code.png');
  console.log('PASS 6d Remote code: approvals ask for a fresh code; wrong, replayed and pre-restart codes are refused; Deny refuses; the secrets list is refused; codes stay out of chats');
  // 6e: a routine sends one turn per firing through the dispatcher; the same firing after a restart adds nothing;
@@ -167,7 +181,7 @@ try{
  await call('routineTick',{now:next+3*86400000});const fired=await firings();
  assert.equal(fired.length,2,'three missed days fire once');assert.equal(fired.at(-1),'routine-'+routineId+'-'+next);
  await wait(s=>s.turns.filter((turn:any)=>turn.id.startsWith('routine-')).every((turn:any)=>turn.status==='completed'));
- if(!await page.getByRole('dialog',{name:'Settings'}).count())await page.locator('.settings-link').click();
+ if(!await page.getByRole('dialog',{name:'Settings'}).count())await page.locator('.settings-link').dispatchEvent('click');
  await page.getByRole('button',{name:'Routines',exact:true}).click();await page.getByRole('list',{name:'Routines',exact:true}).waitFor();
  await screenshot('routines.png');await page.getByRole('button',{name:'Remote',exact:true}).click();
  console.log('PASS 6e routines: one turn per firing, none again after a restart, missed days fire once, cron lines read by croniter');

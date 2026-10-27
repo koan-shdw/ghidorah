@@ -117,6 +117,9 @@ export function RemoteSettings({state,call}:{state:Snapshot;call:Call}){
   </SettingsCard><SettingsCard title="Remote access"><div className="connection-field"><span>Remote</span><Switch checked={!!remote?.enabled} ariaLabel="Remote" label={remote?.enabled?'On':'Off'} onChange={()=>run('remoteSwitch',{on:!remote?.enabled})}/></div>
   <p className="hint" role="status">{status}</p>
   {remote?.enabled&&<p className="hint">Messages go to {remote.target||'a new chat'}{remote.paused?', paused from Telegram':''}. Send /project on Telegram to switch.</p>}
+  <div className="connection-field"><span>One topic per chat</span><Switch checked={remote?.topics!==false} ariaLabel="One topic per chat" label={remote?.topics!==false?'On':'Off'} onChange={()=>run('remoteTopics',{on:remote?.topics===false})}/></div>
+  <p className="hint">Each new chat gets its own topic in your bot chat, with your desktop messages and replies copied in. A message sent in a topic goes to its chat. Pinned chats start with 📌. Needs Threaded Mode, turned on for your bot in BotFather.</p>
+  {remote?.topicError&&<p className="hint" role="alert">{remote.topicError}</p>}
   </SettingsCard><SettingsCard title="Code before risky actions">
   <p className="hint">Each approval asked from Telegram needs a fresh code from an authenticator app that makes counter-based codes: Google Authenticator, FreeOTP or Aegis. Microsoft Authenticator and Authy do not.</p>
   <div className="actions"><button onClick={()=>void call('remotePair').then(result=>{setPairing(result);setError('');},failure=>setError(String(failure)))}>{remote?.paired?'Pair again':'Pair an authenticator'}</button></div>

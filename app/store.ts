@@ -62,6 +62,9 @@ export class Store {
   }
   // Turns that carry parallel jobs or came from remote, in saved order.
   turnsWith<T=Turn>(field:typeof turnFields[number]):T[] {if(!turnFields.includes(field))throw Error('Unknown turn field');return this.db.prepare(`SELECT data FROM records WHERE kind='turn' AND json_extract(data,'$.${field}') IS NOT NULL ORDER BY rowid`).all().map((r:any)=>this.parse('turn',r.data));}
+  // Turns that finished after a time, for copying desktop work into Telegram topics.
+  // ponytail: scans every turn; index finished if this shows up in profiles.
+  turnsFinishedAfter<T=Turn>(at:number):T[] {return this.db.prepare(`SELECT data FROM records WHERE kind='turn' AND json_extract(data,'$.finished')>? ORDER BY rowid`).all(at).map((r:any)=>this.parse('turn',r.data));}
   // A chat's turns and those of its job chats, in saved order: every turn whose root message is in this chat.
   // Automatic follow-ups are saved in their own chat, parallel jobs in a child chat (SPEED-PLAN 1a, 3).
   ownedTurns<T=Turn>(chatId:string):T[] {return this.whereIn<T>('turn','chatId',[chatId,...this.chatsWhere('parentChatId',chatId).map(chat=>chat.id)]);}

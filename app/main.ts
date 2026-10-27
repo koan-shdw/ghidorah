@@ -107,7 +107,7 @@ import {alwaysOn,claudeConnectorsOn,fixtureClaudeArgs,projectSettingsReview,trus
 import {defaultFolder,defaultModels,dockableJobChats,favouriteModels,repositoryStatus,routingSummaryHost,runAppWatch,savedAppRows,summaryHost,watchApp,watchHost,watchModel,watchRow} from './main/apps';
 import {availableModels,checkDispatch,connectedModels,deepseekModels,fixtureClaude,inputMismatch,loadInputCapabilities,recordRoute,unavailableMessage,videoModel} from './main/models';
 import {chatSelector,classifierActive,decidePick,decisionEngine,jevSettings,jevUrl,kevAddress,pickerConnected,pickerSettings,pickerStatus} from './main/pickers';
-import {gatewayHome,launchGateway,remoteAlert,remoteBinding,remoteChats,remoteCode,remoteFallback,remoteInbound,remoteOutbox,remoteRow,remoteSave,remoteSend,remoteSent,remoteSettings,remoteShown,settleRemote,telegramInstalled} from './main/remote';
+import {gatewayHome,launchGateway,remoteAlert,remoteBinding,remoteChats,remoteCode,remoteFallback,remoteInbound,remoteLinkTopic,remoteOutbox,remoteRow,remoteSave,remoteSend,remoteSent,remoteSettings,remoteShown,remoteTopicChat,settleRemote,telegramInstalled} from './main/remote';
 import {cronNext,wizardRow} from './main/routines';
 import {claudeScreenEnv,screenApps,screenContext,screenEscOn,screenServer,screenSettings,screenSettle,screenStep,screenStop,toolAccess,toolPaths} from './main/screen';
 import {openChatLink,openPage,pageUrl,previewTool_,publish,publishing,shareCheck,shareDeploy,shareDraft,shareSettings,shareSite,shareTest,shareView,shareWithClient,withOwner} from './main/sharing';
@@ -383,7 +383,7 @@ export async function drainRemoteInbox(){
     const next=store.all<InRecord>('remote-in').find(row=>row.status==='pending');if(!next)break;
     store.update<InRecord>('remote-in',next.id,{status:'processing'});
     try{await remoteDesk.receive(next.message);finishRemoteInbound(store,next.id);}
-    catch{store.put<InRecord>('remote-in',{id:next.id,status:'uncertain'});remoteAlert('Remote message outcome unconfirmed','Check this chat before resending the task.');remoteSend('The app could not confirm the outcome. Check /status before resending.');}
+    catch{store.put<InRecord>('remote-in',{id:next.id,status:'uncertain'});remoteAlert('Remote message outcome unconfirmed','Check this chat before resending the task.');remoteSend('The app could not confirm the outcome. Check /status before resending.',false,undefined,next.message?.thread_id);}
   }}finally{remoteInboxRunning=false;}
 }
 // The Remote code (6d): a counter-based one-time code for every approval a remote turn raises, and at no other
@@ -392,8 +392,9 @@ export async function drainRemoteInbox(){
 export let remoteSecret:string|null=null,remoteEpoch=0,remoteConfigChanging=false;
 export const remoteDesk=new RemoteDesk({
   settings:()=>remoteSettings(),save:patch=>{remoteSave(patch);emit();},
-  seen:id=>store.all<InRecord>('remote-in').some(row=>row.id===id&&['done','uncertain'].includes(row.status)),done:id=>finishRemoteInbound(store,id),send:remoteSend,alert:remoteAlert,chats:remoteChats,newChat:()=>handlers.newChat({}),
-  submit:async(id,chatId,text)=>{await submitTurn({id,chatId,text},{remote:{chatId:remoteSettings().owner,messageId:id}});},
+  seen:id=>store.all<InRecord>('remote-in').some(row=>row.id===id&&['done','uncertain'].includes(row.status)),done:id=>finishRemoteInbound(store,id),send:(text,deny,thread)=>{remoteSend(text,deny,undefined,thread);},alert:remoteAlert,chats:remoteChats,newChat:()=>handlers.newChat({}),
+  topicChat:remoteTopicChat,linkTopic:remoteLinkTopic,
+  submit:async(id,chatId,text,thread)=>{await submitTurn({id,chatId,text},{remote:{chatId:remoteSettings().owner,messageId:id,...(thread?{thread}:{})}});},
   stop:async chatId=>{await handlers.stop({chatId});},
   status:chatId=>{const turn=store.all<Turn>('turn').filter(turn=>turn.chatId===chatId&&!turn.parentTurnId).at(-1);return turn?(STATUS[turn.status]||turn.status)+(turn.text?': '+turn.text.slice(0,200):''):'Nothing sent yet.';},
   waiting:()=>{const kind=remoteShown()?.kind;return kind==='approval'||kind==='question'?kind:null;},code:remoteCode,

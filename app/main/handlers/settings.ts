@@ -11,7 +11,7 @@ import {speechVoices} from '../../speech-voices';
 import type {Chat,Turn} from '../../types';
 import {alwaysOn} from '../accounts';
 import {dockableJobChats} from '../apps';
-import {remoteSave} from '../remote';
+import {remoteSave,remoteSettings} from '../remote';
 import {cronNext} from '../routines';
 import {screenApps,screenSettings} from '../screen';
 import {hasWork} from '../turns';
@@ -51,10 +51,12 @@ export const settingsHandlers:Record<string,(args:any)=>any>={
   keyRotation({id,done,reset}){const rows=reset?{}:{...store.all<any>('settings').find(row=>row.id==='key-rotation')?.done};if(!reset){if(typeof id!=='string'||!id)throw Error('Unknown supplier.');if(done)rows[id]=Date.now();else delete rows[id];}store.put('settings',{id:'key-rotation',done:rows});emit();},
   async remoteSwitch({on}){
     if(on&&remoteConfigChanging)throw Error('Wait for Remote account or authenticator changes to finish.');
-    if(on){remoteSave({enabled:true});try{await remoteStart();}catch(error){remoteSave({enabled:false});emit();throw error;}}
+    if(on){remoteSave({enabled:true,...(remoteSettings().topicsSince===null?{topicsSince:Date.now()}:{})});try{await remoteStart();}catch(error){remoteSave({enabled:false});emit();throw error;}}
     else{remoteSave({enabled:false});remoteStop();}
     emit();
   },
+  // One topic per chat. Turning it on (again) starts from now and clears a topic error; older chats get none.
+  remoteTopics({on}){if(typeof on!=='boolean')throw Error('Invalid switch.');remoteSave({topics:on,topicError:'',topicsSince:on?Date.now():null});emit();},
   remoteInstallCancel(){telegramInstall?.abort();},
   wakeInstallCancel(){wakeInstall?.abort();},
   async voiceFreeKey({key,useGemini,freeTierConfirmed}){
