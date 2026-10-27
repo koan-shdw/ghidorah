@@ -146,5 +146,9 @@
   {"version":"0.1.30","date":"2026-10-26","notes":[
     "The sidebar button says New chat.",
     "Images can use your ChatGPT sign-in: choose OpenAI, ChatGPT sign-in in Settings, Images. No API key needed."
+  ]},
+  {"version":"0.1.31","date":"2026-10-27","notes":[
+    "A new chat started while an app is selected in the sidebar belongs to that app: the model starts with its repositories and repo map.",
+    "After a restart, a routed message waits for Claude Code to connect instead of holding its chat."
   ]}
 ]
