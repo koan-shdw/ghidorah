@@ -321,7 +321,7 @@ function App(){
   useEffect(()=>{if(!layoutReady||selecting)return;if(!state.chats.some(c=>c.id===chatId)){editorRevision.current++;const last=state.chats.filter(c=>!c.archived&&!c.sideSourceId).at(-1);setDraft(last?.draft||'');setChat(last?.id||'');}},[state.chats,chatId,layoutReady,selecting]);
   const follow=useFollowOutput(scroller,[state.turns,state.tools,chatId]);
   useMessageReference(chatId,turns,scroller,follow.onScroll);
-  async function addProject(groupId?:string|null){const revision=editorRevision.current;setAppPage(false);const id=await call('addProject',{groupId});if(id&&revision===editorRevision.current)selectChat.current(id);}
+  async function addProject(groupId?:string|null){const revision=editorRevision.current;setAppPage(false);const id=await call('addProject',{groupId,appId});if(id&&revision===editorRevision.current)selectChat.current(id);}
   useEffect(()=>{if(layoutReady&&!otherEditor){editorRevision.current++;setDraft(state.chats.find(c=>c.id===chatId)?.draft||'');}},[otherEditor,layoutReady]);
   const sending=useRef(false),rowCall=useStable(call),index=useMemo(()=>rowIndex(state),[state.turns,state.tools,state.approvals,state.background]);
   const drafts=useDraftSaver((id,text)=>void api.invoke('draft',{chatId:id,text}).catch(()=>{}),(id,text)=>setState(previous=>({...previous,chats:previous.chats.map(c=>c.id===id?{...c,draft:text}:c)})));

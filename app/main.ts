@@ -1205,7 +1205,7 @@ export const handlers:Record<string,(args:any)=>any>={
     const done=()=>{if(claudeSignIn!==child)return;claudeSignIn=undefined;void checkClaude();};
     child.once('error',done);child.once('exit',done);
   },
-  async addProject(args){requireStableFolder();creatingProjects++;try{const folder=process.env.TRISMEGISTUS_TEST_DATA&&args?.folder?path.resolve(args.folder):defaultFolder();const p=store.project(folder);await configure(p);const c=store.chat(p.id);store.update<Chat>('chat',c.id,{pool:defaultModels()});if(args?.groupId)sidebar.chat('move',{chatId:c.id,groupId:args.groupId});emit();return c.id;}finally{creatingProjects--; }},
+  async addProject(args){requireStableFolder();creatingProjects++;try{const folder=process.env.TRISMEGISTUS_TEST_DATA&&args?.folder?path.resolve(args.folder):defaultFolder();const p=store.project(folder);await configure(p);const c=store.chat(p.id);store.update<Chat>('chat',c.id,{pool:defaultModels()});if(args?.groupId)sidebar.chat('move',{chatId:c.id,groupId:args.groupId});if(args?.appId&&store.all<SavedApp>('saved-app').some(app=>app.id===args.appId))linkAppChat(store,args.appId,c.id,true);emit();return c.id;}finally{creatingProjects--; }},
   async workingFolder({folder,clear}){
     requireStableFolder();requireIdleFolder();
     if(worktreeChanging)throw Error('A worktree or working folder is already changing.');

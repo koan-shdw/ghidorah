@@ -13,6 +13,7 @@ try{
  const page=await mainWindow(app),call=(method:string,args:any={})=>page.evaluate(({method,args})=>window.desktop.invoke(method,args),{method,args});
  await pollState(page,s=>s.backend==='ready'&&!!s.claude?.models?.length&&!!s.availableModels?.includes('deepseek-flash'));await call('wizardFinish');
  const base=await call('savedAppSave',{name:'Video Dancer',stage:'Beta',ideas:'Keep this',repositories:['vi-dancer']});
+ {const filtered=await call('addProject',{appId:base.id}),loose=await call('addProject',{appId:'missing-app'}),state=await call('state');assert.ok(state.savedApps.find((a:any)=>a.id===base.id).chatIds.includes(filtered),'New chat from a filtered app must be linked');assert.ok(state.chats.some((c:any)=>c.id===loose));}
  for(const model of ['deepseek-flash','claude-code:haiku']){
   const chatId=await call('newChat');await call('addModel',{chatId,model});await call('selectorModel',{chatId,model:'deepseek-flash'});let state=await call('state');const projectId=state.chats.find((c:any)=>c.id===chatId).projectId;
   assert.equal(state.projects.find((p:any)=>p.id===projectId).folder,null);
