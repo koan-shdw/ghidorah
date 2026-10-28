@@ -27,7 +27,8 @@ import {readAlwaysOn,loginItem,keepAwake} from './always-on';
 import {existsSync,appendFileSync,writeFileSync,copyFileSync,rmSync} from 'node:fs';
 import {appSummarySources,summaryRevision,summaryBatches,validateSummary,applyTodoTitles,appSummaryError,type AppSummary,type SummaryItem} from './app-summary';
 import {changeAppGroup,saveApp,removeApp,appTool,appFolderName,appTodo,listAppsTool,appTodoTool,appLinkTool,appUpdateTodoTool,appUpdateTool,directAppTools,updateAppTodo,linkAppChat,appChatContext,type AppTodo,type SavedApp} from './saved-apps';
-import {app,BrowserWindow,ipcMain,dialog,Tray,Menu,Notification,nativeImage,shell,powerMonitor,powerSaveBlocker,protocol,screen,globalShortcut} from 'electron';
+import {app,BrowserWindow,ipcMain,dialog,Tray,Menu,Notification,nativeImage,shell,powerMonitor,powerSaveBlocker,protocol,screen,globalShortcut,webContents} from 'electron';
+import {SpeechWorker} from './speech-worker';
 import fs from 'node:fs/promises';
 import {RepoMaps} from './repo-map-service';
 import {defaultWatch,readWatch,readIdeas,ideasPrompt,nextWatchRun,updateModel,type AppWatch,type AppIdea} from './app-watch';
@@ -113,7 +114,7 @@ import {claudeScreenEnv,screenApps,screenContext,screenEscOn,screenServer,screen
 import {openChatLink,openPage,pageUrl,previewTool_,publish,publishing,shareCheck,shareDeploy,shareDraft,shareSettings,shareSite,shareTest,shareView,shareWithClient,withOwner} from './main/sharing';
 import {discoverySettings,hermesFeed,hermesPin,updateFeed,updateSettings} from './main/updates';
 import {freeVoiceKey,speechInstalled,speechReady,voiceRequest,voiceRow,voiceSettings,voiceTestEndpoint,wakeDetected,wakeSettings} from './main/voice';
-import {configure,session} from './main/backend';
+import {configure,configureSoon,session} from './main/backend';
 import {addAppTask,changeProjectMode,createApp,linkCurrentApp,listAppTasks,projectFor,requireIdleFolder,requireStableFolder,updateApp,updateAppTask,workingDirectory} from './main/projects';
 import {askApproval,mainSnapshot,sendState,snapshot} from './main/snapshot';
 import {agentSnapshot,agentWindowRequest,chatSnapshot,jobSnapshot,modelWindowHash,openChatWindow,openJob,openWorkspaceWindow,saveChatWindows,saveJobWindows,saveWorkspaceWindows,workspaceWindowRequest,workspaceWindowState} from './main/windows';
@@ -465,8 +466,13 @@ function wizardOffer(){
 // Tiny exists for tests only. It runs on the CPU.
 export let voiceWindow:BrowserWindow|null=null,voiceDesk:LiveVoiceDesk|null=null,voiceListenOnOpen=false;
 export let speechInstall:AbortController|null=null,speechProgress:number|null=null;
-// ponytail: one CPU transcription at a time; use a bounded queue if simultaneous dictation is needed.
-export const dictations=new Map<string,{owner:number;chatId:string;controller:AbortController}>();
+// Dictation (R4): the speech worker, started on a composer's first focus or press and kept while dictation is used.
+// Its text goes only to the window that started the session.
+export const speech=new SpeechWorker(key=>{
+  const {model,runtime}=JSON.parse(key),child=spawn(backend.python,[path.join(root,'backend','host.py')],{windowsHide:true,stdio:'pipe',env:backend.environment()});
+  child.stdin.write(JSON.stringify({operation:'speech_stream',credential_namespace:namespace,model,runtime})+'\n');return child;
+},(owner,event)=>{const target=webContents.fromId(owner);if(target&&!target.isDestroyed())target.send('dictation',event);},()=>emit());
+const dictationOwners=new Set<number>();
 export function openVoice(chatId:string,parent:BrowserWindow=win,listen=false){
   requireStableFolder();const chat=store.get<Chat>('chat',chatId);if(chat.archived||chat.parentChatId)throw Error('Open voice from an available chat.');
   if(voiceWindow&&!voiceWindow.isDestroyed()){if(voiceDesk!.state().chatId!==chatId){voiceDesk!.select(chatId);voiceWindow.webContents.send('select-chat',chatId);}voiceWindow.show();voiceWindow.focus();return;}
@@ -1210,7 +1216,7 @@ export const handlers:Record<string,(args:any)=>any>={
     const done=()=>{if(claudeSignIn!==child)return;claudeSignIn=undefined;void checkClaude();};
     child.once('error',done);child.once('exit',done);
   },
-  async addProject(args){requireStableFolder();creatingProjects++;try{const folder=process.env.TRISMEGISTUS_TEST_DATA&&args?.folder?path.resolve(args.folder):defaultFolder();const p=store.project(folder);await configure(p);const c=store.chat(p.id);store.update<Chat>('chat',c.id,{pool:defaultModels()});if(args?.groupId)sidebar.chat('move',{chatId:c.id,groupId:args.groupId});if(args?.appId&&store.all<SavedApp>('saved-app').some(app=>app.id===args.appId))linkAppChat(store,args.appId,c.id,true);emit();return c.id;}finally{creatingProjects--; }},
+  async addProject(args){requireStableFolder();creatingProjects++;try{const folder=process.env.TRISMEGISTUS_TEST_DATA&&args?.folder?path.resolve(args.folder):defaultFolder();const p=store.project(folder);configureSoon(p);const c=store.chat(p.id);store.update<Chat>('chat',c.id,{pool:defaultModels()});if(args?.groupId)sidebar.chat('move',{chatId:c.id,groupId:args.groupId});if(args?.appId&&store.all<SavedApp>('saved-app').some(app=>app.id===args.appId))linkAppChat(store,args.appId,c.id,true);emit();return c.id;}finally{creatingProjects--; }},
   async workingFolder({folder,clear}){
     requireStableFolder();requireIdleFolder();
     if(worktreeChanging)throw Error('A worktree or working folder is already changing.');
@@ -1341,6 +1347,20 @@ export const handlers:Record<string,(args:any)=>any>={
       store.transaction(()=>{store.put('settings',{id:'plugin-runtime',runtime});store.put('settings',{...voiceRow(),installed:[...new Set([...voiceSettings().installed,model])]});});
     }finally{clearInterval(timer);speechInstall=null;installing=false;speechProgress=null;emit();}
   },
+  // Dictation on an NVIDIA graphics card: NVIDIA's CUDA 12 libraries (1.3 GB) join the speech runtime, on this click.
+  // The worker tries the card on its next start and falls back to the processor if the card does not answer.
+  async speechGpuInstall(){
+    if(pluginsChanging||installing)throw Error('Wait for the current install to finish.');
+    if(!speechReady())throw Error('Install speech first.');
+    installing=true;const controller=speechInstall=new AbortController();emit();
+    try{
+      const features=[...new Set([...((pluginRuntime() as any)?.features||[]),'speech','speech-gpu'])];
+      const runtime=await backend.host('plugin_runtime_prepare',{sources:store.all<NativePluginInstall>('native-plugin').filter(row=>row.enabled&&row.hermes).map(row=>row.directory),features},controller.signal,2700000);
+      await backend.host('speech_check',{runtime},controller.signal);
+      if(controller.signal.aborted)throw Error('Operation cancelled.');
+      speech.stop('Dictation is moving to the graphics card. Dictate again.');store.put('settings',{id:'plugin-runtime',runtime});
+    }finally{speechInstall=null;installing=false;emit();}
+  },
   async worktreeChat({repository}){
     if(worktreeChanging)throw Error('A worktree or working folder is already changing.');
     const root=defaultFolder();if(!root)throw Error('Choose the root working folder in Settings first.');
@@ -1438,7 +1458,7 @@ export async function requestAppExit(restart:boolean){
 }
 app.on('before-quit',event=>{
   if(!quitting&&workspaceDrafts.size&&!discardWorkspaceOnQuit){event.preventDefault();if(!checkingWorkspaceQuit){checkingWorkspaceQuit=true;void dialog.showMessageBox(win,{type:'question',message:'This file has an unsaved draft.',detail:'Quit and discard the draft?',buttons:['Keep editing','Quit and discard'],defaultId:0,cancelId:0}).then(result=>{checkingWorkspaceQuit=false;if(result.response===1){discardWorkspaceOnQuit=true;app.quit();}});}return;}
-  if(!quitting){event.preventDefault();quitting=true;prepareInstall(false);for(const turn of store.all<Turn>('turn'))if(['dispatching','running','waiting','stopping'].includes(turn.status))store.update<Turn>('turn',turn.id,{stopReason:turn.stopReason||'app-restart'});wakeInstall?.abort();void syncWake();voiceDesk?.close();voiceWindow?.destroy();for(const job of chatExports.values())job.controller.abort();for(const job of contextJobs.values())job.controller.abort();for(const job of appSummaryJobs.values())job.controller.abort();for(const job of appWatchJobs.values())job.abort();clearTimeout(appWatchTimer);goals?.close();clearTimeout(routineTimer);remoteStop();remoteChannel?.close();terminals?.dispose();previews?.closeAll();browserPreviews?.closeAll();for(const entry of workspaceWindows.values())entry.preview.closeAll();for(const preview of chatPreviews.values())preview.closeAll();gliner?.close();clearInterval(healthTimer);clearInterval(backgroundTimer);clearInterval(replyTimer);clearTimeout(streamTimer);for(const entry of preparing.values())entry.controller.abort();clearTimeout(resetTimer);providerOwner?.close();for(const controller of jevControllers.values())controller.abort();pluginChanges.close();speechInstall?.abort();telegramInstall?.abort();for(const item of dictations.values())item.controller.abort();for(const controller of pluginControllers.values())controller.abort();for(const controller of claudeControllers.values())controller.abort();for(const item of claudeAutomatic.values())item.controller.abort();for(const controller of mcpLogins.values())controller.abort();backend?.cancelCodexLogin();void Promise.allSettled([native?.close(),backend?.stop(),mcp?.stop(),...Array.from(pluginOwners.values(),owner=>owner.close()),...Array.from(appSummaryJobs.values(),job=>job.promise)]).finally(()=>app.quit());}});
+  if(!quitting){event.preventDefault();quitting=true;prepareInstall(false);for(const turn of store.all<Turn>('turn'))if(['dispatching','running','waiting','stopping'].includes(turn.status))store.update<Turn>('turn',turn.id,{stopReason:turn.stopReason||'app-restart'});wakeInstall?.abort();void syncWake();voiceDesk?.close();voiceWindow?.destroy();for(const job of chatExports.values())job.controller.abort();for(const job of contextJobs.values())job.controller.abort();for(const job of appSummaryJobs.values())job.controller.abort();for(const job of appWatchJobs.values())job.abort();clearTimeout(appWatchTimer);goals?.close();clearTimeout(routineTimer);remoteStop();remoteChannel?.close();terminals?.dispose();previews?.closeAll();browserPreviews?.closeAll();for(const entry of workspaceWindows.values())entry.preview.closeAll();for(const preview of chatPreviews.values())preview.closeAll();gliner?.close();clearInterval(healthTimer);clearInterval(backgroundTimer);clearInterval(replyTimer);clearTimeout(streamTimer);for(const entry of preparing.values())entry.controller.abort();clearTimeout(resetTimer);providerOwner?.close();for(const controller of jevControllers.values())controller.abort();pluginChanges.close();speechInstall?.abort();telegramInstall?.abort();speech.stop();for(const controller of pluginControllers.values())controller.abort();for(const controller of claudeControllers.values())controller.abort();for(const item of claudeAutomatic.values())item.controller.abort();for(const controller of mcpLogins.values())controller.abort();backend?.cancelCodexLogin();void Promise.allSettled([native?.close(),backend?.stop(),mcp?.stop(),...Array.from(pluginOwners.values(),owner=>owner.close()),...Array.from(appSummaryJobs.values(),job=>job.promise)]).finally(()=>app.quit());}});
 app.whenReady().then(async()=>{
   if(!ownsInstance)return;
   app.setAppUserModelId(dev?'app.trismegistus.dev':'app.trismegistus.desktop');
@@ -1479,7 +1499,7 @@ app.whenReady().then(async()=>{
 
     const job=[...jobWindows].find(([,window])=>window.webContents===event.sender)?.[0],chatView=[...chatWindows].find(([,window])=>window.webContents===event.sender)?.[0],workspace=[...workspaceWindows.values()].find(entry=>entry.window.webContents===event.sender),expected=pathToFileURL(path.join(__dirname,'index.html')).href+(workspace?'#workspace='+workspace.info.view:job?'#'+modelWindowHash(job):chatView?'#chat='+chatView:'');
     if(event.senderFrame!==event.sender.mainFrame || (!workspace&&!job&&!chatView&&event.sender!==win.webContents) || event.senderFrame?.url!==expected || !(Object.hasOwn(handlers,method)||['voiceOpen','voiceFocus'].includes(method)))throw Error('Request refused');
-    if(folderChanging&&!['state','window','workspaceDraft','draft','chatLayout','paneLayout','previewState','previewLayout','terminalRead','terminalList','terminalResize','terminalWrite','stop','dictationCancel'].includes(method))throw Error('Wait for the working folder change to finish.');
+    if(folderChanging&&!['state','window','workspaceDraft','draft','chatLayout','paneLayout','previewState','previewLayout','terminalRead','terminalList','terminalResize','terminalWrite','stop','dictationCancel','dictationAudio','dictationFinish'].includes(method))throw Error('Wait for the working folder change to finish.');
     if(checkpointChanging&&!['state','window','workspaceDraft','draft'].includes(method))throw Error('Wait for file restoration to finish.');
     if(method==='voiceFocus'){if(event.sender!==win.webContents||typeof args?.chatId!=='string')throw Error('Request refused');const chat=store.get<Chat>('chat',args.chatId);voiceMainChat=chat.parentChatId||chat.id;return;}
     if(method==='voiceOpen'){
@@ -1502,16 +1522,16 @@ app.whenReady().then(async()=>{
       if(method==='previewLayout'&&!args?.bounds)return;
       if(!['previewState','previewBrowser'].includes(method))throw Error('Open this preview in its chat window.');
     }
-    if(!job&&!chatView&&['draft','submit','correctGroup','sideAnswerTell','sideAnswerAsk','sideAnswerClose','attachmentAdd','attachmentRemove','reviewDraft','dictate'].includes(method)&&chatWindows.has(args?.chatId))throw Error('Continue this chat in its open window, or return it to the main window.');
+    if(!job&&!chatView&&['draft','submit','correctGroup','sideAnswerTell','sideAnswerAsk','sideAnswerClose','attachmentAdd','attachmentRemove','reviewDraft','dictationStart'].includes(method)&&chatWindows.has(args?.chatId))throw Error('Continue this chat in its open window, or return it to the main window.');
     if(chatView){
       const owns=(id:string)=>sidebar.owned(chatView).some(c=>c.id===id);
       if(method==='state')return chatSnapshot(chatView);
       if(method==='window'){const view=chatWindows.get(chatView)!;if(args?.action==='close')view.close();else if(args?.action==='minimize')view.minimize();else if(args?.action==='maximize')view.isMaximized()?view.unmaximize():view.maximize();return;}
-      if(['correctGroup','submit','sideAnswerTell','sideAnswerAsk','sideAnswerClose','draft','modelSelection','modelLock','selectorModel','effort','attachmentAdd','attachmentRemove','openMainChat','addModel','removeModel','goalSet','goalPause','goalResume','goalClear','sideChatKeep','sideChatDiscard','reviewDraft','dictate','dictationCancel'].includes(method)){if(args?.chatId!==chatView)throw Error('This action belongs to another chat.');}
+      if(['correctGroup','submit','sideAnswerTell','sideAnswerAsk','sideAnswerClose','draft','modelSelection','modelLock','selectorModel','effort','attachmentAdd','attachmentRemove','openMainChat','addModel','removeModel','goalSet','goalPause','goalResume','goalClear','sideChatKeep','sideChatDiscard','reviewDraft','dictationStart'].includes(method)){if(args?.chatId!==chatView)throw Error('This action belongs to another chat.');}
       else if(method==='chatFiles'){if(!owns(args?.chatId))throw Error('This file belongs to another chat.');}
       else if(['contextSettings','exportChat','contextInfo','contextGenerate','contextCancel','contextApply','contextReset','checkpointPreview','checkpointRestore','branchMessage','workspaceGit','workspaceGitCancel','shareSummary','shareToProject','publishPreview'].includes(method)){if(args?.chatId!==chatView)throw Error('This action belongs to another chat.');}
       else if(method==='sideChatOpen'){if(args?.chatId!==chatView)throw Error('This action belongs to another chat.');const id=await handlers.sideChatOpen(args);openChatWindow(id);return id;}
-      else if(['favouriteModel','refreshUsage','openConnections','restart'].includes(method)){}
+      else if(['favouriteModel','refreshUsage','openConnections','restart','dictationWarm','dictationAudio','dictationFinish','dictationCancel'].includes(method)){}
       else if(method==='stop'){if(!owns(args?.chatId))throw Error('This action belongs to another chat.');}
       else if(method==='openJob'){if(!owns(store.get<Turn>('turn',args?.id).chatId))throw Error('This job belongs to another chat.');}
       else if(['workspaceList','workspaceRead','workspaceSave','workspaceChanges'].includes(method)){return handlers[method](args||{});}
@@ -1549,11 +1569,11 @@ app.whenReady().then(async()=>{
       else if(method==='chooseTurnModel'){if(store.get<Turn>('turn',args?.id).chatId!==job)throw Error('This message belongs to another job.');}
       else throw Error('This action is unavailable in a side window.');
     }
-    if(method==='dictationCancel')return handlers[method]({...args,owner:event.sender.id});
-    if(method==='dictate'){
-      const owner=event.sender.id,cancel=()=>{for(const pending of dictations.values())if(pending.owner===owner)pending.controller.abort();};
-      event.sender.once('destroyed',cancel);event.sender.once('did-start-navigation',cancel);
-      try{return await handlers[method]({...args,owner});}finally{event.sender.removeListener('destroyed',cancel);event.sender.removeListener('did-start-navigation',cancel);}
+    // Dictation belongs to the window that started it; a window that closes or navigates takes its dictation along.
+    if(method.startsWith('dictation')){
+      const owner=event.sender.id;
+      if(method==='dictationStart'&&!dictationOwners.has(owner)){dictationOwners.add(owner);const release=()=>{dictationOwners.delete(owner);speech.release(owner);};event.sender.once('destroyed',release);event.sender.on('did-start-navigation',()=>speech.release(owner));}
+      return handlers[method]({...args,owner});
     }
     return handlers[method](args||{});
   });

@@ -2,7 +2,7 @@
 import {readAlwaysOn} from '../../always-on';
 import {readChatLayout} from '../../chat-layout';
 import {LIVE_VOICES} from '../../gemini-voice-settings';
-import {appUpdates,applyAlwaysOn,backend,chatWindows,data,dictations,discoveryRun,emit,handlers,hermesCheck,installing,jobWindows,namespace,pluginRuntime,pluginsChanging,remoteConfigChanging,remoteStart,remoteStop,requestAppExit,routinesTick,runDiscovery,screenDriver,screenEnd,speechInstall,store,telegramInstall,voiceDesk,voiceWindow,wakeInstall} from '../../main';
+import {appUpdates,applyAlwaysOn,backend,chatWindows,data,discoveryRun,emit,handlers,hermesCheck,installing,jobWindows,namespace,pluginRuntime,pluginsChanging,remoteConfigChanging,remoteStart,remoteStop,requestAppExit,routinesTick,runDiscovery,screenDriver,screenEnd,speech,speechInstall,store,telegramInstall,voiceDesk,voiceWindow,wakeInstall} from '../../main';
 import {paneKind,readPaneWorkspace,readTree} from '../../pane-layout';
 import {allPaneIds} from '../../pane-tree';
 import {Routine,nextFiring,readRoutine} from '../../routines';
@@ -16,7 +16,7 @@ import {cronNext} from '../routines';
 import {screenApps,screenSettings} from '../screen';
 import {hasWork} from '../turns';
 import {discoverySettings,updateSettings} from '../updates';
-import {speechReady,voiceRow,voiceSettings} from '../voice';
+import {speechKey,speechReady,voiceRow,voiceSettings} from '../voice';
 import {randomUUID} from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -82,26 +82,20 @@ export const settingsHandlers:Record<string,(args:any)=>any>={
     voiceDesk?.interrupt();voiceWindow?.webContents.send('select-chat',voiceDesk?.state().chatId);store.put('settings',{...voiceRow(),...patch});emit();
   },
   speechInstallCancel(){speechInstall?.abort();},
-  dictationCancel({id,chatId,owner}){const pending=dictations.get(id);if(pending&&pending.owner===owner&&pending.chatId===chatId)pending.controller.abort();},
-  async dictate({id,chatId,bytes,mime,owner}){
+  // Dictation (R4), Claude's way: audio streams in while the owner speaks and the text comes back as they go. The
+  // worker keeps the model loaded, so only a composer's first focus or press waits for it.
+  async dictationWarm({owner}){if(Number.isInteger(owner)&&speechReady()&&!pluginsChanging&&!installing)await speech.start(speechKey()).catch(()=>{});},
+  async dictationStart({id,chatId,language,owner}){
     if(typeof id!=='string'||!/^[-a-f0-9]{36}$/.test(id)||typeof chatId!=='string'||!Number.isInteger(owner))throw Error('Invalid dictation request.');
-    if(!(bytes instanceof Uint8Array)||!bytes.length||bytes.length>50*1024*1024)throw Error('That recording is empty or too long.');
-    if(!['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/wav'].includes(mime))throw Error('Unsupported recording format.');
+    if(language!==''&&!(typeof language==='string'&&/^[a-z]{2,3}$/.test(language)))throw Error('Choose a dictation language from the list.');
     if(store.get<Chat>('chat',chatId).archived)throw Error('This chat is archived.');
-    if(dictations.size)throw Error('Wait for the other dictation to finish.');
     if(pluginsChanging||installing)throw Error('Wait for the current install to finish.');
     if(!speechReady())throw Error('Install speech on the Voice page first.');
-    const controller=new AbortController(),model=voiceSettings().sttModel,runtime=pluginRuntime();dictations.set(id,{owner,chatId,controller});
-    let file:string|undefined;
-    try{
-      const folder=path.join(data,'dictation');await fs.mkdir(folder,{recursive:true});
-      if((await fs.realpath(folder)).toLowerCase()!==path.resolve(folder).toLowerCase())throw Error('The dictation folder must stay inside the app data folder.');
-      file=path.join(folder,randomUUID()+(mime==='audio/wav'?'.wav':mime.includes('ogg')?'.ogg':'.webm'));await fs.writeFile(file,bytes,{flag:'wx'});
-      const result=await backend.host('transcribe',{file,model,runtime},controller.signal);
-      if(controller.signal.aborted||store.get<Chat>('chat',chatId).archived)throw Error('Dictation cancelled.');
-      return String(result.text||'');
-    }finally{dictations.delete(id);if(file)await fs.rm(file,{force:true});}
+    await speech.start(speechKey());speech.open(id,owner,chatId,language);return {device:speech.device};
   },
+  dictationAudio({id,bytes,owner}){if(!(bytes instanceof Uint8Array))throw Error('Invalid dictation audio.');speech.audio(String(id),owner,bytes);},
+  dictationFinish({id,owner}){speech.finish(String(id),owner);},
+  dictationCancel({id,owner}){speech.cancel(String(id),owner);},
   async routineSave(input){
     const routine=readRoutine(input);if(!store.all<Chat>('chat').some(chat=>chat.id===routine.chatId&&!chat.archived&&!chat.parentChatId))throw Error('Choose a chat for the routine.');
     const before=input?.id?store.get<Routine>('routine',input.id):undefined,id=before?.id||randomUUID();

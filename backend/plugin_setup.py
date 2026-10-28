@@ -234,7 +234,7 @@ def check_runtime(home, runtime):
 
 
 # Feature versions and their full wheel closure are locked beside this file.
-FEATURES = {'telegram': 'telegram-requirements.txt', 'speech': 'speech-requirements.txt'}
+FEATURES = {'telegram': 'telegram-requirements.txt', 'speech': 'speech-requirements.txt', 'speech-gpu': 'speech-gpu-requirements.txt'}
 
 
 def feature_specs(features):

@@ -156,7 +156,7 @@ export function settleRemote(){
 export function remoteRow(){return store.all<any>('settings').find(row=>row.id==='remote');}
 export function remoteSettings(){return readRemote(remoteRow());}
 export function remoteSave(patch:any){store.put('settings',{...remoteRow(),id:'remote',...patch});}
-export function featureInstalled(feature:'telegram'|'speech'){
+export function featureInstalled(feature:'telegram'|'speech'|'speech-gpu'){
   const runtime=pluginRuntime() as any,pins=featureWheels.packages as Record<string,{version:string}>;
   return !!runtime?.features?.includes(feature)&&featureWheels.features[feature].every(name=>runtime.packages?.some((pkg:any)=>pkg.name.toLowerCase().replace(/[-_.]+/g,'-')===name&&pkg.version===pins[name].version));
 }

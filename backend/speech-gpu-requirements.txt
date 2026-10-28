@@ -1,0 +1,5 @@
+# Dictation on an NVIDIA graphics card (R4): CUDA 12 cuBLAS and cuDNN 9, the libraries the speech feature's
+# ctranslate2 4.8 loads for its CUDA build. Installed only on the Voice page's graphics card click, with the speech
+# feature, from the wheels pinned by URL and SHA256 in feature-wheels.json. 1.3 GB.
+nvidia-cublas-cu12==12.8.4.1
+nvidia-cudnn-cu12==9.10.2.21

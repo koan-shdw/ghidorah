@@ -39,10 +39,22 @@ export async function configure(project?:Project) {
   if(project&&!project.folder)await fs.mkdir(workingDirectory(project),{recursive:true});
   await writePolicy(project);
 }
+// A new chat appears at once; its profile is written in the background (about 0.2 s of copying on Koan's PC) and is
+// always finished before its first session starts. A failed write is tried again then, so its error reaches the chat.
+const configuring=new Map<string,Promise<void>>();
+export function configureSoon(project:Project){
+  const run=configure(project).then(()=>{if(configuring.get(project.id)===run)configuring.delete(project.id);});
+  run.catch(()=>{});configuring.set(project.id,run);
+}
+async function configured(project:Project){
+  const run=configuring.get(project.id);if(!run)return;
+  await run.catch(async()=>{await configure(project);configuring.delete(project.id);});
+}
 export async function session(chat:Chat,model=chat.model,signal?:AbortSignal){
   signal?.throwIfAborted();
   if(chat.runtimeId)return chat.runtimeId;
   const p=projectFor(chat);let result:any;
+  await configured(p);signal?.throwIfAborted();
   if(chat.storedId){
     try{result=await backend.rpc.request('session.resume',{profile:p.profile,session_id:chat.storedId,source:'desktop',close_on_disconnect:false},30000,signal);}
     catch(error){

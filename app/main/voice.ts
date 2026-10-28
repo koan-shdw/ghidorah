@@ -2,7 +2,7 @@
 import whisperModels from '../../backend/whisper-models.json';
 import {readChatLayout} from '../chat-layout';
 import {liveVoiceSettings} from '../gemini-voice-settings';
-import {backend,chatWindows,closeWakeCapture,jobWindows,namespace,openVoice,store,voiceDesk,voiceFront,voiceListenOnOpen,voiceMainChat,voiceMethods,voiceWindow,wakeArmed,wakeFailure,wakeFault,wakeInstall,wakeStatus,win,workspaceWindows} from '../main';
+import {backend,chatWindows,pluginRuntime,closeWakeCapture,jobWindows,namespace,openVoice,store,voiceDesk,voiceFront,voiceListenOnOpen,voiceMainChat,voiceMethods,voiceWindow,wakeArmed,wakeFailure,wakeFault,wakeInstall,wakeStatus,win,workspaceWindows} from '../main';
 import {providerFor} from '../models';
 import {savedSpeechVoices} from '../speech-voices';
 import type {Chat,Turn} from '../types';
@@ -15,7 +15,7 @@ export function voiceRow(){return store.all<any>('settings').find(row=>row.id===
 export function voiceSettings(){
   const models=Object.entries(whisperModels as Record<string,{test?:boolean}>).filter(([,model])=>!model.test||namespace.startsWith('Trismegistus/Test/')).map(([name])=>name),row=voiceRow();
   const helperModels=availableModels().filter(model=>providerFor(model)!=='claude-code');
-  return {...liveVoiceSettings(row),helperModel:helperModels.includes(row.helperModel)?row.helperModel:helperModels.includes('deepseek-flash')?'deepseek-flash':helperModels[0]||'',helperModels,...savedSpeechVoices(row),echoDelay:Number.isFinite(row.echoDelay)?Math.max(300,Math.min(3000,row.echoDelay)):800,threshold:Number.isFinite(row.threshold)?Math.max(.001,Math.min(.2,row.threshold)):.015,silenceMs:Number.isFinite(row.silenceMs)?Math.max(240,Math.min(2000,row.silenceMs)):640,sttModel:models.includes(row.sttModel)?row.sttModel as string:'large-v3',installed:(Array.isArray(row.installed)?row.installed:[]).filter((name:string)=>models.includes(name)) as string[],models};
+  return {...liveVoiceSettings(row),helperModel:helperModels.includes(row.helperModel)?row.helperModel:helperModels.includes('deepseek-flash')?'deepseek-flash':helperModels[0]||'',helperModels,...savedSpeechVoices(row),echoDelay:Number.isFinite(row.echoDelay)?Math.max(300,Math.min(3000,row.echoDelay)):800,threshold:Number.isFinite(row.threshold)?Math.max(.001,Math.min(.2,row.threshold)):.015,silenceMs:Number.isFinite(row.silenceMs)?Math.max(240,Math.min(2000,row.silenceMs)):640,sttModel:models.includes(row.sttModel)?row.sttModel as string:'large-v3-turbo',installed:(Array.isArray(row.installed)?row.installed:[]).filter((name:string)=>models.includes(name)) as string[],models};
 }
 export async function freeVoiceKey(){
   const settings=voiceSettings();if(!settings.freeKeySaved||!settings.freeTierConfirmed)throw Error('Add a Google Free tier key in Settings → Voice.');
@@ -56,3 +56,6 @@ export function wakeDetected(){
 }
 export function speechInstalled(){return featureInstalled('speech');}
 export function speechReady(){const voice=voiceSettings();return speechInstalled()&&voice.installed.includes(voice.sttModel);}
+// The speech worker's identity: a new model or runtime starts a fresh worker.
+export function speechKey(){return JSON.stringify({model:voiceSettings().sttModel,runtime:pluginRuntime()});}
+export function speechGpuInstalled(){return featureInstalled('speech-gpu');}

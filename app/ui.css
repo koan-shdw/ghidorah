@@ -68,7 +68,7 @@ main{display:flex;flex:1;min-width:0;flex-direction:column}
 .composer-box textarea{display:block;width:100%;min-width:0;resize:none;min-height:44px;max-height:220px;background:transparent;border:0;outline:none;padding:2px 4px 8px;line-height:1.5}
 .composer-box textarea::placeholder{color:var(--muted)}
 .composer-toolbar{display:flex;gap:10px;align-items:flex-end}
-.composer-tools{display:flex;flex:1;min-width:0;align-items:center;flex-wrap:wrap;gap:var(--space-1)}
+.composer-tools{position:relative;display:flex;flex:1;min-width:0;align-items:center;flex-wrap:wrap;gap:var(--space-1)}
 .composer-tools>button{display:inline-grid;place-items:center;width:var(--h-lg);min-height:var(--h-lg);padding:0;margin:0;border:0;border-radius:var(--r);color:var(--muted)}
 .composer-tools>button:hover,.composer-tools>button[aria-expanded=true]{color:var(--text);background:var(--raised)}
 .composer-tools .sidebar-icon{width:var(--icon-lg);height:var(--icon-lg);flex:0 0 var(--icon-lg)}
@@ -228,6 +228,7 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .model-remove:hover{color:var(--text)}
 .welcome-art{flex-shrink:1;max-width:100%;max-height:55vh;margin:0 0 24px;font-family:var(--font-mono);font-size:var(--fs-art);white-space:pre;overflow:visible}
 .welcome-art-fallback{font-size:var(--fs-display);color:var(--accent);margin-bottom:24px}
+.welcome-art-frame{display:contents}
 .pool-variant{display:block;color:var(--muted);font-size:var(--fs-meta);text-align:left;margin-top:3px}
 .mcp-settings{border-top:1px solid var(--line);margin-top:24px;padding-top:10px}
 .mcp-settings textarea{width:100%;min-height:72px;resize:vertical;background:var(--bg);border:1px solid var(--line);border-radius:var(--r);padding:9px;font:var(--fs-ui)/1.5 var(--font-mono)}
@@ -456,7 +457,17 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .wizard-summary li .hint{flex:1;min-width:180px}
 .wizard h2:focus{outline:none}
 .dictation-trigger.recording{color:var(--danger)}
+.composer-tools>.dictation-trigger.connecting,.composer-tools>.dictation-trigger.finishing{color:var(--text);animation:dictation-wait 1s ease-in-out infinite alternate}
+@keyframes dictation-wait{from{opacity:.45}to{opacity:1}}
+.composer-tools>.dictation-done{color:var(--text)}
+.composer-tools>.dictation-done:not(:disabled){background:var(--raised)}
 .dictation-error{font-size:var(--fs-meta);color:var(--danger);margin-left:6px}
+.dictation-error strong{font-weight:600}
+.dictation-error button{margin-left:6px;font-size:var(--fs-meta);padding:2px 8px;border:1px solid var(--line);border-radius:var(--r);color:var(--text)}
+.dictation-menu{position:absolute;bottom:calc(100% + 6px);left:0;z-index:var(--z-menu-top);display:grid;gap:10px;min-width:260px;padding:12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-menu);font-size:var(--fs-ui)}
+.dictation-menu label{display:grid;gap:4px;color:var(--muted)}
+.dictation-menu select{color:var(--text)}
+.dictation-menu .dictation-hold{display:flex;align-items:center;gap:8px;color:var(--text)}
 /* The window owns one drag strip; the controls below remain interactive. */
 .app-frame{height:100vh;display:flex;flex-direction:column;overflow:hidden}
 .app-titlebar{height:38px;flex-shrink:0;display:flex;align-items:center;justify-content:flex-start;gap:9px;padding:0 140px 0 16px;border-bottom:1px solid var(--line);background:var(--side);color:var(--text);font-size:var(--fs-ui);-webkit-app-region:drag;user-select:none}
@@ -469,7 +480,8 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .model-row>.model-add,.model-row>.model-disclosure{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);flex-shrink:0;min-height:var(--h);border:1px solid var(--line);border-radius:var(--r-pill);color:var(--muted);padding:0 var(--space-5);white-space:nowrap}
 .model-row>.model-add .sidebar-icon,.model-row>.model-disclosure .sidebar-icon{width:var(--icon-sm);height:var(--icon-sm);flex-basis:var(--icon-sm)}
 .model-row>.model-disclosure{width:var(--h);padding:0}
-.composer-tools>.dictation-trigger.recording{border-color:var(--danger);color:var(--danger);background:color-mix(in srgb,var(--danger) 7%,transparent)}
+/* The mic glows with your voice while it listens (Claude's audio level). */
+.composer-tools>.dictation-trigger.recording{border-color:var(--danger);color:var(--danger);background:color-mix(in srgb,var(--danger) 7%,transparent);box-shadow:0 0 0 calc(var(--level) * 5px) color-mix(in srgb,var(--danger) 28%,transparent);transition:box-shadow 80ms linear}
 .app-titlebar .app-mark{width:25px;height:25px;display:block;object-fit:contain;flex:none}
 .app-titlebar strong{font-weight:600;pointer-events:none}
 .app-titlebar .dev-tag{padding:0 var(--space-2);border:1px solid var(--accent);border-radius:var(--r-sm);color:var(--accent);font-size:var(--fs-meta);font-weight:600;pointer-events:none}

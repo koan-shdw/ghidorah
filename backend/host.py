@@ -20,7 +20,7 @@ def main():
     import windows_credentials as vault
     target = request['credential_namespace']
     operation = request['operation']
-    if operation in ('plugin_review', 'plugin_convert', 'skills_browse', 'skill_review', 'plugin_runtime_prepare', 'speech_model_install', 'speech_check', 'transcribe', 'voice_speech', 'voice_helper', 'wake_model_install', 'web_research', 'app_watch', 'workspace_git_action', 'document_render', 'document_preview', 'image_generate','chat_export'):
+    if operation in ('plugin_review', 'plugin_convert', 'skills_browse', 'skill_review', 'plugin_runtime_prepare', 'speech_model_install', 'speech_check', 'transcribe', 'speech_stream', 'voice_speech', 'voice_helper', 'wake_model_install', 'web_research', 'app_watch', 'workspace_git_action', 'document_render', 'document_preview', 'image_generate','chat_export'):
         parent_guard()
     codex_test=os.environ.get('TRISMEGISTUS_TEST_CODEX_URL')
     if codex_test:
@@ -299,6 +299,19 @@ def main():
         # Dictation and the local voice (R4, 8): the chosen whisper model, pinned and hash-checked, on Install only.
         from speech_models import install
         print(json.dumps({'directory': install(Path(os.environ['HERMES_HOME']).parent, request['model'])}))
+    elif operation == 'speech_stream':
+        # Dictation (R4): one model kept loaded for live text, Claude's way. Main's end of stdin closing ends it.
+        from plugin_setup import check_runtime
+        runtime = check_runtime(os.environ['HERMES_HOME'], request.get('runtime'))
+        if runtime:
+            from tools.lazy_deps import _activate_target_on_syspath
+            _activate_target_on_syspath(runtime)
+        from speech_models import verified
+        import speech_stream
+        folder = verified(Path(os.environ['HERMES_HOME']).parent, request['model'])
+        model, device, cards, problem = speech_stream.open_model(folder, runtime)
+        speech_stream.emit(type='ready', device=device, cards=cards, problem=problem)
+        speech_stream.run(model, sys.stdin.buffer)
     elif operation in ('transcribe', 'speech_check'):
         # Dictation (R4): Hermes's own local transcription, with the runtime folder on the path as serve has it.
         from plugin_setup import check_runtime

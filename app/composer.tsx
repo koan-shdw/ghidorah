@@ -2,7 +2,7 @@ import './attachment-thumbnails.css';
 import {linkedClipboardText} from './clipboard-text';
 import {ChatFilesButton} from './chat-files-panel';
 import {FileMentions} from './file-mentions';
-import {DictationButton} from './dictation';
+import {DictationControls,useDictation} from './dictation';
 import {SidebarIcon} from './kit';
 import React,{useEffect,useId,useRef,useState} from 'react';
 import type {Attachment,ChatCommand} from './types';
@@ -24,8 +24,9 @@ export function AttachmentImage({item,chatId=item.chatId,busy=false,remove}:{ite
  </div>;
 }
 
-export function Composer({voice,draft,commands=[],inputRef,disabled,sendError,busy,working,change,submit,stop,plugins,attachments=[],attaching=false,attach,remove,dictate,dictationOwner}:{voice?:()=>void;dictationOwner?:string;dictate?:(bytes:Uint8Array,mime:string,signal:AbortSignal)=>Promise<string>;attaching?:boolean;attachments?:Attachment[];attach:(files:File[])=>void;remove:(id:string)=>void;draft:string;commands?:ChatCommand[];inputRef:React.RefObject<HTMLTextAreaElement|null>;disabled:boolean;sendError?:string|null;busy:boolean;working:boolean;change:(text:string)=>void;submit:()=>void;stop:()=>void;plugins:()=>void}){
+export function Composer({voice,draft,commands=[],inputRef,disabled,sendError,busy,working,change,submit,stop,plugins,attachments=[],attaching=false,attach,remove,dictationChat}:{voice?:()=>void;dictationChat?:string;attaching?:boolean;attachments?:Attachment[];attach:(files:File[])=>void;remove:(id:string)=>void;draft:string;commands?:ChatCommand[];inputRef:React.RefObject<HTMLTextAreaElement|null>;disabled:boolean;sendError?:string|null;busy:boolean;working:boolean;change:(text:string)=>void;submit:()=>void;stop:()=>void;plugins:()=>void}){
  const id=useId(),commandId=id+'-commands',mentionId=id+'-mentions';
+ const dictation=useDictation({chatId:dictationChat||'',draft,change,input:inputRef});
  const [mentionIndex,setMentionIndex]=useState<number|null>(null);
  const files=useRef<HTMLInputElement>(null);
  const root=useRef<HTMLDivElement>(null),list=useRef<HTMLDivElement>(null);
@@ -79,10 +80,10 @@ export function Composer({voice,draft,commands=[],inputRef,disabled,sendError,bu
   {attachments.length>0&&<div className="attachments" aria-label="Draft attachments">{attachments.map(item=>item.kind==='image'?<AttachmentImage key={item.id} item={item} busy={busy} remove={remove}/>:<span className="attachment" key={item.id} title={item.name}><span>{item.kind==='pdf'?'PDF':item.kind==='video'?'▶':'▤'}</span><span>{item.name}</span><small>{item.pages?item.pages+' pages':item.size<1024?item.size+' B':Math.ceil(item.size/1024)+' KB'}</small><button aria-label={'Remove '+item.name} disabled={busy} onClick={()=>remove(item.id)}>×</button></span>)}</div>}
   <input ref={files} type="file" multiple hidden disabled={disabled||busy} aria-label="Choose attachments" onChange={event=>{attach(Array.from(event.target.files||[]));event.target.value='';}}/>
   <div className="composer-box">
-   <textarea ref={inputRef} role="combobox" aria-label="Message" aria-autocomplete="list" aria-expanded={open||mentionIndex!==null} aria-controls={mentionIndex!==null?mentionId:open?commandId:undefined} aria-activedescendant={mentionIndex!==null&&mentionIndex>=0?mentionId+'-'+mentionIndex:open&&selected>=0?commandId+'-'+selected:undefined} aria-multiline="true" placeholder="Message" value={draft} disabled={disabled} onFocus={()=>setFocused(true)} onSelect={event=>setCaret(event.currentTarget.selectionStart)} onChange={event=>{setDismissed(false);setBrowsing(false);setCaret(event.target.selectionStart);change(event.target.value);}} onPaste={paste} onKeyDown={keydown}/>
+   <textarea ref={inputRef} role="combobox" aria-label="Message" aria-autocomplete="list" aria-expanded={open||mentionIndex!==null} aria-controls={mentionIndex!==null?mentionId:open?commandId:undefined} aria-activedescendant={mentionIndex!==null&&mentionIndex>=0?mentionId+'-'+mentionIndex:open&&selected>=0?commandId+'-'+selected:undefined} aria-multiline="true" placeholder={dictation.placeholder||'Message'} value={draft} disabled={disabled} readOnly={dictation.phase!=='idle'} onFocus={()=>{setFocused(true);if(dictationChat)dictation.focus();}} onSelect={event=>setCaret(event.currentTarget.selectionStart)} onChange={event=>{setDismissed(false);setBrowsing(false);setCaret(event.target.selectionStart);change(event.target.value);}} onPaste={paste} onKeyDown={event=>{if(!dictation.key(event))keydown(event);}}/>
    <div className="composer-toolbar"><div className="composer-tools">
     <button type="button" className="attachment-trigger" aria-label="Attach files" title="Attach images, PDFs or text files · drop or paste" disabled={disabled||busy} onClick={()=>files.current?.click()}><SidebarIcon name="attach"/></button>
-    {dictate&&<>{voice&&<button type="button" aria-label="Open voice" title="Voice helper" disabled={disabled} onClick={voice}><SidebarIcon name="voice"/></button>}<DictationButton key={dictationOwner} disabled={disabled||busy} dictate={dictate} insert={text=>change(draft.trim()?draft.replace(/\s*$/,' ')+text:text)}/></>}
+    {dictationChat&&<>{voice&&<button type="button" aria-label="Open voice" title="Voice helper" disabled={disabled} onClick={voice}><SidebarIcon name="voice"/></button>}<DictationControls dictation={dictation} disabled={disabled||busy}/></>}
     <button type="button" className="command-trigger" aria-label="Browse skills and commands" aria-expanded={open} aria-controls={commandId} disabled={disabled} title="Skills and commands" onClick={()=>{const next=!open;setBrowsing(next);setDismissed(!next);inputRef.current?.focus();}}><SidebarIcon name="slash"/></button>
    </div><button type="button" className="send" aria-label={working&&!draft&&!attachments.length?'Stop':working?'Queue message':'Send'} title={working&&!draft&&!attachments.length?'Stop':sendError|| (working?'Queue message · Enter':'Send · Enter')} disabled={disabled||busy||!!sendError&&!(working&&!draft&&!attachments.length)} onClick={()=>working&&!draft&&!attachments.length?stop():submit()}><SidebarIcon name={working&&!draft&&!attachments.length?'stop':'send'}/></button></div>
   </div>

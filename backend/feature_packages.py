@@ -54,7 +54,9 @@ def install(target, specs, features):
                                     '--index-url', 'https://pypi.org/simple', '--retries', '2', '--timeout', '30',
                                     '--target', str(target), '--constraint', str(constraints),
                                     '--requirement', str(requirement_file),
-                                    '--report', str(target / 'install-receipt.json')], env=env, timeout=600)
+                                    '--report', str(target / 'install-receipt.json')], env=env,
+                                   # The graphics card libraries are 1.3 GB on their own.
+                                   timeout=2400 if 'speech-gpu' in features else 600)
     finally:
         constraints.unlink(missing_ok=True)
     if result is None or result.returncode:
