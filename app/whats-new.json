@@ -170,5 +170,10 @@
     "Settings has one button: the cog at the bottom of the left rail. The Settings row with its second cog is gone.",
     "Remote: the One topic per chat switch in Settings works again, and the topic error tells you to tap Start in your bot's Telegram chat.",
     "Claude models: a short startup list no longer hides Fable."
+  ]},
+  {"version":"0.1.36","date":"2026-10-28","notes":[
+    "Dictation works like Claude's: tap the mic or press Ctrl+D to start and again to finish, or hold either and let go. Your words appear live where the cursor was. X or Esc cancels, the check or Enter finishes without sending. Right-click the mic for microphone, language and Hold to record.",
+    "Dictation is much faster: the speech model stays loaded, and Whisper Large v3 Turbo is the new recommended model (Settings, Voice, Install speech). With an NVIDIA graphics card, Settings, Voice offers Use graphics card for many times faster dictation.",
+    "New chats open at once: the Ghidorah artwork is ready ahead of time, with no placeholder first."
   ]}
 ]
