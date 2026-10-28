@@ -82,6 +82,7 @@
           "gliner-model.json",
           "telegram-requirements.txt",
           "speech-requirements.txt",
+          "speech-gpu-requirements.txt",
           "whisper-models.json",
           "wake-model.json",
           "feature-wheels.json"
