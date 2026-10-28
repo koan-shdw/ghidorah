@@ -28,8 +28,8 @@ export function remoteSent(seq:number,ok:boolean,messageId?:string){
     else{
       // Usually Threaded Mode is off for the bot. Stop making topics until the switch is turned off and on.
       store.update<TopicRecord>('remote-topic',row.topicChat,{status:'failed'});
-      remoteSave({topicError:'Telegram did not make a topic for a new chat. In BotFather, open your bot, Bot Settings, Threads Settings, and turn on Threaded Mode. Then turn "One topic per chat" off and on.'});
-      remoteAlert('Telegram topic not made','Turn on Threaded Mode for your bot in BotFather.');
+      remoteSave({topicError:'Telegram did not make a topic for a new chat. Open your bot’s chat in Telegram and tap Start, and in BotFather turn on Threaded Mode (your bot, Bot Settings, Threads Settings). Then turn "One topic per chat" off and on.'});
+      remoteAlert('Telegram topic not made','Tap Start in your bot’s Telegram chat and turn on Threaded Mode in BotFather.');
     }
   }
   if(shown?.seq===seq&&row.approvalId===shown.approvalId){
