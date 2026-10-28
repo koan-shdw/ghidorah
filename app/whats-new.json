@@ -175,5 +175,10 @@
     "Dictation works like Claude's: tap the mic or press Ctrl+D to start and again to finish, or hold either and let go. Your words appear live where the cursor was. X or Esc cancels, the check or Enter finishes without sending. Right-click the mic for microphone, language and Hold to record.",
     "Dictation is much faster: the speech model stays loaded, and Whisper Large v3 Turbo is the new recommended model (Settings, Voice, Install speech). With an NVIDIA graphics card, Settings, Voice offers Use graphics card for many times faster dictation.",
     "New chats open at once: the Ghidorah artwork is ready ahead of time, with no placeholder first."
+  ]},
+  {"version":"0.1.37","date":"2026-10-28","notes":[
+    "Updates and restarts never make your connections look gone: suppliers, DeepSeek, ChatGPT and Claude show as they were, marked Checking..., until their checks answer.",
+    "Ghidorah starts faster: chat project folders refresh in the background instead of before the backend starts.",
+    "Updates put back any Ghidorah shortcut the installer removes, such as the desktop shortcut."
   ]}
 ]
