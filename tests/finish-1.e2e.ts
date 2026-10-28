@@ -22,7 +22,7 @@ const realBefore=startup('Ghidorah');
 let app:ElectronApplication=await launch(fixture),page:Page;
 const call=(method:string,args:any={})=>page.evaluate(({method,args})=>window.desktop.invoke(method,args),{method,args});
 const wait=async(predicate:(s:any)=>boolean)=>{const end=Date.now()+90000;while(Date.now()<end){const s=await call('state');if(predicate(s))return s;await page.waitForTimeout(150);}throw Error('Timed out: '+JSON.stringify(await call('state')));};
-const settings=async(name:string)=>{if(!await page.getByRole('dialog',{name:'Settings'}).count())await page.locator('.settings-link').click();await page.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name,exact:true}).click();};
+const settings=async(name:string)=>{if(!await page.getByRole('dialog',{name:'Settings'}).count())await page.locator('.rail-settings').click();await page.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name,exact:true}).click();};
 // Claude Code lives in Connections > Anthropic; opens that panel.
 const anthropic=async()=>{await settings('Connections');const panel=page.locator('details.supplier-pill').filter({has:page.locator('summary strong',{hasText:/^Anthropic$/})});if(!await panel.evaluate(element=>(element as HTMLDetailsElement).open))await panel.locator('summary').click();return panel;};
 try{

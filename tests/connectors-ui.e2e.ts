@@ -20,7 +20,7 @@ try{
  await pollState(page,s=>s.backend==='ready'&&!!s.claude?.connected);await call('wizardFinish');await call('workingFolder',{folder});await call('addProject');
  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>!w.webContents.getURL().includes('#'))!.setSize(1280,940));
  if(await page.getByLabel('Close settings',{exact:true}).isVisible())await page.getByLabel('Close settings',{exact:true}).click();
- await page.locator('.settings-link').click();const dialog=page.getByRole('dialog',{name:'Settings',exact:true}),body=dialog.locator('.settings-body');
+ await page.locator('.rail-settings').click();const dialog=page.getByRole('dialog',{name:'Settings',exact:true}),body=dialog.locator('.settings-body');
  await dialog.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name:'Connections',exact:true}).click();await page.locator('[data-settings-page="connections"]').waitFor();
  const top=(locator:any)=>locator.evaluate((el:Element)=>el.scrollIntoView({block:'start'})),section=page.locator('section.mcp-settings');
  const panel=(name:string)=>body.locator('details.supplier-pill').filter({has:page.locator('summary strong',{hasText:new RegExp('^'+name+'$')})}).first();

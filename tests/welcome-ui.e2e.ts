@@ -17,7 +17,7 @@ try{
  const bounds=await art.boundingBox(),area=await page.locator('.empty').boundingBox();assert.ok(bounds&&area);
  assert.ok(Math.abs(bounds.x+bounds.width/2-(area.x+area.width/2))<2,'artwork centred horizontally');
  await page.screenshot({path:path.join(root,'work','welcome-pe-red.png')});
- await page.locator('.settings-link').click();await page.getByLabel('Opening artwork font',{exact:true}).selectOption('PE Cyan');await page.keyboard.press('Escape');
+ await page.locator('.rail-settings').click();await page.getByLabel('Opening artwork font',{exact:true}).selectOption('PE Cyan');await page.keyboard.press('Escape');
  await page.waitForFunction(()=>document.querySelector('.welcome-art')?.getAttribute('data-font')==='PE Cyan'&&document.querySelectorAll('.welcome-art text[fill="#55FFFF"]').length>0);
  await page.reload();await page.getByRole('dialog',{name:'Settings',exact:true}).waitFor();await page.keyboard.press('Escape');await art.waitFor();assert.equal(await art.getAttribute('data-font'),'PE Cyan');
  await assert.rejects(page.evaluate(()=>window.desktop.invoke('artFont',{font:'../../secret'})),/Unknown artwork font/);

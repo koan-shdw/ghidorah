@@ -36,7 +36,7 @@ try{
  const remote=()=>section().locator('details[data-mcp-id]').filter({has:page.locator('summary strong',{hasText:'OAuth fixture'})});
  await remote().locator('summary').click();await remote().getByRole('button',{name:'Sign in',exact:true}).click();await remote().getByText('Connected',{exact:true}).waitFor();assert.equal(fixture.observed.exchanges,1);
  await page.screenshot({path:path.join(root,'work','mcp-connections.png')});
- await page.keyboard.press('Escape');await page.locator('.settings-link').click();await page.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name:'MCP',exact:true}).click();await section().getByText('OAuth fixture',{exact:true}).waitFor();
+ await page.keyboard.press('Escape');await page.locator('.rail-settings').click();await page.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name:'MCP',exact:true}).click();await section().getByText('OAuth fixture',{exact:true}).waitFor();
  await instance.evaluate(({app})=>app.quit());await instance.close();
  instance=await launch();page=await instance.firstWindow();page.setDefaultTimeout(25000);await page.getByRole('dialog',{name:'Settings',exact:true}).waitFor();await page.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name:'MCP',exact:true}).click();
  await remote().locator('summary').click();await remote().getByRole('button',{name:'Test connection',exact:true}).click();await remote().getByText('Connected',{exact:true}).waitFor();assert.equal(fixture.observed.exchanges,1);

@@ -38,7 +38,7 @@ try{
  const done=async(id:string,status='completed')=>{const s=await wait(s=>s.turns.some((t:any)=>t.id===id&&['completed','failed','interrupted','stopped','needs-model'].includes(t.status)));const t=s.turns.find((t:any)=>t.id===id);assert.equal(t.status,status,t.error);return t;};
  await ready();assert.equal((await call('state')).jev.connected,false);assert.equal(requests.length,0);
  await call('workingFolder',{folder});const a=await call('addProject'),b=await call('addProject');for(const chatId of [a,b])for(const model of ['gpt-6-astra','claude-code:haiku'])await call('addModel',{chatId,model});
- if(!await page.getByRole('dialog').count())await page.locator('.settings-link').click();
+ if(!await page.getByRole('dialog').count())await page.locator('.rail-settings').click();
  await page.getByLabel('Settings sections').getByRole('button',{name:'Connections',exact:true}).click();
  await page.locator('details.supplier-pill').filter({has:page.locator('summary strong',{hasText:'TypeSafe'})}).locator(':scope > summary').click();
  await page.getByLabel('Jev API key').fill('synthetic-jev-regression-credential');await page.getByRole('button',{name:'Save Jev connection',exact:true}).click();await wait(s=>s.jev.status==='Connected');

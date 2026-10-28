@@ -35,7 +35,7 @@ try{
  // The window stays hidden (it never takes his screen); hidden windows can stop drawing, so buttons get a dispatched
  // click (the same handler a real click reaches).
  // 1. Setup from Settings: signs in, makes the notes database, stages and deploys, proves a test note comes back.
- await page.locator('.settings-link').dispatchEvent('click');const dialog=page.getByRole('dialog',{name:'Settings',exact:true});
+ await page.locator('.rail-settings').dispatchEvent('click');const dialog=page.getByRole('dialog',{name:'Settings',exact:true});
  await dialog.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name:'Share with clients',exact:true}).dispatchEvent('click');
  await page.locator('[data-settings-page="sharing"]').waitFor();assert.match(await dialog.locator('.settings-body').innerText(),/In the future you can publish work in progress and send it to people for notes/);
  await dialog.getByRole('button',{name:'Set it up',exact:true}).dispatchEvent('click');

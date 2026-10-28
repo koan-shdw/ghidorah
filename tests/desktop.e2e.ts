@@ -15,7 +15,7 @@ try{
  await page.screenshot({path:path.join(root,'work','desktop-start.png')});
  assert.equal(state.backend,'ready',state.providerStatus);
  await page.getByRole('img',{name:'Ghidorah',exact:true}).waitFor();
- if(!await page.getByRole('dialog').count())await page.locator('.settings-link').click();
+ if(!await page.getByRole('dialog').count())await page.locator('.rail-settings').click();
  assert.equal(await page.getByLabel('DeepSeek API key').count(),1);
  await page.screenshot({path:path.join(root,'work','desktop-settings.png')});
  await page.keyboard.press('Escape');

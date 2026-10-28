@@ -19,7 +19,7 @@ try{
  await wait(s=>s.claude?.models?.length);await call('wizardFinish');
  const closeSettings=page.getByRole('button',{name:'Close settings',exact:true});if(await closeSettings.isVisible())await closeSettings.click();
  const chatId=await call('newChat');await page.locator('[data-chat-id="'+chatId+'"] .chat-link').click();
- await call('voiceSettings',{sttModel:'tiny'});await page.locator('.settings-link').click();await page.getByRole('button',{name:'Voice',exact:true}).click();
+ await call('voiceSettings',{sttModel:'tiny'});await page.locator('.rail-settings').click();await page.getByRole('button',{name:'Voice',exact:true}).click();
  await page.getByRole('button',{name:'Install speech',exact:true}).click();await wait(s=>s.voice.installing||s.voice.ready);
  await assert.rejects(call('remoteInstall'),/current install/);
  await assert.rejects(call('voiceSettings',{sttModel:'small'}),/speech install/);

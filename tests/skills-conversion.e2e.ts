@@ -38,7 +38,7 @@ try{
  const submit=async(chatId:string,text:string,model='deepseek-flash')=>{await call('modelSelection',{chatId,model,selected:true});const id=crypto.randomUUID();await call('submit',{id,chatId,text});return id;};
  const done=async(id:string)=>{const state=await wait(state=>state.turns.some((turn:any)=>turn.id===id&&['completed','interrupted'].includes(turn.status)));const turn=state.turns.find((turn:any)=>turn.id===id);assert.equal(turn.status,'completed',turn.error);return turn;};
  const send=async(chatId:string,text:string,model='deepseek-flash')=>done(await submit(chatId,text,model));
- const inspect=async()=>{await page.locator('.settings-link').click();await page.getByRole('navigation',{name:'Settings sections',exact:true}).getByRole('button',{name:'Plugins',exact:true}).click();};
+ const inspect=async()=>{await page.locator('.rail-settings').click();await page.getByRole('navigation',{name:'Settings sections',exact:true}).getByRole('button',{name:'Plugins',exact:true}).click();};
  await send(a,'Before conversion');await inspect();await page.getByText('Installed in Claude Code',{exact:true}).click();await page.getByRole('button',{name:'Convert example',exact:true}).click();
  const review=page.getByRole('region',{name:'Plugin review',exact:true});await review.getByText('This code can use all your keys.',{exact:true}).waitFor({timeout:90000});
  assert.match(await review.innerText(),/allowed-tools/);assert.match(await review.innerText(),/agents: remains native/);assert.match(await review.innerText(),/hooks: remains native/);

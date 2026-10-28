@@ -42,7 +42,7 @@ try{
  await page.getByLabel('Open files',{exact:true}).click();await page.locator('.workspace-files button').filter({hasText:'index.html'}).click();
  await browserButton(page.locator('.editor-toolbar'));await page.locator('.editor-toolbar').getByRole('button',{name:'Preview in app',exact:true}).click();
  await aligned(page);
- await page.locator('.settings-link').click();await page.getByLabel('Text size',{exact:true}).selectOption('1.25');await page.getByLabel('Close settings',{exact:true}).click();
+ await page.locator('.rail-settings').click();await page.getByLabel('Text size',{exact:true}).selectOption('1.25');await page.getByLabel('Close settings',{exact:true}).click();
  await aligned(page);
  await app.evaluate(async({webContents})=>{await webContents.getAllWebContents().find(w=>w.getURL().startsWith('tris-preview:'))!.executeJavaScript('location.href="next.html?mode=wide#section";true');});
  await page.waitForTimeout(500);
@@ -53,7 +53,7 @@ try{
  await assert.rejects(popped.evaluate(()=>window.desktop.invoke('previewBrowser',{chatId:'foreign',file:'index.html'})),/another chat/);
  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('#workspace='))!.setSize(950,700));await aligned(popped);
  const closed=popped.waitForEvent('close');await popped.getByRole('button',{name:'Return to main window',exact:true}).click();await closed;await aligned(page);
- await page.locator('.settings-link').click();await page.getByLabel('Text size',{exact:true}).selectOption('1.5');await page.getByLabel('Close settings',{exact:true}).click();await aligned(page);
+ await page.locator('.rail-settings').click();await page.getByLabel('Text size',{exact:true}).selectOption('1.5');await page.getByLabel('Close settings',{exact:true}).click();await aligned(page);
  await page.screenshot({path:path.join(data,'preview-150.png')});
  const detachedOpening=app.waitForEvent('window');await call('openChatWindow',{chatId});const detached=await detachedOpening;await detached.waitForLoadState();await detached.getByLabel('Open preview',{exact:true}).click();await detached.getByRole('button',{name:'Reopen',exact:true}).click();await aligned(detached);await browserButton(detached.locator('.preview-toolbar'));
  console.log('PASS preview bounds at 100%, 125%, 150%, resizing and detached windows; both controls and real Edge rendering with styles, images and scripts');

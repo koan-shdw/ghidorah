@@ -49,7 +49,7 @@ try{
  await call('decisionEngine',{engine:'glide'});s=await call('state');assert.equal(s.decisionEngine.selected,'glide');assert.equal(s.decisionEngine.connected,false);
  turn=await send(chat,'And this one?');assert.equal(turn.routingUsage,undefined,'an unset picker falls back to the plain choice');assert.equal(turn.model,'gpt-6-astra','the last model answers');
  assert.equal(asked.length,1);
- if(!await page.getByRole('dialog',{name:'Settings'}).count())await page.locator('.settings-link').click();
+ if(!await page.getByRole('dialog',{name:'Settings'}).count())await page.locator('.rail-settings').click();
  await page.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name:'Connections',exact:true}).click();
  const list=page.getByRole('list',{name:'Pickers',exact:true});await list.waitFor();
  assert.deepEqual(await list.locator('li strong').allInnerTexts(),['Jev · TypeSafe','Kev · Local','Fastino GLiDE','GLiNER2.5-Decide · Local','Not Diamond']);

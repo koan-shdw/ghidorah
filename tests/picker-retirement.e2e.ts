@@ -16,7 +16,7 @@ try{
  app=await launch();page=await mainWindow(app);const state=await pollState(page,s=>s.backend==='ready'&&s.availableModels?.includes('deepseek-flash')===true);
  assert.equal(state.decisionEngine?.selected,'jev');assert.equal('laya' in state,false);assert.ok(!state.decisionEngine?.pickers?.some(p=>String(p.id)==='laya'));assert.equal(state.chats.find(c=>c.id===chatId)?.selector,'deepseek-flash');
  await assert.rejects(call('decisionEngine',{engine:'laya'}),/listed picker/);for(const method of ['layaInstall','layaCheck','layaSettings','layaCancel'])await assert.rejects(call(method));
- const close=page.getByLabel('Close settings',{exact:true});if(await close.isVisible())await close.click();await page.locator('.settings-link').click();
+ const close=page.getByLabel('Close settings',{exact:true});if(await close.isVisible())await close.click();await page.locator('.rail-settings').click();
  const nav=page.getByRole('navigation',{name:'Settings sections'});await nav.getByRole('button',{name:'Connections',exact:true}).click();
  await page.locator('summary[aria-label="Decision engine"]').click();assert.equal(await page.getByRole('radio',{name:/LAYA/}).count(),0);await page.getByRole('radio',{name:'Jev · TypeSafe',exact:true}).click();await close.click();
  await page.locator('[data-chat-id="'+chatId+'"] .chat-link').click();await page.locator('.model-row .on-duty').filter({hasText:'DeepSeek'}).waitFor();

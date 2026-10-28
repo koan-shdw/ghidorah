@@ -39,7 +39,7 @@ try{
  s=await call('state');assert.deepEqual([s.remote.tokenSaved,s.remote.owner],[true,String(OWNER)]);assert.equal(JSON.stringify(s).includes('AAEsynthetic'),false,'the token never comes back to the window');
  await assert.rejects(call('remoteSwitch',{on:true}),/Install Telegram support/);
  // Telegram's package installs into this profile's runtime folder from PyPI (section 4 lists it).
- if(!await page.getByRole('dialog',{name:'Settings'}).count())await page.locator('.settings-link').dispatchEvent('click');await page.getByRole('button',{name:'Remote',exact:true}).click();
+ if(!await page.getByRole('dialog',{name:'Settings'}).count())await page.locator('.rail-settings').dispatchEvent('click');await page.getByRole('button',{name:'Remote',exact:true}).click();
  await page.getByRole('button',{name:'Install Telegram support',exact:true}).click();
  await wait(s=>s.remote.installing||s.remote.installed);s=await wait(s=>!s.remote.installing,660000);
  assert.equal(s.remote.installed,true,await page.locator('.remote-settings [role=alert]').textContent().catch(()=>'')||'install did not finish');
@@ -149,7 +149,7 @@ try{
  shown=await approval('COMMAND_FIXTURE after restart');
  telegram.message(OWNER,code(1),OWNER,shown.message_id);await replied(/^That code is not right\.$/);
  telegram.message(OWNER,code(2),OWNER,shown.message_id);await replied(/^Approved\.$/);
- await page.locator('.settings-link').dispatchEvent('click');await page.getByRole('button',{name:'Remote',exact:true}).click();await page.getByRole('button',{name:'Pair again',exact:true}).waitFor();
+ await page.locator('.rail-settings').dispatchEvent('click');await page.getByRole('button',{name:'Remote',exact:true}).click();await page.getByRole('button',{name:'Pair again',exact:true}).waitFor();
  await screenshot('remote-code.png');
  console.log('PASS 6d Remote code: approvals ask for a fresh code; wrong, replayed and pre-restart codes are refused; Deny refuses; the secrets list is refused; codes stay out of chats');
  // 6e: a routine sends one turn per firing through the dispatcher; the same firing after a restart adds nothing;
@@ -181,7 +181,7 @@ try{
  await call('routineTick',{now:next+3*86400000});const fired=await firings();
  assert.equal(fired.length,2,'three missed days fire once');assert.equal(fired.at(-1),'routine-'+routineId+'-'+next);
  await wait(s=>s.turns.filter((turn:any)=>turn.id.startsWith('routine-')).every((turn:any)=>turn.status==='completed'));
- if(!await page.getByRole('dialog',{name:'Settings'}).count())await page.locator('.settings-link').dispatchEvent('click');
+ if(!await page.getByRole('dialog',{name:'Settings'}).count())await page.locator('.rail-settings').dispatchEvent('click');
  await page.getByRole('button',{name:'Routines',exact:true}).click();await page.getByRole('list',{name:'Routines',exact:true}).waitFor();
  await screenshot('routines.png');await page.getByRole('button',{name:'Remote',exact:true}).click();
  console.log('PASS 6e routines: one turn per firing, none again after a restart, missed days fire once, cron lines read by croniter');

@@ -25,9 +25,6 @@ p{line-height:1.55}
 .chat-link{display:flex;align-items:center;gap:9px;text-align:left;width:100%;font-size:var(--fs-ui);padding:7px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chat-link span{color:var(--muted)}
 .chat-link.current{background:var(--current)}
-.settings-link{border-top:1px solid var(--line);border-radius:0;display:flex;align-items:center;gap:10px;text-align:left;font-size:var(--fs-ui);padding:11px}
-.settings-link span:last-child{margin-left:auto}
-.avatar{display:grid;place-items:center;width:22px;height:22px;background:var(--raised);border-radius:var(--r-round)}
 main{display:flex;flex:1;min-width:0;flex-direction:column}
 .titlebar{height:40px;flex-shrink:0;display:flex;gap:9px;align-items:center;padding:0 145px 0 17px;font-size:var(--fs-ui);-webkit-app-region:drag;white-space:nowrap;overflow:hidden}
 .code-icon{color:var(--info)}

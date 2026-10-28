@@ -27,7 +27,7 @@ try{
  if(await page.getByLabel('Close settings',{exact:true}).isVisible())await page.getByLabel('Close settings',{exact:true}).click();
  const logins=()=>fs.readFile(path.join(data,'login-requests.jsonl'),'utf8').then(text=>text.trim().split('\n').filter(Boolean).map(line=>JSON.parse(line)),()=>[]);
  const waitFor=async(count:number)=>{for(let i=0;i<100&&(await logins()).length<count;i++)await new Promise(r=>setTimeout(r,100));};
- await page.locator('.settings-link').click();const dialog=page.getByRole('dialog',{name:'Settings',exact:true}),nav=dialog.getByRole('navigation',{name:'Settings sections'});
+ await page.locator('.rail-settings').click();const dialog=page.getByRole('dialog',{name:'Settings',exact:true}),nav=dialog.getByRole('navigation',{name:'Settings sections'});
  await nav.getByRole('button',{name:'Connections',exact:true}).click();
  const panel=dialog.locator('details.supplier-pill').filter({has:page.locator('summary strong',{hasText:/^Anthropic$/})}).first();
  await panel.locator('summary').click();

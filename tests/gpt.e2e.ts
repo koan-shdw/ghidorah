@@ -55,7 +55,7 @@ try{
   await full.getByRole('button',{name:'Favourite GPT-6 Astra',exact:true}).click();
   await wait(s=>s.favouriteModels.includes('gpt-6-astra'));
   await page.keyboard.press('Escape');
-  await page.locator('.settings-link').click();await settings.getByRole('button',{name:'Default models',exact:true}).click();
+  await page.locator('.rail-settings').click();await settings.getByRole('button',{name:'Default models',exact:true}).click();
   await settings.getByRole('region',{name:'All available models',exact:true}).getByRole('button',{name:'Add GPT-6 Astra to defaults',exact:true}).click();
   await wait(s=>s.defaultModels.includes('gpt-6-astra'));
   assert.deepEqual((await call('state')).chats.find((c:any)=>c.id===otherId).pool,['deepseek-flash']);

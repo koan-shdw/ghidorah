@@ -47,7 +47,7 @@ try{
  await page.getByLabel('Thinking effort',{exact:true}).first().click();await page.keyboard.press('Escape');
  assert.equal(await page.locator('.choice-menu[open]').count(),0);
  console.log('PASS draft and next-message pick survive navigation/reload; effort menu changes effort without changing model selection');
- await page.locator('.settings-link').click();
+ await page.locator('.rail-settings').click();
  assert.ok(await page.getByRole('heading',{name:'Root working folder'}).isVisible());
  await call('workingFolder',{folder});await wait(s=>s.defaultFolder===folder&&s.projects.every((p:any)=>p.folder===folder));
  await page.screenshot({path:path.join(root,'work','root-folder-settings.png')});
@@ -57,7 +57,7 @@ try{
  await page.screenshot({path:path.join(root,'work','model-pills-light.png')});
  await page.keyboard.press('Escape');
  await page.reload();await wait(s=>s.defaultFolder===folder);
- await page.locator('.settings-link').click();await page.getByLabel('Theme',{exact:true}).selectOption('dark');await page.keyboard.press('Escape');
+ await page.locator('.rail-settings').click();await page.getByLabel('Theme',{exact:true}).selectOption('dark');await page.keyboard.press('Escape');
  await page.locator('.sidebar-tools').getByRole('button',{name:'New chat',exact:true}).click();
  const third=(await wait(s=>s.chats.length===3)).chats[2];
  await page.locator('.chat-link.current').filter({hasText:'New chat'}).waitFor();

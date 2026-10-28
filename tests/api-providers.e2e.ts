@@ -29,7 +29,7 @@ try{
  const done=async(id:string,status='completed')=>{const s=await wait(s=>s.turns.some((t:any)=>t.id===id&&['completed','failed','stopped','interrupted','needs-model'].includes(t.status))),turn=s.turns.find((t:any)=>t.id===id);assert.equal(turn.status,status,turn.error);return turn;};
  const send=async(chatId:string,model:string,text:string)=>{const id=crypto.randomUUID();await call('submit',{id,chatId,text,models:[model]});return id;};
  await wait(s=>s.backend==='ready');await call('workingFolder',{folder});
- if(!await page.getByRole('dialog').count())await page.locator('.settings-link').click();
+ if(!await page.getByRole('dialog').count())await page.locator('.rail-settings').click();
  await page.getByLabel('Settings sections').getByRole('button',{name:'Connections',exact:true}).click();
  for(const [provider,info] of Object.entries(apiSuppliers).filter(([id])=>id in urls)){
   await page.locator('summary[aria-label="Connection supplier"]').click();await page.getByRole('radio',{name:info.name,exact:true}).click();

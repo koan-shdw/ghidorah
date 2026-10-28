@@ -48,7 +48,7 @@ try{
  console.log('PASS 5b Apps: the tiles arrive one after another; reduced motion turns it off');
 
  let s=await wait(s=>s.updates?.available?.version==='9.9.9');assert.equal(s.updates.show,false,'a fresh profile opens no update window');assert.match(s.updates.available.notes,/Fixture notes/);
- await page.locator('.settings-link').click();await page.getByRole('button',{name:'Open update',exact:true}).click();
+ await page.locator('.rail-settings').click();await page.getByRole('button',{name:'Open update',exact:true}).click();
  const update=page.getByRole('dialog',{name:'update',exact:true});await update.waitFor();assert.match(await update.innerText(),/new in \d+\.\d+\.\d+/);assert.match(await update.innerText(),/v0\.1\.0/);assert.match(await update.innerText(),/Version 9\.9\.9 is available\./);
  await update.getByRole('button',{name:'Download update',exact:true}).click();await update.getByText(/This copy runs from a build folder/).waitFor();
  await fs.writeFile(path.join(data,'update-window.png'),Buffer.from(await instance.evaluate(async({BrowserWindow})=>Array.from((await BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('index.html'))!.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG()))));await update.getByRole('button',{name:'Close update',exact:true}).click();await update.waitFor({state:'hidden'});

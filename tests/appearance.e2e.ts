@@ -35,7 +35,7 @@ try{
  if(await page.getByLabel('Close settings',{exact:true}).isVisible())await page.getByLabel('Close settings',{exact:true}).click();
  base=await ratio(page);
  const installed=(await call('fontFamilies') as string[]).map(name=>name.toLowerCase());assert.ok(installed.includes('helvetica')&&installed.includes('inter'),'this test needs Helvetica and Inter installed');
- await page.locator('.settings-link').dispatchEvent('click');const size=page.getByLabel('Text size',{exact:true}),font=page.getByLabel('Font',{exact:true});
+ await page.locator('.rail-settings').dispatchEvent('click');const size=page.getByLabel('Text size',{exact:true}),font=page.getByLabel('Font',{exact:true});
  assert.equal(await size.inputValue(),'1','100% by default');assert.equal(await font.inputValue(),'Helvetica','Helvetica by default');
  await page.waitForFunction(()=>document.querySelectorAll('select[aria-label="Font"] option').length>1);
  const choices=await font.locator('option').allTextContents();assert.equal(choices[0],'Helvetica');
@@ -55,7 +55,7 @@ try{
  if(!packaged){
  await run.quit();
  run=await launch();page=run.page;await pollState(page,s=>s.backend==='ready');await settle([page],1.25);await drawsIn(page,inter);
- await page.locator('.settings-link').dispatchEvent('click');assert.equal(await page.getByLabel('Text size',{exact:true}).inputValue(),'1.25','size kept after a restart');assert.equal(await page.getByLabel('Font',{exact:true}).inputValue(),'Inter','font kept after a restart');
+ await page.locator('.rail-settings').dispatchEvent('click');assert.equal(await page.getByLabel('Text size',{exact:true}).inputValue(),'1.25','size kept after a restart');assert.equal(await page.getByLabel('Font',{exact:true}).inputValue(),'Inter','font kept after a restart');
  }
  await page.getByLabel('Text size',{exact:true}).selectOption('1');await settle([page],1);await page.getByLabel('Font',{exact:true}).selectOption('Helvetica');await drawsIn(page,helvetica);
  await assert.doesNotReject(page.evaluate(()=>window.desktop.textSize(40)));await settle([page],1);
