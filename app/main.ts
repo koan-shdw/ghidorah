@@ -114,7 +114,7 @@ import {claudeScreenEnv,screenApps,screenContext,screenEscOn,screenServer,screen
 import {openChatLink,openPage,pageUrl,previewTool_,publish,publishing,shareCheck,shareDeploy,shareDraft,shareSettings,shareSite,shareTest,shareView,shareWithClient,withOwner} from './main/sharing';
 import {discoverySettings,hermesFeed,hermesPin,updateFeed,updateSettings} from './main/updates';
 import {freeVoiceKey,speechInstalled,speechReady,voiceRequest,voiceRow,voiceSettings,voiceTestEndpoint,wakeDetected,wakeSettings} from './main/voice';
-import {configure,configureSoon,session} from './main/backend';
+import {configure,configureInBackground,configureSoon,session} from './main/backend';
 import {addAppTask,changeProjectMode,createApp,linkCurrentApp,listAppTasks,projectFor,requireIdleFolder,requireStableFolder,updateApp,updateAppTask,workingDirectory} from './main/projects';
 import {askApproval,mainSnapshot,sendState,snapshot} from './main/snapshot';
 import {agentSnapshot,agentWindowRequest,chatSnapshot,jobSnapshot,modelWindowHash,openChatWindow,openJob,openWorkspaceWindow,saveChatWindows,saveJobWindows,saveWorkspaceWindows,workspaceWindowRequest,workspaceWindowState} from './main/windows';
@@ -238,6 +238,22 @@ let codexCheckVersion=0;
 let codexCheckController:AbortController|null=null,codexCheckTask:Promise<any>|null=null;
 export let claude:ClaudeConnection={connected:false,status:'Not checked'};
 let checkingClaude=false,claudeSignIn:ChildProcess|undefined;
+// DeepSeek, ChatGPT and Claude start as they were last time, marked Checking…, until their own checks answer: an
+// update or restart never shows a connection as gone while Ghidorah is still starting (Koan 2026-10-28). Only an
+// answer from a check is remembered.
+let rememberedConnections='';
+function recallConnections(){
+  const memory=store.all<any>('settings').find(row=>row.id==='connection-memory');if(!memory)return;
+  rememberedConnections=JSON.stringify({deepseek:memory.deepseek,codex:memory.codex,claude:memory.claude});
+  if(memory.deepseek===true){connected=true;providerStatus='Checking…';}
+  if(memory.codex?.connected)codex={connected:true,status:'Checking…',models:Array.isArray(memory.codex.models)?memory.codex.models:[]};
+  if(memory.claude?.connected)claude={connected:true,status:'Checking…',models:Array.isArray(memory.claude.models)?memory.claude.models:[]};
+}
+function rememberConnections(){
+  if(backend?.status!=='ready'||!wizardConnectionsChecked)return;
+  const memory={deepseek:connected,codex:{connected:codex.connected,models:codex.models},claude:{connected:claude.connected,models:claude.models||[]}},text=JSON.stringify(memory);
+  if(text!==rememberedConnections){rememberedConnections=text;store.put('settings',{id:'connection-memory',...memory});}
+}
 // Claude Code's first check of this run has not ended, so its models are not listed yet. A message Jev routes waits for
 // it (10-26: a message sent 84 s after a restart found no Claude model and held its chat).
 export let claudeFirstCheck=true;
@@ -715,7 +731,7 @@ function emitStream(id:string){
 // heavy. A row that opens asks for its whole result (toolResult); a direct 'state' request still gets everything.
 export const RESULT_CUT=10000;
 export function emit(){
-  if(store&&backend)pluginChanges.poke();
+  if(store&&backend){pluginChanges.poke();rememberConnections();}
   wizardOffer();
   goals?.schedule();
   if(!store||!backend)return;
@@ -737,12 +753,11 @@ export async function startBackend(){
   backend.status='starting';emit();
   try{
   hermesModels.clear();
-  await configure();for(const p of store.all<Project>('project')){
-    if(!store.all<Chat>('chat').some(chat=>chat.projectId===p.id))continue;
-    // A moved or missing checkout blocks that chat at dispatch, not all other chats.
-    if(p.worktree){try{workingDirectory(p);}catch{continue;}}
-    await configure(p);
-  }
+  await configure();
+  // Chat projects are refreshed in the background, each before its next session; the backend does not wait for them.
+  const chatProjects=new Set(store.all<Chat>('chat').map(chat=>chat.projectId));
+  // A moved or missing checkout blocks that chat at dispatch, not all other chats.
+  configureInBackground(store.all<Project>('project').filter(p=>{if(!chatProjects.has(p.id))return false;if(p.worktree){try{workingDirectory(p);}catch{return false;}}return true;}));
   await apiProviders.load();backend.providerUrls=apiProviders.urls();
   const credential=await backend.host('read_key');
   connected=Boolean(credential.key);
@@ -1481,6 +1496,7 @@ app.whenReady().then(async()=>{
     emit();
   });
   backend.status='starting';
+  recallConnections();
   apiProviders=new ApiProviders(backend,store,health,emit);
   gliner=new LocalPicker(backend,emit);
   coordination=new WorkCoordination(store,emit,true);coordination.interrupt();

@@ -18,10 +18,33 @@ try {
   function Open { if ($w.hidden) { Start-Process $w.exe '--hidden' } else { Start-Process $w.exe } }
   Log "watching $($w.from) to $($w.to) in $($w.dir), restart $($w.restart)"
 
+  # Every shortcut to Ghidorah is noted before the installer runs, and any it takes away is put back after it
+  # (Koan 2026-10-28: the 0.1.36 update removed the desktop shortcut, the second time an update had).
+  $shell = New-Object -ComObject WScript.Shell
+  $places = @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('CommonDesktopDirectory'), [Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('StartMenu')) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+  $links = @(foreach ($place in $places) {
+    Get-ChildItem $place -Recurse -Depth 2 -Filter *.lnk -ErrorAction SilentlyContinue | ForEach-Object {
+      try { $link = $shell.CreateShortcut($_.FullName) } catch { return }
+      if ($link.TargetPath -ieq $w.exe) { [pscustomobject]@{ Path = $_.FullName; Arguments = $link.Arguments; Folder = $link.WorkingDirectory; Icon = $link.IconLocation; Note = $link.Description } }
+    }
+  })
+  Log ('shortcuts noted: ' + $links.Count)
+  function Restore {
+    foreach ($link in $links) {
+      if (Test-Path -LiteralPath $link.Path) { continue }
+      try {
+        $made = $shell.CreateShortcut($link.Path); $made.TargetPath = $w.exe; $made.Arguments = $link.Arguments
+        $made.WorkingDirectory = if ($link.Folder) { $link.Folder } else { $w.dir }; if ($link.Icon) { $made.IconLocation = $link.Icon }; $made.Description = $link.Note; $made.Save()
+        Log "shortcut put back: $($link.Path)"
+      } catch { Log "shortcut not put back: $($link.Path): $($_.Exception.Message)" }
+    }
+  }
+
   # Ghidorah quits, then the installer runs and finishes.
   Log ('Ghidorah closed: ' + (Until { -not (Get-Process -Id $w.pid -ErrorAction SilentlyContinue) } 300))
   Log ('installer seen: ' + (Until { Installing } 60))
   Log ('installer finished: ' + (Until { -not (Installing) } 1800))
+  Restore
   $check = if ($w.restart) { Open } else { Start-Process $w.exe '--update-check' -PassThru }
   $ok = Until { Opened } 60
   Log "new version opened: $ok"
@@ -34,6 +57,7 @@ try {
   Log "downloading $($w.previous)"
   Invoke-WebRequest $w.previous -OutFile $setup -UseBasicParsing
   Start-Process $setup -ArgumentList '/S', "/D=$($w.dir)" -Wait
+  Restore
   Remove-Item $setup -Force -ErrorAction SilentlyContinue
   $w | Add-Member rolledBack $true -Force
   $w | ConvertTo-Json | Set-Content $Watch -Encoding UTF8

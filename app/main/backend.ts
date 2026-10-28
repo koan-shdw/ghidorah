@@ -46,7 +46,16 @@ export function configureSoon(project:Project){
   const run=configure(project).then(()=>{if(configuring.get(project.id)===run)configuring.delete(project.id);});
   run.catch(()=>{});configuring.set(project.id,run);
 }
+// At start-up every chat project's profile is refreshed in the background, four at a time, and one about to start a
+// session goes first: 86 profiles in a row held the backend back about a minute (Koan 2026-10-28).
+const queued=new Map<string,Project>();
+export function configureInBackground(projects:Project[],width=4){
+  for(const project of projects)queued.set(project.id,project);
+  const take=()=>{const next=queued.values().next().value;if(!next)return;queued.delete(next.id);configureSoon(next);void configuring.get(next.id)?.catch(()=>{}).finally(take);};
+  for(let i=0;i<width;i++)take();
+}
 async function configured(project:Project){
+  if(queued.delete(project.id))configureSoon(project);
   const run=configuring.get(project.id);if(!run)return;
   await run.catch(async()=>{await configure(project);configuring.delete(project.id);});
 }

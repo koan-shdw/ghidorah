@@ -13,7 +13,13 @@ const chatModels=(models:ApiConnection['models'])=>models.filter(row=>{
 
 export class ApiProviders{
  private connections:Partial<Record<ApiProvider,ApiConnection>>={};private versions=new Map<string,number>();
- constructor(private backend:Backend,private store:Store,private health:AccountHealth,private changed:()=>void){}
+ // Until the start-up checks answer, each supplier shows as it was last time, marked Checking…: a connection never
+ // looks gone just because Ghidorah is still starting (Koan 2026-10-28, after the 0.1.36 update).
+ constructor(private backend:Backend,private store:Store,private health:AccountHealth,private changed:()=>void){
+  for(const saved of store.all<ApiConnection&{id:string}>('api-connection'))if(Object.hasOwn(apiSuppliers,saved.id)&&saved.connected){
+   const {id,...row}=saved;this.connections[id as ApiProvider]={...row,provider:id as ApiProvider,models:chatModels(row.models||[]),status:'Checking…',source:'cached'};
+  }
+ }
  rows(){return Object.keys(apiSuppliers).flatMap(provider=>this.connections[provider as ApiProvider]?[this.connections[provider as ApiProvider]!]:[]);}
  models(){return this.rows().filter(row=>row.connected).flatMap(row=>row.models.map(model=>model.id));}
  urls(){return Object.fromEntries(this.rows().filter(row=>row.baseUrl).map(row=>[row.provider,row.baseUrl]));}
