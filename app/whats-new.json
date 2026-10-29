@@ -180,5 +180,8 @@
     "Updates and restarts never make your connections look gone: suppliers, DeepSeek, ChatGPT and Claude show as they were, marked Checking..., until their checks answer.",
     "Ghidorah starts faster: chat project folders refresh in the background instead of before the backend starts.",
     "Updates put back any Ghidorah shortcut the installer removes, such as the desktop shortcut."
+  ]},
+  {"version":"0.1.38","date":"2026-10-29","notes":[
+    "Fable 5.1 is back: Claude Code renamed it, and your defaults, favourites and chats now follow Claude Code's renames automatically."
   ]}
 ]
