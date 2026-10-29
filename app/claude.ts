@@ -30,6 +30,17 @@ export function claudeModelList<T extends {id:string;label:string}>(offered:T[],
   const short=(list:T[])=>list.some(model=>model.id==='claude-code:opus'&&!/\d/.test(model.label));
   return short(offered)&&previous?.length&&!short(previous)?{models:previous,short:true}:{models:offered,short:short(offered)};
 }
+// Claude Code renames models: Fable 5.1 was claude-fable-5-1 and is now listed as fable (Koan 2026-10-29: Fable
+// looked down while saved choices kept the old name). Each listed model's full name, made from its label, points to
+// the listed one; a name with no listed match is left alone.
+export function retiredClaudeModels(listed:{id:string;label:string}[]){
+  const ids=new Set(listed.map(model=>model.id)),renames=new Map<string,string>();
+  for(const model of listed){
+    const name='claude-code:claude-'+model.label.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+    if(/\d/.test(model.label)&&!ids.has(name)&&!renames.has(name))renames.set(name,model.id);
+  }
+  return renames;
+}
 export async function findClaude(){
   const filename=process.platform==='win32'?'claude.exe':'claude';
   const roots=[path.join(process.env.APPDATA||'', 'npm'),...(process.env.PATH||'').split(path.delimiter)];

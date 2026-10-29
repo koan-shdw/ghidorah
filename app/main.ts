@@ -89,7 +89,7 @@ import {providerAccess} from './provider-access';
 import {providerFor,modelEfforts,modelLabel,wireModel,newestFirst} from './models';
 import {ApiProviders} from './api-providers';
 import {apiSuppliers,isApiProvider} from './api-catalog';
-import {findClaude,claudeModelList,claudeAccount,claudeEnvironment,runClaude,claudeOneShot,claudeDirectory,type ClaudeRun,type ClaudeResult} from './claude';
+import {findClaude,claudeModelList,retiredClaudeModels,claudeAccount,claudeEnvironment,runClaude,claudeOneShot,claudeDirectory,type ClaudeRun,type ClaudeResult} from './claude';
 import {selectorSystem,selectorPrompt,selectorSummary,parseSelector} from './selector';
 import {NativeSessions} from './native-sessions';
 import {Sidebar} from './sidebar';
@@ -692,6 +692,19 @@ export async function signOutCodex(){
   finally{apiChanging=false;emit();}
 }
 let claudeRechecked=false;
+// Saved Claude choices follow Claude Code's renames: defaults, favourites, every chat and messages still waiting.
+function renameRetiredClaude(listed:{id:string;label:string}[]){
+  const renames=retiredClaudeModels(listed);if(!renames.size)return;
+  const swap=(id:string)=>renames.get(id)||id,list=(ids?:string[]|null)=>ids?[...new Set(ids.map(swap))]:ids,named=(ids?:string[]|null)=>!!ids?.some(id=>renames.has(id));
+  const keys=(efforts?:Record<string,string>)=>efforts&&Object.fromEntries(Object.entries(efforts).map(([model,effort])=>[swap(model),effort]));
+  store.transaction(()=>{
+    for(const id of ['default-models','favourite-models']){const row=store.all<any>('settings').find(item=>item.id===id);if(row&&named(row.models))store.put('settings',{...row,models:list(row.models)});}
+    for(const chat of store.all<Chat>('chat'))if(renames.has(chat.model)||named(chat.selectedModels)||named(chat.pool)||renames.has(chat.lockedModel||'')||renames.has(chat.selector||'')||Object.keys(chat.efforts||{}).some(id=>renames.has(id)))
+      store.update<Chat>('chat',chat.id,{model:swap(chat.model),selectedModels:list(chat.selectedModels) as string[]|undefined,pool:list(chat.pool) as string[]|undefined,lockedModel:chat.lockedModel&&swap(chat.lockedModel),selector:chat.selector&&swap(chat.selector),efforts:keys(chat.efforts)});
+    for(const turn of store.all<Turn>('turn'))if(['queued','needs-model'].includes(turn.status)&&(renames.has(turn.model)||named(turn.models)||named(turn.requestedModels)))
+      store.update<Turn>('turn',turn.id,{model:swap(turn.model),models:list(turn.models) as string[]|undefined,requestedModels:list(turn.requestedModels) as string[]|undefined,efforts:keys(turn.efforts)});
+  });
+}
 export async function checkClaude(signal?:AbortSignal){
   if(checkingClaude)return;
   checkingClaude=true;const started=Date.now();
@@ -705,6 +718,7 @@ export async function checkClaude(signal?:AbortSignal){
     const result=await runClaude({executable:cli.executable,prefixArgs:fixtureClaudeArgs(),python:backend.python,worker:path.join(root,'backend','claude_worker.py'),directory:exchangeRoot,dataRoot:data,exchangeRoot,model:'claude-haiku-4-5',effort:'high',mode:'manual',hasFolder:false,scrubber:backend.scrubber,prompt:'',inspectUsage:true,signal:AbortSignal.any([AbortSignal.timeout(90000),...(signal?[signal]:[])]),event:()=>{},approve:async()=>false});
     if(result.status!=='completed')throw Error('Usage check did not finish');
     const list=claudeModelList(result.models,claude.models),models=list.models;
+    if(!list.short)renameRetiredClaude(models);
     // A short startup list gets one quick recheck; the 5-minute checks cover the rest.
     if(!list.short)claudeRechecked=false;else if(!claudeRechecked){claudeRechecked=true;setTimeout(()=>void checkClaude(),30000).unref();}
     // Signed in with models but no usage answer: Claude stays usable; only the usage line says so.
