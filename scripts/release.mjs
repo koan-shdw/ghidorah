@@ -4,8 +4,10 @@
 // hardens and builds the checked installer (scripts/installer.mjs), then commits "Ghidorah X" with a local tag vX.
 // npm run release -- --publish then pushes main and the tag to koan-shdw/ghidorah and puts that version on its Releases:
 // Ghidorah-X-Setup.exe, the same file as Ghidorah-Windows-Setup.exe for the download button, latest.yml and the
-// blockmap. Installed copies find it there and update themselves. Last, it refreshes the launch page's Recent updates on
-// www.shdw.work/Ghidorah and redeploys that site (shdw-work/scripts/ghidorah-news.mjs).
+// blockmap. Installed copies find it there and update themselves. Then it puts the version on the download service the
+// launch page's button uses, www.shdw.work/dl/ghidorah/ (shdw-work/scripts/dl-publish.mjs), which serves it from GitHub,
+// or from Cloudflare when GitHub is down. Last, it refreshes the launch page's Recent updates on www.shdw.work/Ghidorah
+// and redeploys that site (shdw-work/scripts/ghidorah-news.mjs).
 import {execFileSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -21,6 +23,15 @@ export function withNotes(history,version,notes,date){
 }
 /** app/whats-new.json as it is written by hand: one version a line, one note a line. */
 export const historyText=history=>'[\n'+history.map(entry=>`  {"version":${JSON.stringify(entry.version)},"date":${JSON.stringify(entry.date)},"notes":[\n    `+entry.notes.map(note=>JSON.stringify(note)).join(',\n    ')+'\n  ]}').join(',\n')+'\n]\n';
+const DOWNLOADS='I:/DEV/shdw-work/scripts/dl-publish.mjs';
+/** Puts a published version on the download service: dl-publish fetches it from GitHub with the owner login, checks the
+ * installer against latest.yml and switches /dl/ghidorah/latest to it last. False, with the command to rerun, when it failed. */
+export function toDownloads(version,script=DOWNLOADS){
+ const again=`node ${script} ghidorah v${version}`;
+ if(!fs.existsSync(script)){console.log(`The release is up; the download service was NOT updated: ${script} is missing. Then run: ${again}`);return false;}
+ try{execFileSync(process.execPath,[script,'ghidorah','v'+version],{stdio:'inherit',windowsHide:true});return true;}
+ catch{console.log(`The release is up; the download service was NOT updated. Run: ${again}`);return false;}
+}
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  const root=path.resolve(import.meta.dirname,'..'),installers=path.join(root,'updates','installer'),history=path.join(root,'app','whats-new.json');
@@ -51,6 +62,9 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   run('git',['push','origin','HEAD:main','v'+version]);
   run('gh',['release','create','v'+version,'--repo',RELEASES,'--title','Ghidorah '+version,'--notes',entry.notes.map(note=>'- '+note).join('\n'),installer,button,installer+'.blockmap',path.join(installers,'latest.yml')]);
   console.log(`Published on https://github.com/${RELEASES}/releases/tag/v${version}`);
+  // the launch page's download button is www.shdw.work/dl/ghidorah/latest: GitHub first, Cloudflare when GitHub is down (10-31).
+  // It goes before the page refresh, so the page never names a version the button doesn't serve yet.
+  if(!toDownloads(version))process.exitCode=1;
   // the launch page at www.shdw.work/Ghidorah lists every public version and names the newest on its download line:
   // refresh its list and redeploy the site (his ask 10-26, as Video Dancer's release does). A failure here leaves the release up.
   const site='I:/DEV/shdw-work/scripts/ghidorah-news.mjs';

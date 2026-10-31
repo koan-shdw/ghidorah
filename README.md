@@ -69,7 +69,9 @@ npm run release -- --publish
 
 The first command bumps the version, writes the notes into `app/whats-new.json`, builds and hardens the installer and
 commits it with a tag. Run the release checks on `updates/build/win-unpacked/Ghidorah.exe`, then publish: it pushes
-`main` and the tag here and puts the installer on Releases, where installed copies find it.
+`main` and the tag here and puts the installer on Releases, where installed copies find it. It then puts the version on
+the download service behind the shdw.work download button (`www.shdw.work/dl/ghidorah/latest`: GitHub when it's up,
+Cloudflare when it isn't) with `shdw-work/scripts/dl-publish.mjs`, and prints the command to rerun if that fails.
 
 ## Layout
 
