@@ -31,7 +31,8 @@ update. Chats, keys and settings stay where they are across updates.
   with clients at a private link; their notes come back to the chat.
 - **Ask while it works.** Start a message with ?? and a side model answers from the live work, while the main model
   keeps going.
-- **Long jobs.** Background work, goals and routines that keep running while you do something else.
+- **Long jobs.** Background work, goals and routines that keep running while you do something else. A message that
+  Claude's usage limit stops waits and is sent again by itself when the limit resets.
 - **Voice and remote.** Dictation and live voice; answer approvals from your phone over Telegram.
 
 ## Build from source
