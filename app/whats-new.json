@@ -183,5 +183,10 @@
   ]},
   {"version":"0.1.38","date":"2026-10-29","notes":[
     "Fable 5.1 is back: Claude Code renamed it, and your defaults, favourites and chats now follow Claude Code's renames automatically."
+  ]},
+  {"version":"0.1.39","date":"2026-11-09","notes":[
+    "Ghidorah no longer closes by itself or freezes while you type: tool outputs are saved once, in their own table, and nothing reads them all at once.",
+    "Whole tool outputs are kept 14 days: after that the first 2,000 characters stay, and opening the row says the rest was removed.",
+    "The chat file is reorganised in the background on the first start after this update, a few rows at a time."
   ]}
 ]
