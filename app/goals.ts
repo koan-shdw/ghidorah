@@ -92,7 +92,7 @@ export class Goals {
     if(reports.every(report=>report!.status==='complete')){this.update(goal,{status:'complete',summary,evidence});continue;}
     if(reports.some(report=>report!.status==='blocked')){this.update(goal,{status:'blocked',summary,evidence});continue;}
     if(this.mode(goal.id)==='plan'){this.update(goal,{status:'paused',summary:'Planning turn finished. Review the plan before resuming.',evidence});continue;}
-    const tools=this.store.all<ToolCall>('tool').filter(tool=>jobs.some(job=>job.id===tool.turnId)&&substantive(tool));
+    const tools=this.store.toolsOf(jobs).filter(substantive);
     if(latest.goal?.automatic&&goal.turns>1&&!tools.length){this.update(goal,{status:'paused',summary:'The continuation made no tool calls. Review progress before resuming.',evidence});continue;}
     goal=this.update(goal,{summary,evidence});
    }

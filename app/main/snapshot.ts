@@ -35,15 +35,17 @@ export function toolsForChats(state:{turns:Turn[]},chatIds:Set<string>){
  const own=new Set(state.turns.filter(turn=>owners.has(turn.chatId)).map(turn=>turn.id));
  return store.whereIn<ToolCall>('tool','turnId',state.turns.filter(turn=>own.has(turn.id)||turn.parentTurnId&&own.has(turn.parentTurnId)).map(turn=>turn.id));
 }
+// With no saved layout yet (a first start, a bare 'state' request) the recent and working chats alone: until OUTPUTS
+// 2026-11-09 that case fell back to every tool row, 2.4 GB of main-process memory at start-up on Koan's file.
 export function mainShownChats(state:{chats:Chat[];turns:Turn[]}){
- const settings=store.all<any>('settings'),layout=readChatLayout(JSON.stringify(settings.find(row=>row.id==='chat-layout')||null));if(!layout.chatId)return null;
+ const settings=store.all<any>('settings'),layout=readChatLayout(JSON.stringify(settings.find(row=>row.id==='chat-layout')||null));
  const panes=JSON.stringify(settings.find(row=>row.id==='pane-layout')?.tree||null),shown=new Set([layout.chatId,layout.splitId,...[...panes.matchAll(/"chat:([^"]+)"/g)].map(match=>match[1])].filter(Boolean));
  // Recent and working chats too, so a chat opened between two refreshes keeps its tool rows.
  for(const chat of [...state.chats].sort((a,b)=>(b.updated||0)-(a.updated||0)).slice(0,8))shown.add(chat.id);
  for(const turn of state.turns)if(['queued','dispatching','running','waiting','stopping'].includes(turn.status))shown.add(turn.chatId);
  return shown;
 }
-export function mainSnapshot(state:ReturnType<typeof snapshot>,chatId?:string){const shown=mainShownChats(state);if(shown&&chatId)shown.add(chatId);return shown?{...state,tools:toolsForChats(state,shown)}:snapshot();}
+export function mainSnapshot(state:ReturnType<typeof snapshot>,chatId?:string){const shown=mainShownChats(state);if(chatId)shown.add(chatId);return {...state,tools:toolsForChats(state,shown)};}
 // The main window's own 'state' request (SPEED-PLAN 4): the same shown chats and cut results as a push, plus the
 // chat being opened, which the saved layout may not name yet. Every tool was about 0.5 s per chat switch.
 export function mainWindowState(chatId?:string){return windowTools(mainSnapshot(snapshot({tools:false}),chatId));}

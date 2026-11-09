@@ -56,7 +56,7 @@ function scope(store:Store,chatId:string,turnId:string){
 
 export function previewCheckpoint(store:Store,chatId:string,turnId:string,root:string):CheckpointPreview{
  const {jobs}=scope(store,chatId,turnId),base=fs.realpathSync(root);
- const actions=store.all<WorkAction>('work-action').filter(a=>jobs.has(a.job)&&a.name!=='checkpoint_restore'),captures=new Map(store.all<Capture>('checkpoint-file').map(c=>[c.id,c]));
+ const actions=store.whereIn<WorkAction>('work-action','job',[...jobs]).filter(a=>a.name!=='checkpoint_restore'),captures=new Map(store.all<Capture>('checkpoint-file').map(c=>[c.id,c]));
  const groups=new Map<string,WorkAction[]>();
  for(const action of actions)if(action.access==='write'&&action.resource!=='*'&&!action.resource.startsWith('process:')&&action.status!=='blocked')groups.set(action.resource,[...groups.get(action.resource)||[],action]);
  const files:CheckpointFile[]=[];

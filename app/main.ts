@@ -758,6 +758,16 @@ export function emit(){
   if(next!==scheduledReset){clearTimeout(resetTimer);scheduledReset=next;if(next!==null){resetTimer=setTimeout(()=>{scheduledReset=null;emit();},Math.min(next-Date.now()+10,2147483647));resetTimer.unref();}}
   if(updateTimer)return;updateTimer=setTimeout(()=>{updateTimer=null;if(!quitting)workNotifications?.scan(alwaysOn().desktopNotifications,notificationChatVisible,showWorkNotice,()=>{if(alwaysOn().questionSound&&!namespace.startsWith('Trismegistus/Test/'))shell.beep();});let shared:ReturnType<typeof snapshot>|undefined;const light=()=>shared??=snapshot({tools:false});for(const w of BrowserWindow.getAllWindows())if(!w.isDestroyed()&&!closingWindows.has(w)){const job=[...jobWindows].find(([,window])=>window===w)?.[0];const chat=[...chatWindows].find(([,window])=>window===w)?.[0];const workspace=[...workspaceWindows.values()].find(entry=>entry.window===w);sendState(w,workspace?workspaceWindowState(workspace,light()):job?.startsWith('agent:')?agentSnapshot(job.slice(6),light()):job?jobSnapshot(job,light()):chat?chatSnapshot(chat,light()):mainSnapshot(light()));}},32);
 }
+// Outputs saved whole by earlier versions move to their own table a few rows at a time, after the window is up
+// (store.splitResults, OUTPUTS 2026-11-09): 15 rows take about 25 ms, so typing never waits; the whole pass over a
+// 2.9 GB file takes a few minutes this way (35 s at full speed in scripts/split-results.ts), which before the window
+// opens the update watcher would read as a failed start and roll back.
+function splitSavedResults(){
+  if(quitting||!store)return;
+  const start=Date.now();let done=false;
+  while(Date.now()-start<30&&!(done=store.splitResults(15)));
+  if(!done){const timer=setTimeout(splitSavedResults,200);timer.unref?.();}
+}
 export let gitOperation:{chatId:string;controller:AbortController}|null=null;
 export let worktreeChanging=false,folderChanging=false,creatingProjects=0,folderRecoveryRequired=false,checkpointChanging=false;
 export const startingAppTasks=new Map<string,Promise<{chatId:string;warning?:string}>>();
@@ -1459,7 +1469,7 @@ function window(){
   win=new BrowserWindow({show:!process.argv.includes('--hidden'),icon:nativeImage.createFromPath(path.join(app.getAppPath(),'assets/icon.png')),width:1280,height:850,minWidth:650,minHeight:500,title:appName,backgroundColor:'#141413',titleBarStyle:'hidden',titleBarOverlay:{color:'#141413',symbolColor:'#e8e6dc',height:36},webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false}});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   if(dev)win.on('page-title-updated',event=>event.preventDefault());
-  win.webContents.once('did-finish-load',()=>markOpened(updateWatchFile,app.getVersion()));
+  win.webContents.once('did-finish-load',()=>{markOpened(updateWatchFile,app.getVersion());splitSavedResults();});
   win.webContents.on('will-navigate',event=>event.preventDefault());
   win.on('close',e=>{if(!quitting){e.preventDefault();win.hide();}});
   previews=new Previews(win,store,defaultFolder,[data],path.join(root,'runtime/poppler/Library/bin'),data,withOwner,openChatLink);

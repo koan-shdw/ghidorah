@@ -26,7 +26,7 @@ test('native and Hermes edits restore exact bytes, remove new files, survive res
  const result=restoreCheckpoint(store,f.chat.id,f.turn.id,f.root,p.revision);assert.ok(result.results.every(r=>r.status==='restored'));
  assert.deepEqual(fs.readFileSync(path.join(f.root,'source.txt')),before);assert.equal(fs.existsSync(path.join(f.root,'new.txt')),false);
  assert.ok(previewCheckpoint(store,f.chat.id,f.turn.id,f.root).files.every(r=>r.action==='unchanged'));
- const current=store.accept(crypto.randomUUID(),f.chat.id,'Continue');const transfer=handover(store.all<Turn>('turn'),store.all<ToolCall>('tool'),current,store.enginePosition(f.chat.id,'claude'));
+ const current=store.accept(crypto.randomUUID(),f.chat.id,'Continue');const transfer=handover(store.all<Turn>('turn'),store.toolsOf(store.all<{id:string}>('turn')),current,store.enginePosition(f.chat.id,'claude'));
  assert.equal(transfer.sessionId,null);assert.match(transfer.prompt,/supersedes earlier file-write outcomes/);assert.match(transfer.prompt,/checkpoint_restore/);assert.match(transfer.prompt,/restored/);store.db.close();
 });
 
@@ -65,11 +65,11 @@ test('parallel child edits belong to their parent checkpoint; earlier messages a
 test('partial restore records an inspectable action and never proceeds past a failed file',async()=>{
  const f=fixture();await f.write('one.txt','one');await f.write('two.txt','two');fs.linkSync(path.join(f.root,'one.txt'),path.join(f.root,'alias.txt'));
  const result=f.restore();assert.deepEqual(result.results.map(r=>r.status),['needs-inspection','not-restored']);assert.equal(fs.readFileSync(path.join(f.root,'two.txt'),'utf8'),'two');assert.equal(f.owner.pending().length,1);
- f.store.db.close();const store=new Store(path.join(f.root,'test.sqlite')),owner=new WorkCoordination(store);owner.interrupt();assert.equal(owner.pending().length,1);assert.equal(store.all<ToolCall>('tool').at(-1)!.status,'uncertain');store.db.close();
+ f.store.db.close();const store=new Store(path.join(f.root,'test.sqlite')),owner=new WorkCoordination(store);owner.interrupt();assert.equal(owner.pending().length,1);assert.equal(store.toolsOf(store.all<{id:string}>('turn')).at(-1)!.status,'uncertain');store.db.close();
 });
 
 test('a retry after restoration keeps restoration results with completed effects',async()=>{
  const f=fixture();await f.write('new.txt','new');f.restore();const id=new Sidebar(f.store).fork(f.chat.id,{beforeTurnId:f.turn.id});
- const next=f.store.accept(crypto.randomUUID(),id,'Try again'),transfer=handover(f.store.all<Turn>('turn'),f.store.all<ToolCall>('tool'),next);
+ const next=f.store.accept(crypto.randomUUID(),id,'Try again'),transfer=handover(f.store.all<Turn>('turn'),f.store.toolsOf(f.store.all<{id:string}>('turn')),next);
  assert.match(transfer.prompt,/checkpoint_restore/);assert.match(transfer.prompt,/restored/);assert.equal(fs.existsSync(path.join(f.root,'new.txt')),false);f.store.db.close();
 });

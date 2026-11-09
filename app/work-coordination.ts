@@ -11,7 +11,7 @@ import {appFolderName,type SavedApp} from './saved-apps';
 
 type Resource={kind:'path'|'service'|'port';value:string;access:'read'|'write'|'observe'};
 type Inspection={id:string;job:string;signature:string;summary:string;resources:Resource[];evidence:{path:string;hash:string}[]};
-export type WorkAction={toolId?:string;id:string;group:string;job:string;chatId?:string;name:string;args:any;resource:string;scope?:Resource[];files?:{path:string;before:string|null;after?:string|null;expected?:string[]}[];evidence?:Inspection['evidence'];access:'read'|'write'|'unknown';signature:string;before:string|null;after?:string|null;expectedAfter?:string;status:'running'|'background'|'completed'|'failed'|'blocked'|'uncertain'|'inspected';result?:unknown;inspection?:string;owner?:{generation:string;sessionId:string;chatId:string;profile:string};};
+export type WorkAction={toolId?:string;id:string;group:string;job:string;chatId?:string;name:string;args:any;resource:string;scope?:Resource[];files?:{path:string;before:string|null;after?:string|null;expected?:string[]}[];evidence?:Inspection['evidence'];access:'read'|'write'|'unknown';signature:string;before:string|null;after?:string|null;expectedAfter?:string;status:'running'|'background'|'completed'|'failed'|'blocked'|'uncertain'|'inspected';result?:unknown;resultCut?:boolean;inspection?:string;owner?:{generation:string;sessionId:string;chatId:string;profile:string};};
 type Action=WorkAction;
 const processTools=new Set(['process_manage','TaskOutput','TaskStop','background_process','mcp__ghidorah__background_process']);
 const fileReads=new Set(['Read','read_file']);
@@ -216,8 +216,9 @@ export class WorkCoordination {
  constructor(private store:Store,private notify:()=>void=()=>{},private autoResolve=false){
   // Repair only historical holds with a recorded, definite outcome.
   // Preserve interrupted/unknown actions and their original results.
-  for(const action of store.all<Action>('work-action'))if(action.status==='uncertain'){
-   const code=processExit(action.name,action.result);
+  // Only the uncertain rows are read (store.where); their whole results come from the results table (store.whole).
+  for(const saved of store.where<Action>('work-action','status','uncertain')){
+   const action:Action={...saved,result:store.whole('work-action',saved)},code=processExit(action.name,action.result);
    if(action.scope&&!action.scope.some(row=>row.access==='write'))store.update<Action>('work-action',action.id,{status:'inspected',inspection:'The inspected action had no declared mutations. No action was replayed.'});
    else if(observerOnly(action)&&action.result&&typeof action.result==='object'&&['stopped','killed'].includes((action.result as any).status))store.update<Action>('work-action',action.id,{status:'inspected',inspection:'The inspected observer was confirmed stopped. It had no file or service writes. No action was replayed.'});
    else if(staleWriteRefusal(action,action.result))store.update<Action>('work-action',action.id,{status:'blocked',inspection:'The file writer refused stale or incomplete read context before changing the file. No action was replayed.'});
@@ -241,8 +242,8 @@ export class WorkCoordination {
    if(this.store.get<Action>('work-action',action.id).status==='uncertain')this.store.update<Action>('work-action',action.id,{status:'inspected',inspection:'The lost process was inspected as read-only. Windows reports no listeners on its recorded TCP ports; no file or service writes were declared. No command was replayed.'});
   }
  }
- private async settleQuietly(action:Action){
-  const outcome=await autoOutcome(action);
+ private async settleQuietly(saved:Action){
+  const action:Action={...saved,result:this.store.whole('work-action',saved)},outcome=await autoOutcome(action);
   if(this.store.get<Action>('work-action',action.id).status!=='uncertain')return;
   this.store.update<Action>('work-action',action.id,outcome);
   // The model learns the outcome on that command's own record; the user is never asked.
@@ -347,7 +348,7 @@ export class WorkCoordination {
    if(unresolved)throw Error('An earlier '+unresolved.name+' action has an uncertain outcome (Work review ID '+unresolved.id+'): '+String(unresolved.args?.command||unresolved.name).slice(0,400)+'. Affected resources: '+JSON.stringify(unresolved.scope||[{kind:'path',value:unresolved.resource}])+'. This request did not run and did not create a new hold. Read/search tools and inspected read-only commands remain available. Use inspect_action to scope a different command to its actual resources; unrelated work can continue. Do not repeat this blocked call. If the original outcome cannot be established, resolve that specific entry in Work review.');
    if(previous.some(row=>row.status==='background'&&row.signature===hash))throw Error('This action already has a running background process. Inspect its status instead of starting a duplicate.');
    const duplicate=access==='unknown'&&previous.find(row=>row.job!==job&&row.signature===hash&&row.status==='completed'&&(row.group===group||overlapped.has(row.id)));
-   if(duplicate)throw Error(duplicate.group===group?'Another model already completed this action. Use its recorded result instead of repeating it: '+capped(canonical(duplicate.result)):'Another chat completed the same action while this request was waiting. Ask the user before repeating it.');
+   if(duplicate)throw Error(duplicate.group===group?'Another model already completed this action. Use its recorded result instead of repeating it: '+capped(canonical(this.store.whole('work-action',duplicate))):'Another chat completed the same action while this request was waiting. Ask the user before repeating it.');
    for(const file of plan?.evidence||[])if(await fingerprint(file.path)!==file.hash)throw Error('Inspected command source changed. Read it and inspect the action again before execution.');
    for(const file of action.files||[]){
     file.before=await fingerprint(file.path);
@@ -368,7 +369,7 @@ export class WorkCoordination {
   if(!id)return;
   const action=this.store.get<Action>('work-action',id);if(action.job!==job)throw Error('This action belongs to another job.');
   if(!['running','uncertain'].includes(action.status))return;
-  if(refused||staleWriteRefusal(action,result)){this.store.update<Action>('work-action',id,{status:'blocked',result});this.finishToolRecord(id);this.reads.get(this.readKey(job))?.delete(action.resource);this.release(id);this.wake();return;}
+  if(refused||staleWriteRefusal(action,result)){this.store.update<Action>('work-action',id,{status:'blocked',result});this.finishToolRecord(id,result);this.reads.get(this.readKey(job))?.delete(action.resource);this.release(id);this.wake();return;}
   // A failed read cannot leave a mutation in flight. A missing file is also a
   // useful observation when checking the outcome of an earlier uncertain write.
   const failedRead=action.access==='read'&&uncertain;
@@ -397,12 +398,13 @@ export class WorkCoordination {
    }
    this.store.update<Action>('work-action',id,{status:uncertain?'uncertain':patchRejected||rolledBack||exit!==null&&exit!==0?'failed':'completed',result});
   }catch(error){this.store.update<Action>('work-action',id,{status:'uncertain',result});throw error;}
-  finally{this.finishToolRecord(id);this.release(id);this.wake();}
+  finally{this.finishToolRecord(id,result);this.release(id);this.wake();}
  }
- private finishToolRecord(id:string){
+ // The whole result is passed in: the action row keeps only a preview of it (store.pack); the tool row takes it whole.
+ private finishToolRecord(id:string,result:unknown){
   const action=this.store.get<Action>('work-action',id);if(!action.toolId||!['completed','failed','blocked'].includes(action.status))return;
   const tool=[this.store.find<ToolCall>('tool',action.toolId)].find(tool=>tool?.turnId===action.job);
-  if(tool&&['running','uncertain'].includes(tool.status))this.store.update<ToolCall>('tool',tool.id,{result:action.result,status:action.status!=='completed'||toolResultFailed(action.result)?'failed':'completed'});
+  if(tool&&['running','uncertain'].includes(tool.status))this.store.update<ToolCall>('tool',tool.id,{result,status:action.status!=='completed'||toolResultFailed(result)?'failed':'completed'});
  }
  holdBackground(id:string,job:string,result:unknown){
   const action=this.store.get<Action>('work-action',id);if(action.job!==job||!['running','uncertain'].includes(action.status))throw Error('Background action is no longer owned by this job.');
@@ -433,7 +435,10 @@ export class WorkCoordination {
   const hash=signature(args.tool,args.arguments,await resolveWorkPath(directory));this.store.put<Inspection>('work-inspection',{id:job+':'+hash,job,signature:hash,summary:args.summary.trim(),resources,evidence});this.notify();return {recorded:true,tool:args.tool,resources,summary:args.summary.trim()};
  }
  interrupt(job?:string){
-  for(const action of this.store.all<Action>('work-action'))if((action.status==='running'||!job&&action.status==='background')&&(!job||action.job===job))this.store.update<Action>('work-action',action.id,{status:action.access==='read'?'blocked':'uncertain'});
+  // Only the open rows are read, through the status index (OUTPUTS 2026-11-09: this ran after every reply and
+  // parsed every action ever recorded).
+  const open=[...this.store.where<Action>('work-action','status','running'),...(job?[]:this.store.where<Action>('work-action','status','background'))];
+  for(const action of open)if(!job||action.job===job)this.store.update<Action>('work-action',action.id,{status:action.access==='read'?'blocked':'uncertain'});
   for(const [id,action] of this.held)if(!job||action.job===job&&action.status!=='background')this.held.delete(id);
   for(const [id,{action}] of this.asking)if(!job||action.job===job)this.release(id);
   // Reads survive the end of a turn: each one stores the file fingerprint, and a write is refused if the file
@@ -472,9 +477,11 @@ export class WorkCoordination {
    if(typeof args.text!=='string'||!args.text.trim()||args.text.length>8000)throw Error('Write a finding of up to 8,000 characters.');
    this.store.put('work-note',{id:randomUUID(),group,job,text:args.text,created:Date.now()});this.notify();
   }else if(args.operation!=='status')throw Error('Unknown collaboration operation.');
-  return {strategy:parent.collaboration,jobs:parent.jobs.map(id=>{const turn=this.store.get<Turn>('turn',id);return {id,model:turn.model,status:turn.status,answer:turn.text,error:turn.error};}),claims:this.store.all<Claim>('work-claim').filter(row=>row.group===group),notes:this.store.all<any>('work-note').filter(row=>row.group===group),actions:this.records(group)};
+  return {strategy:parent.collaboration,jobs:parent.jobs.map(id=>{const turn=this.store.get<Turn>('turn',id);return {id,model:turn.model,status:turn.status,answer:turn.text,error:turn.error};}),claims:this.store.all<Claim>('work-claim').filter(row=>row.group===group),notes:this.store.all<any>('work-note').filter(row=>row.group===group),actions:this.records(group,parent.jobs)};
  }
- records(group:string){return this.store.all<Action>('work-action').filter(action=>action.group===group);}
+ // The group's actions, read by job; long results come as previews (read_chat_history has the whole ones). Without a
+ // job list (tests) the group field is scanned.
+ records(group:string,jobs?:string[]){return jobs?this.store.whereIn<Action>('work-action','job',jobs).filter(action=>action.group===group):this.store.scan<Action>('work-action','group',group);}
  completionOwner(id:string,generation:string,sessionId:string){
   const action=this.store.get<Action>('work-action',id);
   if(!action.owner||action.owner.generation!==generation||action.owner.sessionId!==sessionId)throw Error('This result does not belong to the action’s original session.');

@@ -35,7 +35,7 @@ test('real event handler exposes compression, parallel tools, failures and ignor
  const store=new Store(':memory:'),chat=store.chat(store.project().id),turn=store.accept('current',chat.id,'Work');store.update<any>('chat',chat.id,{runtimeId:'session'});store.update<Turn>('turn',turn.id,{status:'running'});
  const hermesTurns=new Map([[chat.id,turn.id]]),receive=main('receive',{nextWatermark:main('nextWatermark',{}),hermesErrors:new Map(),wake:()=>{},replyRow:(id:string)=>hermesTurns.get(id),store,hermesTurns,backend:{generation:'one',scrubber:{value:(v:any)=>v}},hermesEvents:new Map(),emit:()=>{},emitStream:()=>{},toolResultFailed,clearHistoryReads,lateToolOwner,requests:new Map(),mcpToolRequests:new Map(),coordination:{denied:()=>{}}});
  let seq=0;const send=(type:string,payload:any={},session_id='session')=>receive({type,payload,session_id,seq:++seq});
- const activity=()=>turnActivity(store.get('turn',turn.id),store.all('tool'),[]);
+ const activity=()=>turnActivity(store.get('turn',turn.id),store.toolsOf(store.all<{id:string}>('turn')),[]);
  send('status.update',{kind:'compacting'});assert.equal(activity(),'Compressing context');const since=store.get<Turn>('turn',turn.id).stageSince;
  send('status.update',{kind:'compacting'});assert.equal(store.get<Turn>('turn',turn.id).stageSince,since,'Progress does not reset elapsed stage time');
  send('status.update',{kind:'compacted'});assert.equal(activity(),'Waiting for model');
@@ -47,7 +47,7 @@ test('real event handler exposes compression, parallel tools, failures and ignor
  send('request.cancel',{id:'approval',reason:'timeout'});assert.equal(store.get<any>('approval','one:approval').status,'expired');assert.equal(activity(),'Waiting for model');
  store.update<Turn>('turn',turn.id,{status:'waiting'});assert.equal(activity(),'Waiting for model','A withdrawn native approval cannot leave a false approval wait');
  const next=store.accept('next',chat.id,'Continue');hermesTurns.set(chat.id,next.id);store.update<ToolCall>('tool','current:a',{status:'uncertain'});
- send('tool.complete',{tool_id:'a',result:{success:true}});assert.equal(store.get<ToolCall>('tool','current:a').status,'completed');assert.equal(store.all<ToolCall>('tool').some(t=>t.turnId===next.id),false);store.db.close();
+ send('tool.complete',{tool_id:'a',result:{success:true}});assert.equal(store.get<ToolCall>('tool','current:a').status,'completed');assert.equal(store.toolsOf(store.all<{id:string}>('turn')).some(t=>t.turnId===next.id),false);store.db.close();
 });
 test('side-job follow-ups queue durably, cancel independently and explicit correction alone interrupts',async()=>{
  const store=new Store(':memory:'),project=store.project(),chat=store.chat(project.id),child=store.chat(project.id),parent=store.accept('parent',chat.id,'Work'),current=store.accept('current',child.id,'Work');
@@ -66,7 +66,7 @@ test('history budgets include JSON escaping and metadata; nested lookups keep re
  for(let i=0;i<250;i++)store.put('tool',{id:'tool-'+i,turnId:old.id,name:'read_file',status:'completed',args:{},result:'old source'});
  const list=readChatHistory(store,current,{});assert.ok(JSON.stringify(list).length<=24000);assert.equal(list.messages![0].toolCount,251);assert.equal(list.messages![0].tools.length,20);
  let offset=0,full='';do{const page=readChatHistory(store,current,{toolId:'nested',offset});assert.ok(JSON.stringify(page).length<=24000);full+=page.text;offset=page.nextOffset!;}while(offset!==null);
- assert.equal(JSON.parse(full).result,body);assert.equal(store.get<ToolCall>('tool','nested').result,body);
+ assert.equal(JSON.parse(full).result,body);assert.equal(store.whole('tool',store.get<ToolCall>('tool','nested')),body);
  const message=readChatHistory(store,current,{turnId:'old'});assert.match(message.text!,/reference/);assert.match(message.text!,/Keep exact approved words/);assert.ok(message.totalCharacters!<30000);
  const request={toolId:'nested'};assert.ok('text' in readRuntimeHistory(store,current,request));assert.ok('unchanged' in readRuntimeHistory(store,current,request));assert.ok('text' in readRuntimeHistory(store,current,request),'A reload remains available even if a prune notification is missed');
  clearHistoryReads(store,current.id);assert.ok('text' in readRuntimeHistory(store,current,request));store.update<ToolCall>('tool','nested',{result:'Changed'});assert.ok('text' in readRuntimeHistory(store,current,request),'Changed records never return an unchanged stub');store.db.close();
@@ -141,11 +141,11 @@ test('pushed window states cut long tool results and mark them; the whole result
 
 test('the main window state carries the shown chats and the chat being opened, cut (SPEED-PLAN 4)',()=>{
  let asked:string[]=[];const full={turns:[],tools:['every tool']};
- const env=(layout:boolean)=>({mainShownChats:()=>layout?new Set(['shown']):null,toolsForChats:(_:unknown,ids:Set<string>)=>{asked=[...ids];return ids.size?['scoped']:[];},snapshot:()=>full});
+ const env=(layout:boolean)=>({mainShownChats:()=>new Set(layout?['shown']:['recent']),toolsForChats:(_:unknown,ids:Set<string>)=>{asked=[...ids];return ids.size?['scoped']:[];},snapshot:()=>full});
  const mainSnapshot=main('mainSnapshot',env(true));
  assert.deepEqual(mainSnapshot({turns:[],tools:[]},'opening').tools,['scoped']);assert.deepEqual(asked,['shown','opening']);
  assert.deepEqual(mainSnapshot({turns:[],tools:[]}).tools,['scoped']);assert.deepEqual(asked,['shown']);
- assert.equal(main('mainSnapshot',env(false))({turns:[],tools:[]},'opening'),full,'no saved layout: everything, as a push does');
+ assert.deepEqual(main('mainSnapshot',env(false))({turns:[],tools:[]},'opening').tools,['scoped'],'no saved layout: the recent chats, never every tool row (OUTPUTS 2026-11-09)');assert.deepEqual(asked,['recent','opening']);
  const cut:unknown[]=[],mainWindowState=main('mainWindowState',{mainSnapshot,snapshot:(o:any)=>({turns:[],tools:o?.tools===false?[]:['every tool']}),windowTools:(s:unknown)=>{cut.push(s);return s;}});
  assert.deepEqual(mainWindowState('opening').tools,['scoped']);assert.equal(cut.length,1,'results are cut');assert.deepEqual(asked,['shown','opening']);
 });

@@ -26,7 +26,7 @@ test('read points split text and tools once, survive replacement and keep old me
  joinTurn(store,'joined',owner.id);store.update<Turn>('turn',owner.id,{text:'Before. After.'});
  store.put<ToolCall>('tool',{id:'tool2',turnId:owner.id,name:'Read',args:{},result:'done',status:'completed'});
  store.accept('second',chat.id,'Another correction');joinTurn(store,'second',owner.id);joinTurn(store,'joined',owner.id);
- const parts=()=>replyParts(store.get<Turn>('turn',owner.id),store.all('tool'),store.all('turn'));
+ const parts=()=>replyParts(store.get<Turn>('turn',owner.id),store.toolsOf(store.all<{id:string}>('turn')),store.all('turn'));
  assert.deepEqual(parts().map(p=>[p.text,p.tools.map(t=>t.id),p.message?.id]),[['Before. ',['tool1'],'joined'],['After.',['tool2'],'second'],['',[],undefined]]);
  resetJoinedText(store,owner.id);store.update<Turn>('turn',owner.id,{text:'Final answer'});
  assert.equal(parts().map(p=>p.text).join(''),'Final answer');assert.deepEqual(store.get<Turn>('turn','joined').readAt,{text:0,tools:1});

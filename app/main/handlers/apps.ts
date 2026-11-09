@@ -24,7 +24,7 @@ export const appsHandlers:Record<string,(args:any)=>any>={
   async savedAppSummarize({id,model}){
     if(pluginsChanging||installing||pluginChanges.pending)throw Error('Wait for the queued plugin changes to finish.');
     if(apiChanging)throw Error('Wait for the connection update to finish.');
-    const entry=store.get<SavedApp>('saved-app',id),state={...store.snapshot(),goals:goals.rows()};
+    const entry=store.get<SavedApp>('saved-app',id),state={...store.snapshot({tools:false}),goals:goals.rows()};
     if(!availableModels().includes(model))throw Error('Choose an available summary model.');
     const linked=state.chats.filter(chat=>entry.chatIds.includes(chat.id)),todos=store.all<AppTodo>('app-todo').filter(todo=>todo.appId===id);
     if(!linked.length&&!todos.length)throw Error('Add a to-do or link a chat before generating an app summary.');

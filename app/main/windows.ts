@@ -47,13 +47,15 @@ export function openWorkspaceWindow(args:SavedWorkspaceWindow,hidden=false){
 export async function workspaceWindowRequest(entry:WorkspaceWindow,method:string,args:any){
  const {info,window,preview}=entry;
  if(method==='state')return workspaceWindowState(entry);
- if(method==='openJob'&&info.view==='tasks'){if(!chatActivity(snapshot(),info.chatId).agents.some(turn=>turn.id===args?.id))throw Error('This agent belongs to another chat.');return openJob(args.id);}
+ // The chat's own tools only (OUTPUTS 2026-11-09): snapshot() read every tool row for these checks.
+ const own=()=>{const state=snapshot({tools:false});return {...state,tools:toolsForChats(state,new Set([info.chatId]))};};
+ if(method==='openJob'&&info.view==='tasks'){if(!chatActivity(own(),info.chatId).agents.some(turn=>turn.id===args?.id))throw Error('This agent belongs to another chat.');return openJob(args.id);}
  if(method==='chatFiles'&&['plan','tasks'].includes(info.view)){
-  const activity=chatActivity(snapshot(),info.chatId);
+  const activity=chatActivity(own(),info.chatId);
   return turnFilesRequest([...activity.plans.map(row=>row.approval.turnId),...activity.agents.map(turn=>turn.id)],args);
  }
  if(['approve','chatLink','toolResult'].includes(method)&&['plan','tasks'].includes(info.view)){
-  const activity=chatActivity(snapshot(),info.chatId);
+  const activity=chatActivity(own(),info.chatId);
   if(method==='approve'){if(info.view!=='plan'||!activity.plans.some(row=>row.approval.id===args?.id))throw Error('This plan belongs to another chat.');}
   else if(!activity.plans.some(row=>row.approval.turnId===args?.turnId)&&!activity.agents.some(turn=>turn.id===args?.turnId))throw Error('This link belongs to another chat.');
   return handlers[method](args);

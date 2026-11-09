@@ -27,7 +27,7 @@ test('parallel runs share a frozen starting history and have independent engine 
  store.finishEngine(jobs[1].id,'claude','session-b',{status:'completed',text:'Claude result'});
  store.put('tool',{id:'write',turnId:jobs[1].id,name:'Write',args:{path:'built.txt'},result:'written once',status:'completed'});
  assert.deepEqual(settleParallel(store),[chat.id]);assert.deepEqual(settleParallel(store),[]);
- const next=store.get<Turn>('turn','future'),context=handover(store.all<Turn>('turn'),store.all('tool'),next);
+ const next=store.get<Turn>('turn','future'),context=handover(store.all<Turn>('turn'),store.toolsOf(store.all<{id:string}>('turn')),next);
  assert.equal(context.prompt.split('GPT result').length-1,1);assert.equal(context.prompt.split('Claude result').length-1,1);assert.match(context.prompt,/written once/);
  assert.doesNotMatch(context.prompt,/FOREIGN SECRET/);store.db.close();
 });
@@ -47,13 +47,13 @@ test('the history prompt is the same from the chat records as from every record'
  const next=store.accept('next',chat.id,'Next request'),context={id:'c',throughTurnId:old.id,summary:'Summary',instructions:'Keep it short',created:1,model:'m',sourceCharacters:1,tokens:null};
  const {turns,tools}=store.chatRecords(chat.id);
  for(const ctx of [undefined,context]){
-  const all=handover(store.all<Turn>('turn'),store.all('tool'),next,undefined,ctx),own=handover(turns,tools,next,undefined,ctx);
+  const all=handover(store.all<Turn>('turn'),store.toolsOf(store.all<{id:string}>('turn')),next,undefined,ctx),own=handover(turns,tools,next,undefined,ctx);
   assert.equal(own.prompt,all.prompt);assert.deepEqual(own.attachments,all.attachments);assert.doesNotMatch(own.prompt,/FOREIGN/);
   assert.match(own.prompt,/job wrote/);assert.match(own.prompt,ctx?/old read/:/Background note/);
  }
  // A job chat's own send: its records are its own turns.
  const job=store.get<Turn>('turn',jobs[0].id),mine=store.chatRecords(job.chatId);
- assert.equal(handover(mine.turns,mine.tools,job).prompt,handover(store.all<Turn>('turn'),store.all('tool'),job).prompt);
+ assert.equal(handover(mine.turns,mine.tools,job).prompt,handover(store.all<Turn>('turn'),store.toolsOf(store.all<{id:string}>('turn')),job).prompt);
  store.db.close();
 });
 

@@ -18,7 +18,8 @@ function ownedTurns(store:Store,chatId:string,through?:string){
  if(end<0)throw Error('There are no saved messages to compact.');
  const ids=new Set(roots.slice(0,end+1).map(t=>t.id));let changed=true;
  while(changed){changed=false;for(const turn of all)if(!ids.has(turn.id)&&(turn.parentTurnId&&ids.has(turn.parentTurnId)||turn.automatic&&ids.has(turn.automatic.originTurnId))){ids.add(turn.id);changed=true;}}
- return {chat,roots:roots.slice(0,end+1),turns:all.filter(t=>ids.has(t.id)),tools:store.all<ToolCall>('tool').filter(t=>ids.has(t.turnId)).map(({started,finished,...tool})=>tool)};
+ // Tools come by turn id with long results as previews; readChatHistory reads a whole one on request (store.whole).
+ return {chat,roots:roots.slice(0,end+1),turns:all.filter(t=>ids.has(t.id)),tools:store.whereIn<ToolCall>('tool','turnId',[...ids]).map(({started,finished,...tool})=>tool)};
 }
 
 export function contextSource(store:Store,chatId:string,options:{beforeTurnId?:string;concise?:boolean}={}){
@@ -38,12 +39,14 @@ export function contextSource(store:Store,chatId:string,options:{beforeTurnId?:s
  const add=(id:string,value:unknown)=>{const text=typeof value==='string'?value:JSON.stringify(value);if(!text)return;for(let offset=0;offset<text.length;offset+=8000)groups.at(-1)!.push({id:id+':'+offset,chatId,title:id,text:text.slice(offset,offset+8000)});};
  // A summary covers at most the newest ~180k characters of new history (about 4 rounds), so it always finishes;
  // older messages stay readable through read_chat_history and RLM (Koan, 2026-10-08).
- const groups:SummarySource[][]=[];
+ const groups:SummarySource[][]=[],cut:string[]=[];
  for(const t of covered.turns)if(!previousIds.has(t.id)){groups.push([]);
   if(t.contextCommand)continue;originalCharacters+=JSON.stringify(t).length;
   add(t.id,{id:t.id,model:t.model,status:t.contextSnapshot?.status||t.status,request:options.concise?excerpt(t.prompt,12000):t.prompt,commandInstructions:options.concise?excerpt(t.commandContext,6000):t.commandContext,reply:options.concise?excerpt(t.text,6000):t.text,...(!options.concise?{reasoning:t.reasoning}:{}),error:t.error,attachments:t.attachments,jobs:t.jobs,parentTurnId:t.parentTurnId});
-  for(const tool of covered.tools.filter(tool=>tool.turnId===t.id)){originalCharacters+=JSON.stringify(tool).length;add('tool:'+tool.id,options.concise?{id:tool.id,turnId:tool.turnId,name:tool.name,status:tool.status,args:excerpt(tool.args,400),result:excerpt(tool.result,800)}:tool);}
+  // Tool rows carry previews of long results (OUTPUTS 2026-11-09); the history's size counts the whole saved outputs.
+  for(const tool of covered.tools.filter(tool=>tool.turnId===t.id)){originalCharacters+=JSON.stringify(tool).length;if(tool.resultCut)cut.push(tool.id);add('tool:'+tool.id,options.concise?{id:tool.id,turnId:tool.turnId,name:tool.name,status:tool.status,args:excerpt(tool.args,400),result:excerpt(tool.result,800)}:tool);}
  }
+ originalCharacters+=store.resultsSize('tool',cut);
  let budget=SUMMARY_SOURCE_CAP;const kept:SummarySource[][]=[];for(const group of groups.reverse()){const size=group.reduce((n,s)=>n+s.text.length,0);if(kept.length&&size>budget)break;kept.unshift(group);budget-=size;}for(const group of kept)sources.push(...group);
  const sourceCharacters=sources.reduce((n,s)=>n+s.text.length,0),revision=createHash('sha256').update(JSON.stringify({turns,tools,context:chat.context,instructions:chat.contextInstructions})).digest('hex');
  return {chatId,throughTurnId,revision,sources,batches:summaryBatches(sources),sourceCharacters,originalCharacters,previous:oldIndex<0?'':old!.summary,instructions:chat.contextInstructions??old?.instructions??'',current:old||null,goal:store.all<any>('goal').find(g=>g.id===chatId)?.objective||''};
@@ -66,16 +69,20 @@ export function readChatHistory(store:Store,current:Turn,args:any):{kind?:string
  const {owner,data}=historyRecords(store,current),allowed=new Set(data.turns.map(t=>t.id));
  if(args.turnId||args.toolId){
   const alias=store.get<Chat>('chat',owner).historyAliases||{},toolId=alias[args.toolId]||args.toolId,turnId=alias[args.turnId]||args.turnId;
-  const row=args.toolId?data.tools.find(t=>t.id===toolId):data.turns.find(t=>t.id===turnId);
-  if(!row)throw Error('That record is not available in this chat. For another chat, use read_other_chat with its chatId from search_chats; this requires approval.');
-  const full=JSON.stringify(args.toolId?row:{...row,tools:data.tools.filter(t=>t.turnId===row.id).map(tool=>/^(?:mcp__(?:ghidorah|trismegistus)__)?(?:read_chat_history|query_chat_history)$/.test(tool.name)?{id:tool.id,name:tool.name,status:tool.status,result:{reference:'Read this original result with toolId: '+tool.id}}:tool)});
+  const saved=args.toolId?data.tools.find(t=>t.id===toolId):data.turns.find(t=>t.id===turnId);
+  if(!saved)throw Error('That record is not available in this chat. For another chat, use read_other_chat with its chatId from search_chats; this requires approval.');
+  // A whole-record page carries whole results: the row's own, or those of the message's tools.
+  const row=args.toolId?store.withResults('tool',[saved as ToolCall])[0]:saved;
+  const full=JSON.stringify(args.toolId?row:{...row,tools:store.withResults('tool',data.tools.filter(t=>t.turnId===row.id)).map(tool=>/^(?:mcp__(?:ghidorah|trismegistus)__)?(?:read_chat_history|query_chat_history)$/.test(tool.name)?{id:tool.id,name:tool.name,status:tool.status,result:{reference:'Read this original result with toolId: '+tool.id}}:tool)});
   const page=(length:number)=>({kind:args.toolId?'tool':'message',id:row.id,offset,totalCharacters:full.length,text:full.slice(offset,offset+length),nextOffset:offset+length<full.length?offset+length:null});
   // Budget the serialized response: quotes and newlines can double the raw text.
   let low=0,high=Math.min(24000,Math.max(0,full.length-offset));
   while(low<high){const mid=Math.ceil((low+high)/2);if(JSON.stringify(page(mid)).length<=24000)low=mid;else high=mid-1;}
   return {...page(low)};
  }
- const query=(args.query||'').toLowerCase(),rows=data.turns.filter(t=>allowed.has(t.id)&&(!query||JSON.stringify(t).toLowerCase().includes(query)||data.tools.some(tool=>tool.turnId===t.id&&JSON.stringify(tool).toLowerCase().includes(query))));
+ // A query searches previews here and the saved whole results inside SQLite (store.resultsContaining).
+ const query=(args.query||'').toLowerCase(),deep=store.resultsContaining('tool',data.tools.filter(tool=>tool.resultCut).map(tool=>tool.id),query);
+ const rows=data.turns.filter(t=>allowed.has(t.id)&&(!query||JSON.stringify(t).toLowerCase().includes(query)||data.tools.some(tool=>tool.turnId===t.id&&(deep.has(tool.id)||JSON.stringify(tool).toLowerCase().includes(query)))));
  const messages=rows.slice(offset,offset+limit).map(t=>{const tools=data.tools.filter(tool=>tool.turnId===t.id);return {id:t.id,model:t.model,status:t.contextSnapshot?.status||t.status,request:t.prompt.slice(0,250),reply:t.text.slice(0,250),toolCount:tools.length,tools:tools.slice(0,20).map(tool=>({id:tool.id,name:tool.name.slice(0,200),status:tool.status})),...(tools.length>20?{moreTools:'Read turnId '+t.id+' for remaining tools.'}:{})};});
  const page=()=>({total:rows.length,messages,nextOffset:offset+messages.length<rows.length?offset+messages.length:null});
  while(messages.length&&JSON.stringify(page()).length>24000){if(messages.length>1)messages.pop();else if(messages[0].tools.length){messages[0].tools.pop();messages[0].moreTools='Read turnId '+messages[0].id+' for remaining tools.';}else throw Error('This history entry has oversized metadata. Read its turnId directly.');}
@@ -85,7 +92,7 @@ export function readChatHistory(store:Store,current:Turn,args:any):{kind?:string
 const recentReads=new WeakMap<Store,Map<string,{signature:string;toolCount:number}>>();
 export function clearHistoryReads(store:Store,turnId:string){recentReads.get(store)?.delete(turnId);}
 export function readRuntimeHistory(store:Store,current:Turn,args:any){
- const result=readChatHistory(store,current,args),signature=createHash('sha256').update(JSON.stringify([args,result])).digest('hex'),toolCount=store.all<ToolCall>('tool').filter(t=>t.turnId===current.id).length;
+ const result=readChatHistory(store,current,args),signature=createHash('sha256').update(JSON.stringify([args,result])).digest('hex'),toolCount=store.idsWhere('tool','turnId',[current.id]).length;
  let reads=recentReads.get(store);if(!reads){reads=new Map();recentReads.set(store,reads);}
  const previous=reads.get(current.id);
  // Only suppress the immediate repeat. The full body stays inside Hermes's

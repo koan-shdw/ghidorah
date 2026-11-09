@@ -27,8 +27,10 @@ export async function queryChatHistory(store:Store,current:Turn,args:any,signal:
  const spent=()=>store.all<any>('context-usage').filter(r=>r.turnId===turnId&&r.purpose==='rlm').length;
  if(spent()>=4)throw Error('This turn used its four RLM helper calls. Read exact records with read_chat_history.');
  const query=(args.query||'').toLowerCase(),candidates:Source[]=[];
+ // Tool rows carry previews of long results (OUTPUTS 2026-11-09); a query is also matched inside the saved whole outputs, and a tool it hits is read whole.
+ const deep=query?store.resultsContaining('tool',data.tools.filter(tool=>tool.resultCut).map(tool=>tool.id),query):new Set<string>();
  const add=(id:string,value:unknown)=>{const text=JSON.stringify(value),index=query?text.toLowerCase().indexOf(query):0;if(index<0)return;const start=Math.max(0,index-2000);candidates.push({id,text:text.slice(start,start+6000),truncated:text.length>6000});};
- for(const t of data.turns){if(t.id===current.id||t.contextCommand)continue;add(t.id,{id:t.id,request:t.prompt,reply:t.text,status:t.contextSnapshot?.status||t.status,error:t.error});for(const tool of data.tools.filter(tool=>tool.turnId===t.id))add(tool.id,tool);}
+ for(const t of data.turns){if(t.id===current.id||t.contextCommand)continue;add(t.id,{id:t.id,request:t.prompt,reply:t.text,status:t.contextSnapshot?.status||t.status,error:t.error});for(const tool of data.tools.filter(tool=>tool.turnId===t.id))add(tool.id,deep.has(tool.id)?store.withResults('tool',[tool])[0]:tool);}
  // ponytail: retain the existing three-slice input bound; one helper reads it directly without serial summaries.
  const sources:Source[]=[];let size=0,slices=1;
  for(const source of candidates.slice().reverse()){const length=JSON.stringify(source).length;if(size+length>14000){if(slices===3)break;slices++;size=0;}sources.unshift(source);size+=length;}

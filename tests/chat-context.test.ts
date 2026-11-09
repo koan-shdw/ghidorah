@@ -23,11 +23,11 @@ test('reviewed compaction crosses engines, preserves instructions and outcomes, 
  f.store.update<Turn>('turn',first.id,{attachments:[{id:'image',chatId:f.chat.id,name:'reference.png',kind:'image',size:1,sha256:'sha',contentHash:'hash'}]});
  f.store.put<ToolCall>('tool',{id:'write-id',turnId:middle.id,name:'Write',args:{path:'app.ts',content:'x'.repeat(5000)},result:'File written',status:'completed'});
  const s=draft(f),original=f.store.all<Turn>('turn'),pins='Preserve\n  the approved wording exactly.';const saved=saveContext(f.store,f.chat.id,s.revision,'ANCHOR_COPPER is required. app.ts was already written.',pins);
- const current=f.turn('Continue'),transfer=handover(f.store.all('turn'),f.store.all('tool'),current,undefined,saved,pins);
+ const current=f.turn('Continue'),transfer=handover(f.store.all('turn'),f.store.toolsOf(f.store.all<{id:string}>('turn')),current,undefined,saved,pins);
  assert.match(transfer.prompt,/ANCHOR_COPPER is required/);assert.match(transfer.prompt,/write-id/);assert.match(transfer.prompt,/"status":"completed"/);assert.match(transfer.prompt,/New exact request/);assert.doesNotMatch(transfer.prompt,/ANCHOR_COPPER original details/);assert.match(transfer.prompt,/read_chat_history/);assert.equal(transfer.attachments[0].id,'image');assert.ok(transfer.prompt.includes(pins));assert.deepEqual(f.store.all<Turn>('turn').slice(0,3),original);
  const result=readChatHistory(f.store,current,{toolId:'write-id'});assert.equal(JSON.parse(result.text!).args.content.length,5000);
- const resumed=handover(f.store.all('turn'),f.store.all('tool'),current,{id:'e',chatId:f.chat.id,engine:'claude',sessionId:'runtime',throughTurnId:latest.id,uncertain:false,exchanges:1},saved,pins);assert.equal(resumed.sessionId,'runtime');assert.doesNotMatch(resumed.prompt,/<reviewed_summary>/);assert.ok(resumed.prompt.includes(pins));
- const full=handover(f.store.all('turn'),f.store.all('tool'),current,undefined,undefined,pins);assert.match(full.prompt,/ANCHOR_COPPER original details/);assert.ok(full.prompt.includes(pins));f.store.db.close();
+ const resumed=handover(f.store.all('turn'),f.store.toolsOf(f.store.all<{id:string}>('turn')),current,{id:'e',chatId:f.chat.id,engine:'claude',sessionId:'runtime',throughTurnId:latest.id,uncertain:false,exchanges:1},saved,pins);assert.equal(resumed.sessionId,'runtime');assert.doesNotMatch(resumed.prompt,/<reviewed_summary>/);assert.ok(resumed.prompt.includes(pins));
+ const full=handover(f.store.all('turn'),f.store.toolsOf(f.store.all<{id:string}>('turn')),current,undefined,undefined,pins);assert.match(full.prompt,/ANCHOR_COPPER original details/);assert.ok(full.prompt.includes(pins));f.store.db.close();
 });
 
 test('stale, active, foreign and invalid compaction cannot replace active context',()=>{

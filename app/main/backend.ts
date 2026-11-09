@@ -68,7 +68,7 @@ export async function session(chat:Chat,model=chat.model,signal?:AbortSignal){
     try{result=await backend.rpc.request('session.resume',{profile:p.profile,session_id:chat.storedId,source:'desktop',close_on_disconnect:false},30000,signal);}
     catch(error){
       const turns=store.all<Turn>('turn').filter(t=>t.chatId===chat.id);
-      const hasWork=turns.some(t=>t.text||t.reasoning||t.usage||['completed','stopped'].includes(t.status))||store.all<ToolCall>('tool').some(tool=>turns.some(t=>t.id===tool.turnId));
+      const hasWork=turns.some(t=>t.text||t.reasoning||t.usage||['completed','stopped'].includes(t.status))||store.idsWhere('tool','turnId',turns.map(t=>t.id)).length>0;
       if((error as any).code!==4007||hasWork)throw error;
       // A failed first dispatch can leave a lazy session ID with no persisted Hermes row.
       store.update<Chat>('chat',chat.id,{storedId:null,runtimeId:null});

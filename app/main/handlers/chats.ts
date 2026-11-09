@@ -172,7 +172,7 @@ export const chatsHandlers:Record<string,(args:any)=>any>={
     const bytes=await readChatFile(data,row),temp=destination+'.'+randomUUID()+'.tmp';try{await fs.writeFile(temp,bytes,{flag:'wx'});await fs.rename(temp,destination);}finally{await fs.unlink(temp).catch(()=>{});}return {saved:true};
   },
   // The whole result of one action row; pushed states carry it cut (windowTools).
-  toolResult({turnId,id}){const tool=store.get<ToolCall>('tool',id);if(tool.turnId!==turnId)throw Error('This result belongs to another message.');return tool.result;},
+  toolResult({turnId,id}){const tool=store.get<ToolCall>('tool',id);if(tool.turnId!==turnId)throw Error('This result belongs to another message.');return store.whole('tool',tool);},
   async chatLink({turnId,href,icon=false,inline=false,external=false}){
     const sourceTurn=store.get<Turn>('turn',turnId);
     if(inline==='close'){inlinePreviews.close(sourceTurn.id,href);return;}
@@ -182,7 +182,7 @@ export const chatsHandlers:Record<string,(args:any)=>any>={
     if(typeof href==='string'&&href.startsWith('tris-chat:')){
       const match=/^tris-chat:([a-f0-9-]{36})(?:#([\w-]{10,80}))?$/.exec(href);if(!match)throw Error('Invalid chat reference.');
       const target=sidebar.root(match[1]);if(target.sideSourceId)throw Error('Keep this side chat before linking it.');let focus=match[2];
-      if(focus){focus=target.historyAliases?.[focus]||focus;const message=store.get<Turn>('turn',focus),owner=store.get<Chat>('chat',message.chatId);if((owner.parentChatId||owner.id)!==target.id)throw Error('This message belongs to another chat.');if(message.contextSnapshot)return {savedMessage:backend.scrubber.value({title:target.title,turn:message,tools:store.all<ToolCall>('tool').filter(tool=>tool.turnId===message.id)})};if(message.parentTurnId)focus=message.parentTurnId;}
+      if(focus){focus=target.historyAliases?.[focus]||focus;const message=store.get<Turn>('turn',focus),owner=store.get<Chat>('chat',message.chatId);if((owner.parentChatId||owner.id)!==target.id)throw Error('This message belongs to another chat.');if(message.contextSnapshot)return {savedMessage:backend.scrubber.value({title:target.title,turn:message,tools:store.where<ToolCall>('tool','turnId',message.id)})};if(message.parentTurnId)focus=message.parentTurnId;}
       const window=chatWindows.get(target.id)||win;window.webContents.send('select-chat',target.id,focus);if(!process.argv.includes('--hidden')){window.show();window.focus();}return;
     }
     const target=resolveChatLink(defaultFolder(),href,[data]);

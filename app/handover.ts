@@ -64,7 +64,7 @@ const target=(args:any)=>String(args?.path??args?.file_path??args?.command??args
 /** A push: his messages, the replies and a short list of actions. Pushed messages that came from the other chat
  * are left out; the reply to them stays. */
 export function pushText(store:Store,turns:Turn[],title:string,toOld:boolean){
- const tools=store.all<ToolCall>('tool'),parts=turns.map(t=>{
+ const tools=store.toolsOf(turns),parts=turns.map(t=>{
   const actions=tools.filter(tool=>tool.turnId===t.id).map(tool=>'- '+tool.name+(target(tool.args)?' '+target(tool.args):''));
   return [!t.handoff?.push&&!t.automatic&&!t.goal?.automatic&&t.prompt.trim()?'**User:** '+t.prompt.trim():'',actions.length?'**Actions:**\n'+actions.join('\n'):'',t.text.trim()?'**Reply:** '+t.text.trim():t.error?'**Error:** '+t.error:''].filter(Boolean).join('\n\n');
  }).filter(Boolean);

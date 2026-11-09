@@ -77,7 +77,7 @@ test('per-tool lookups use indexed fields and match a full read (RUN-PLAN 3c)',(
   const store=new Store(':memory:');
   for(let i=0;i<50;i++){store.put('tool',{id:'t'+i,turnId:'turn'+(i%5),status:i%7?'completed':'running'});store.put('work-action',{id:'a'+i,job:'turn'+(i%3),status:i%4?'completed':'uncertain',signature:'s'+(i%6)});}
   for(const [kind,field,value] of [['tool','turnId','turn2'],['tool','status','running'],['work-action','job','turn1'],['work-action','status','uncertain'],['work-action','signature','s4']] as const)
-    assert.deepEqual(store.where(kind,field,value),store.all<any>(kind).filter(row=>row[field]===value));
+    assert.deepEqual(store.where(kind,field,value),store.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map((r:any)=>JSON.parse(r.data)).filter((row:any)=>row[field]===value));
   assert.match(JSON.stringify(store.db.prepare("EXPLAIN QUERY PLAN SELECT data FROM records WHERE kind=? AND json_extract(data,'$.turnId')=?").all('tool','turn2')),/records_turnId/);
   assert.deepEqual(store.find('tool','t3'),store.get('tool','t3'));assert.equal(store.find('tool','missing'),undefined);
 });

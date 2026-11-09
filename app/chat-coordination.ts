@@ -17,12 +17,13 @@ function valid(name:string,args:any){const schema=chatTools.find(t=>t.name===nam
 function excerpt(value:string,query:string){const start=Math.max(0,value.toLowerCase().indexOf(query)-70);return (start?'…':'')+value.slice(start,start+250);}
 function search(store:Store,source:string,query:string,archived:boolean){
  const needle=query.toLowerCase(),earlier=seriesBefore(store,source),rows:{chatId:string;title:string;archived:boolean;turnId?:string;model?:string;excerpt?:string;link:string}[]=[];
- const turns=store.all<Turn>('turn'),tools=store.all<any>('tool');let total=0;
+ const turns=store.all<Turn>('turn');let total=0;
  for(const chat of store.all<Chat>('chat').filter(c=>ordinary(c)&&c.id!==source&&!earlier.has(c.id)&&(archived||!c.archived)).reverse()){
   const boundary=turns.filter(t=>t.chatId===chat.id&&!t.parentTurnId).at(-1),base={chatId:chat.id,title:chat.title,archived:!!chat.archived};let matches=0;
   if(needle&&boundary){let offset=0;do{
    const result=readChatHistory(store,boundary,{query,offset,limit:20});if(!result.messages||result.total===undefined)throw Error('Invalid search result.');matches=result.total; 
-   for(const match of result.messages){const t=turns.find(t=>t.id===match.id)!,text=[t.prompt,t.text,...tools.filter(tool=>tool.turnId===t.id).map(tool=>JSON.stringify(tool))].find(text=>text.toLowerCase().includes(needle))||t.prompt;rows.push({...base,turnId:t.id,model:t.model,excerpt:excerpt(text,needle),link:`[${title(chat.title)}](${chatReference(chat.id,t.id)})`});}
+   // readChatHistory found the matches; only their own tools are read, whole, for the excerpt.
+   for(const match of result.messages){const t=turns.find(t=>t.id===match.id)!,text=[t.prompt,t.text,...store.withResults<any>('tool',store.where<any>('tool','turnId',t.id)).map(tool=>JSON.stringify(tool))].find(text=>text.toLowerCase().includes(needle))||t.prompt;rows.push({...base,turnId:t.id,model:t.model,excerpt:excerpt(text,needle),link:`[${title(chat.title)}](${chatReference(chat.id,t.id)})`});}
    offset=result.nextOffset??0;if(!result.nextOffset||rows.length>=1000)break;
   }while(true);}
   total+=matches;

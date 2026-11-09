@@ -52,7 +52,7 @@ test('restart consumes only matching durable completion receipts and never rerun
  const backend={dataRoot:data,generation:'new',scrubber:{value:(v:any)=>v}} as any,background=new BackgroundWork(store,backend,work,()=>{});
  await fs.writeFile(file,JSON.stringify({lease,session_id:'foreign',result:{exit_code:0},uncertain:false,refused:false}));await background.recoverReceipts();assert.equal(work.pending().length,1);
  await fs.writeFile(file,JSON.stringify({lease,session_id:owner.sessionId,result:{exit_code:0,output:'done'},uncertain:false,refused:false}));await background.recoverReceipts();assert.equal(work.pending().length,0);assert.equal(store.get<any>('work-action',lease).result.output,'done');await assert.rejects(fs.stat(file),{code:'ENOENT'});
- await background.recoverReceipts();assert.equal(store.all('work-action').length,1);assert.equal(store.get<any>('tool','old:call').status,'completed');assert.equal(store.get<any>('tool','old:call').result.output,'done');store.db.close();
+ await background.recoverReceipts();assert.equal(store.where<any>('work-action','job','old').length,1);assert.equal(store.get<any>('tool','old:call').status,'completed');assert.equal(store.get<any>('tool','old:call').result.output,'done');store.db.close();
 });
 
 test('a live preview allows an observed multi-file patch and retained chat jobs can be stopped',async()=>{
@@ -218,8 +218,8 @@ test('identical commands in different working directories have distinct executio
  const store=new Store(':memory:'),owner=new WorkCoordination(store),signal=new AbortController().signal,args={command:'npm test'};
  await owner.inspectAction('job',a,{tool:'Bash',arguments:args,summary:'Tests in the first checkout write only to its local output.',evidence:[],resources:[{kind:'path',value:'.',access:'write'}]});
  const first=await owner.begin('group','job',a,'Bash',args,signal);await owner.finish(first,'job','one result');
- const moved=await owner.begin('group','job',b,'Bash',args,signal);assert.equal(store.all<any>('work-action').find(row=>row.id===moved).scope,undefined);await owner.finish(moved,'job','two result',false,true);
- const second=await owner.begin('group','other',b,'Bash',args,signal);assert.ok(second);assert.equal(store.all<any>('work-action').find(row=>row.id===second).scope,undefined);await owner.finish(second,'other','two result');
+ const moved=await owner.begin('group','job',b,'Bash',args,signal);assert.equal(store.get<any>('work-action',moved!).scope,undefined);await owner.finish(moved,'job','two result',false,true);
+ const second=await owner.begin('group','other',b,'Bash',args,signal);assert.ok(second);assert.equal(store.get<any>('work-action',second!).scope,undefined);await owner.finish(second,'other','two result');
  await assert.rejects(owner.begin('group','third',a,'Bash',args,signal),/already completed/);store.db.close();
 });
 

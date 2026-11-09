@@ -17,7 +17,7 @@ test('Claude → Hermes → Claude transfers only missing chat context and saved
   store.put('tool',{id:'tool',turnId:second.id,name:'write_file',args:{path:'saved.txt'},result:'written',status:'completed'});
   store.finishEngine(second.id,'hermes','native-hermes',{status:'completed',text:'File saved'});
   const third=store.accept('third',chat.id,'Review the result');
-  const back=handover(store.all('turn'),store.all('tool'),third,store.beginEngine(chat.id,'claude'));
+  const back=handover(store.all('turn'),store.toolsOf(store.all<{id:string}>('turn')),third,store.beginEngine(chat.id,'claude'));
   assert.equal(back.sessionId,'native-claude');
   assert.match(back.prompt,/saved.txt/);assert.match(back.prompt,/Do not repeat completed actions/);
   assert.doesNotMatch(back.prompt,/copperfinch/);
@@ -77,11 +77,11 @@ test('large restart history stays bounded, preserves the latest correction and r
  const correction=store.accept('correction',chat.id,'Use I:\\DEV as authoritative. Reject PDMD unless it supports img2vid.');
  store.finishEngine(correction.id,'hermes','oversized-session',{status:'failed',text:'',error:'Context compression could not bring this session under the model context window.'});
  const current=store.accept('current',chat.id,'Update the icon'),pins='Preserve this approved wording exactly.';
- const transfer=handover(store.all('turn'),store.all('tool'),current,store.enginePosition(chat.id,'hermes'),undefined,pins);
+ const transfer=handover(store.all('turn'),store.toolsOf(store.all<{id:string}>('turn')),current,store.enginePosition(chat.id,'hermes'),undefined,pins);
  assert.equal(transfer.sessionId,null);assert.ok(transfer.prompt.length<52000,transfer.prompt.length.toString());assert.ok(transfer.prompt.endsWith(current.prompt));
  assert.match(transfer.prompt,/Reject PDMD unless it supports img2vid/);assert.ok(transfer.prompt.includes(pins));assert.doesNotMatch(transfer.prompt,/PRIVATE_REASONING/);assert.match(transfer.prompt,/read_chat_history/);
  const window=JSON.parse(transfer.prompt.split('<conversation_history>\n')[1].split('\n</conversation_history>')[0]);assert.ok(window.omitted>0);assert.equal(window.records.at(-1).id,correction.id);
- const {started,finished,...original}=store.get<ToolCall>('tool','large-0:0');assert.ok(started&&finished);let offset=0,retrieved='';do{const page=readChatHistory(store,current,{toolId:original.id,offset});retrieved+=page.text;offset=page.nextOffset!;}while(offset!==null);
+ const {started,finished,...original}=store.withResults('tool',[store.get<ToolCall>('tool','large-0:0')])[0];assert.ok(started&&finished);let offset=0,retrieved='';do{const page=readChatHistory(store,current,{toolId:original.id,offset});retrieved+=page.text;offset=page.nextOffset!;}while(offset!==null);
  assert.deepEqual(JSON.parse(retrieved),original);assert.equal(store.all('turn').length,62);store.db.close();
 });
 
@@ -129,7 +129,7 @@ test('Hermes resumes its stored session after an uncertain turn; Claude starts f
   store.finishEngine(first.id,'hermes','stored-1',{status:'completed'});store.beginEngine(chat.id,'hermes');
   store.put<ToolCall>('tool',{id:'cut:t',turnId:cut.id,name:'terminal',args:{},result:null,status:'uncertain'});store.finishEngine(cut.id,'hermes','stored-1',{status:'stopped'});
   const position=store.enginePosition(chat.id,'hermes');assert.equal(position.uncertain,true);
-  assert.equal(handover(store.all('turn'),store.all('tool'),next,position).sessionId,'stored-1','Hermes keeps its stored session');
-  assert.equal(handover(store.all('turn'),store.all('tool'),next,{...position,engine:'claude'}).sessionId,null,'Claude starts fresh');
+  assert.equal(handover(store.all('turn'),store.toolsOf(store.all<{id:string}>('turn')),next,position).sessionId,'stored-1','Hermes keeps its stored session');
+  assert.equal(handover(store.all('turn'),store.toolsOf(store.all<{id:string}>('turn')),next,{...position,engine:'claude'}).sessionId,null,'Claude starts fresh');
   store.db.close();
 });

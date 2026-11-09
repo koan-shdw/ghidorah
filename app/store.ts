@@ -7,6 +7,29 @@ import {providerFor} from './models';
 // A failure that overflowed the context would fail again in the same session (batch 5, 7c).
 const contextOverflow=(error:unknown)=>/context|too long|too large|maximum.{0,20}tokens|token limit|tokens? exceed/i.test(String(error??''));
 
+// Long tool outputs live in their own table (OUTPUTS, 2026-11-09). A tool or work-action row keeps a short preview
+// and resultCut, as pushed window states already did; whole() reads the saved output when a row is opened, exported,
+// forked or read into history. Before this every output was saved whole, twice (the tool row and its work-action
+// row): 2.6 GB of Koan's 2.9 GB file, and the paths that read every row of a kind (startup, the end of every reply)
+// parsed 1.3 GB at a time: ten seconds frozen, and the engine's 4.3 GB memory limit reached, so the app closed with
+// no error shown.
+export const PREVIEW_CUT=2000;
+export const PREVIEW_MARK='\n… [cut here: open the row for the whole result]';
+// The mark as it reads inside JSON text (the newline escaped), for checks on a saved row's text.
+const MARK_IN_JSON=JSON.stringify(PREVIEW_MARK).slice(1,-1);
+function cutStrings(value:any,depth=0):any{
+  if(typeof value==='string')return value.length>PREVIEW_CUT?value.slice(0,PREVIEW_CUT)+PREVIEW_MARK:value;
+  if(!value||typeof value!=='object'||depth>20)return value;
+  const next:any=Array.isArray(value)?[]:{};for(const [key,item] of Object.entries(value))next[key]=cutStrings(item,depth+1);return next;
+}
+// The preview keeps the result's shape: long strings are cut, numbers and fields stay, so status checks (exit_code,
+// is_error) still read the row. When even that is long (many strings), the start of the text. Every preview carries
+// PREVIEW_MARK, which is how a re-saved row is told from a new result.
+export function previewOf(result:unknown){
+  const shaped=cutStrings(result),text=JSON.stringify(shaped);
+  return text.length<=8*PREVIEW_CUT&&text.includes(MARK_IN_JSON)?shaped:JSON.stringify(result).slice(0,PREVIEW_CUT)+PREVIEW_MARK;
+}
+
 const indexedFields=['turnId','job','status','signature','chatId'] as const;
 type IndexedField=typeof indexedFields[number];
 const turnFields=['jobs','remote'] as const;
@@ -21,6 +44,7 @@ export class Store {
     this.db.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS records(kind TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(kind,id));
       CREATE TABLE IF NOT EXISTS events(id TEXT PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS results(kind TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(kind,id));
       PRAGMA user_version=1;`);
     for(const field of indexedFields)this.db.exec(`CREATE INDEX IF NOT EXISTS records_${field} ON records(kind,json_extract(data,'$.${field}'))`);
     // Partial indexes hold only the few rows that carry the field, so these reads never parse the rest (SPEED-PLAN 1a).
@@ -51,7 +75,9 @@ export class Store {
     const pending=[...this.streamed];this.streamed.clear();
     this.transaction(()=>{for(const [id,patch] of pending){const r:any=this.db.prepare("SELECT data FROM records WHERE kind='turn' AND id=?").get(id);if(r)this.db.prepare("UPDATE records SET data=? WHERE kind='turn' AND id=?").run(JSON.stringify({...JSON.parse(r.data),...patch}),id);}});
   }
-  all<T>(kind:string):T[] {return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map((r:any)=>this.parse(kind,r.data));}
+  // Tool and work-action rows are never read all at once (OUTPUTS 2026-11-09: on Koan's data that parsed 1.3 GB
+  // after every reply). They are read by turn, job or status.
+  all<T>(kind:string):T[] {if(kind==='tool'||kind==='work-action')throw Error(`Read ${kind} records by turn, job or status (where, whereIn, toolsOf), never all at once.`);return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map((r:any)=>this.parse(kind,r.data));}
   // Per-tool lookups read only matching rows through expression indexes; all() parses every row (RUN-PLAN 3c:
   // 244 ms for Koan's 7,179 tool rows, several times per tool call).
   where<T>(kind:string,field:IndexedField,value:string):T[] {return this.db.prepare(`SELECT data FROM records WHERE kind=? AND json_extract(data,'$.${field}')=? ORDER BY rowid`).all(kind,value).map((r:any)=>this.parse(kind,r.data));}
@@ -70,7 +96,61 @@ export class Store {
   ownedTurns<T=Turn>(chatId:string):T[] {return this.whereIn<T>('turn','chatId',[chatId,...this.chatsWhere('parentChatId',chatId).map(chat=>chat.id)]);}
   // What a send needs from history: the chat's own and job turns, and their tools (SPEED-PLAN 3: the whole database
   // was read two or three times per send).
-  chatRecords(chatId:string):{turns:Turn[];tools:ToolCall[]} {const turns=this.ownedTurns<Turn>(chatId);return {turns,tools:this.whereIn<ToolCall>('tool','turnId',turns.map(turn=>turn.id))};}
+  chatRecords(chatId:string):{turns:Turn[];tools:ToolCall[]} {const turns=this.ownedTurns<Turn>(chatId);return {turns,tools:this.toolsOf(turns)};}
+  toolsOf(turns:readonly {id:string}[]):ToolCall[] {return this.whereIn<ToolCall>('tool','turnId',turns.map(turn=>turn.id));}
+  // The whole result of a tool or work-action row saved as a preview: its own results row, or for an action the
+  // tool row that took its result. A row saved short comes back as it is.
+  whole(kind:string,record:any):any {
+    if(!record?.resultCut)return record?.result;
+    const own:any=this.db.prepare('SELECT data FROM results WHERE kind=? AND id=?').get(kind,record.id);if(own)return JSON.parse(own.data);
+    if(kind==='work-action'&&record.toolId){const tool=this.find<ToolCall>('tool',record.toolId);if(tool&&tool.turnId===record.job)return this.whole('tool',tool);}
+    return record.result;
+  }
+  // Rows with their whole results, for an export, a fork or a history page; one read per 900 rows.
+  withResults<T extends {id:string;result?:any;resultCut?:boolean}>(kind:string,rows:T[]):T[] {
+    const cut=rows.filter(row=>row.resultCut);if(!cut.length)return rows;
+    const found=new Map<string,string>();
+    for(let i=0;i<cut.length;i+=900){const chunk=cut.slice(i,i+900);for(const r of this.db.prepare(`SELECT id,data FROM results WHERE kind=? AND id IN (${chunk.map(()=>'?').join(',')})`).all(kind,...chunk.map(row=>row.id)) as any[])found.set(String(r.id),r.data);}
+    return rows.map(row=>{const data=found.get(row.id);if(data===undefined)return row;const {resultCut,...rest}=row;return {...rest,result:JSON.parse(data)} as T;});
+  }
+  // The saved size of the given rows' whole results, summed inside SQLite: for history measures (auto-compaction).
+  resultsSize(kind:string,ids:string[]):number {
+    let total=0;
+    for(let i=0;i<ids.length;i+=900){const chunk=ids.slice(i,i+900);total+=Number((this.db.prepare(`SELECT sum(length(data)) AS n FROM results WHERE kind=? AND id IN (${chunk.map(()=>'?').join(',')})`).get(kind,...chunk) as any)?.n||0);}
+    return total;
+  }
+  // Ids among the given rows whose saved whole result contains the text, matched inside SQLite: nothing is parsed.
+  resultsContaining(kind:string,ids:string[],needle:string):Set<string> {
+    const hits=new Set<string>();if(!needle)return hits;
+    for(let i=0;i<ids.length;i+=900){const chunk=ids.slice(i,i+900);for(const r of this.db.prepare(`SELECT id FROM results WHERE kind=? AND id IN (${chunk.map(()=>'?').join(',')}) AND instr(lower(data),?)>0`).all(kind,...chunk,needle.toLowerCase()) as any[])hits.add(String(r.id));}
+    return hits;
+  }
+  // Rows saved whole by earlier versions move to the results table a few at a time, so the window never waits (the
+  // whole pass over Koan's 2.9 GB file is about a minute; scripts/split-results.ts runs it to the end). True once
+  // every row is done; the pass is remembered in events.
+  splitResults(rows=40):boolean {
+    if(!this.db.isOpen)return false;
+    if(this.db.prepare("SELECT 1 FROM events WHERE id='results-split-v1'").get())return true;
+    const progress=this.find<{id:string;rowid:number}>('settings','results-split')?.rowid||0;
+    // NOT INDEXED: the batch walks the table from the last rowid. Through the kind index SQLite re-read and sorted
+    // every tool row for each batch (5,000 rows a minute on Koan's file).
+    const batch=this.db.prepare(`SELECT rowid,kind,id,data FROM records NOT INDEXED WHERE rowid>? AND kind IN ('tool','work-action') AND length(data)>? ORDER BY rowid LIMIT ?`).all(progress,PREVIEW_CUT,rows) as any[];
+    if(!batch.length){this.transaction(()=>{this.remove('settings','results-split');this.event('results-split-v1',()=>{});});return true;}
+    this.transaction(()=>{
+      for(const row of batch){
+        const value=JSON.parse(row.data);if(value.resultCut||value.result==null||JSON.stringify(value.result).length<=PREVIEW_CUT)continue;
+        // Written straight, not through put(): put stamps an old tool row without a start time with today's.
+        this.db.prepare('UPDATE records SET data=? WHERE rowid=?').run(JSON.stringify(this.pack(row.kind,value)),row.rowid);
+        // An action whose tool row never took its result keeps the whole text itself.
+        if(row.kind==='work-action'&&!['uncertain','background'].includes(value.status)){const tool=value.toolId?this.find<ToolCall>('tool',value.toolId):undefined;if(!tool||tool.turnId!==value.job||tool.result==null)this.db.prepare('INSERT INTO results(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run('work-action',value.id,JSON.stringify(value.result));}
+      }
+      this.put('settings',{id:'results-split',rowid:batch.at(-1).rowid});
+    });
+    return false;
+  }
+  // A read on a field with no index: SQLite walks the kind's rows, only the matches are parsed. For tests and the
+  // group lookups that have no job list; everyday paths use where/whereIn.
+  scan<T>(kind:string,field:string,value:string):T[] {if(!/^\w+$/.test(field))throw Error('Unknown field');return this.db.prepare(`SELECT data FROM records WHERE kind=? AND json_extract(data,'$.${field}')=? ORDER BY rowid`).all(kind,value).map((r:any)=>this.parse(kind,r.data));}
   chatsWhere(field:typeof chatFields[number],value:string):Chat[] {if(!chatFields.includes(field))throw Error('Unknown chat field');return this.db.prepare(`SELECT data FROM records WHERE kind='chat' AND json_extract(data,'$.${field}')=? ORDER BY rowid`).all(value).map((r:any)=>JSON.parse(r.data));}
   // Record ids only, straight from the index: nothing is parsed (SPEED-PLAN 1).
   idsWhere(kind:string,field:IndexedField,values:string[]):string[] {
@@ -126,8 +206,24 @@ export class Store {
   }
   get<T>(kind:string,id:string):T {const r:any=this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind,id);if(!r)throw Error(`${kind} not found`);return this.parse(kind,r.data);}
   // A tool record keeps when it started and finished, for the action list's times (TRIS-TODO 4.1, A2).
-  put<T extends {id:string}>(kind:string,value:T) {if(kind==='tool'){const tool:any=value;tool.started??=Date.now();if(!tool.finished&&['completed','failed','stopped'].includes(tool.status))tool.finished=Date.now();}if(kind==='turn')this.streamed.delete(value.id);this.db.prepare('INSERT INTO records(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind,value.id,JSON.stringify(value));return value;}
-  remove(kind:string,id:string){if(kind==='turn')this.streamed.delete(id);this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind,id);}
+  put<T extends {id:string}>(kind:string,value:T) {if(kind==='tool'){const tool:any=value;tool.started??=Date.now();if(!tool.finished&&['completed','failed','stopped'].includes(tool.status))tool.finished=Date.now();}if(kind==='turn')this.streamed.delete(value.id);const row=kind==='tool'||kind==='work-action'?this.pack(kind,value):value;this.db.prepare('INSERT INTO records(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind,value.id,JSON.stringify(row));return value;}
+  // The row saved for a tool or work-action. A long result becomes a preview; the whole text goes to the results
+  // table when no other row holds it: always for a tool, for an action while it is uncertain or in the background,
+  // or when no tool row of its job will take its result (a finished action's result is otherwise on its tool row).
+  // A row that already carries a preview is kept as is.
+  private pack(kind:string,value:any){
+    const text=value.result===undefined?undefined:JSON.stringify(value.result);
+    if(value.resultCut===true&&text!==undefined&&text.includes(MARK_IN_JSON))return value;
+    if(text!==undefined&&text.length>PREVIEW_CUT){
+      const holder=kind==='work-action'&&value.toolId&&!['uncertain','background'].includes(value.status)?this.find<ToolCall>('tool',value.toolId):undefined;
+      if(kind==='tool'||!(holder&&holder.turnId===value.job))this.db.prepare('INSERT INTO results(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind,value.id,text);
+      else this.db.prepare('DELETE FROM results WHERE kind=? AND id=?').run(kind,value.id);
+      return {...value,result:previewOf(value.result),resultCut:true};
+    }
+    this.db.prepare('DELETE FROM results WHERE kind=? AND id=?').run(kind,value.id);
+    if(value.resultCut===undefined)return value;const {resultCut,...rest}=value;return rest;
+  }
+  remove(kind:string,id:string){if(kind==='turn')this.streamed.delete(id);this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind,id);if(kind==='tool'||kind==='work-action')this.db.prepare('DELETE FROM results WHERE kind=? AND id=?').run(kind,id);}
   update<T extends {id:string}>(kind:string,id:string,patch:Partial<T>):T {const previous:any=this.get<T>(kind,id),v:any={...previous,...patch};if(kind==='turn'){v.lastActivity=Date.now();if(['stopped','interrupted','failed'].includes(v.status)&&!v.stopReason)v.stopReason='unknown';if(v.status!==previous.status||v.preparation!==previous.preparation||v.activity!==previous.activity)v.stageSince=Date.now();}if(kind==='turn'&&!v.finished&&['completed','stopped','failed','interrupted'].includes(v.status))v.finished=Date.now();this.put(kind,v);return v;}
   transaction<T>(fn:()=>T):T {if(this.db.isTransaction)return fn();this.db.exec('BEGIN IMMEDIATE');try{const v=fn();this.db.exec('COMMIT');return v;}catch(e){this.db.exec('ROLLBACK');throw e;}}
   event(id:string,fn:()=>void){return this.transaction(()=>{if(!this.db.prepare('INSERT OR IGNORE INTO events VALUES(?)').run(id).changes)return false;fn();return true;});}
@@ -151,13 +247,13 @@ export class Store {
     });
   }
   // tools:false leaves the tool rows out; window refreshes fetch only the turns a window shows (RUN-PLAN 3b).
-  snapshot({tools=true}:{tools?:boolean}={}):Omit<Snapshot,'connected'|'backend'|'providerStatus'> {const turns=this.all<Turn>('turn').filter(turn=>!turn.contextSnapshot),ids=new Set(turns.map(turn=>turn.id));return {projects:this.all<Project>('project'),chats:this.all<Chat>('chat').filter(chat=>!chat.parentChatId),turns,tools:tools?this.all<ToolCall>('tool').filter(tool=>ids.has(tool.turnId)):[],approvals:this.all<Approval>('approval')};}
+  snapshot({tools=true}:{tools?:boolean}={}):Omit<Snapshot,'connected'|'backend'|'providerStatus'> {const turns=this.all<Turn>('turn').filter(turn=>!turn.contextSnapshot);return {projects:this.all<Project>('project'),chats:this.all<Chat>('chat').filter(chat=>!chat.parentChatId),turns,tools:tools?this.toolsOf(turns):[],approvals:this.all<Approval>('approval')};}
   interrupt(engine?:Engine,reason:Turn['stopReason']='app-restart') {
     const turns=this.all<Turn>('turn').filter(turn=>!engine||!turn.jobs?.length&&!turn.command&&(turn.model.startsWith('claude-code:')?'claude':'hermes')===engine),ids=new Set(turns.map(turn=>turn.id));
     for(const turn of turns)if(['running','waiting','dispatching','stopping'].includes(turn.status)||turn.parentTurnId&&turn.status==='queued')this.update<Turn>('turn',turn.id,{status:'interrupted',stopReason:turn.stopReason||reason,error:'Interrupted. Check any uncertain tool outcome before retrying.'});
     // After a restart old queued messages wait paused for one click (Koan, 2026-10-08), never auto-sent.
     if(!engine)for(const turn of turns)if(turn.status==='queued'&&!turn.parentTurnId&&!turn.automatic)this.update<Turn>('turn',turn.id,{paused:true});
     for(const approval of this.all<Approval>('approval'))if(ids.has(approval.turnId)&&approval.status==='pending')this.update<Approval>('approval',approval.id,{status:'expired'});
-    for(const tool of this.all<ToolCall>('tool'))if(ids.has(tool.turnId)&&tool.status==='running')this.update<ToolCall>('tool',tool.id,{status:'uncertain'});
+    for(const tool of this.where<ToolCall>('tool','status','running'))if(ids.has(tool.turnId))this.update<ToolCall>('tool',tool.id,{status:'uncertain'});
   }
 }

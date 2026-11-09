@@ -68,15 +68,16 @@ export class Sidebar {
    retry=turns.find(t=>t.id===beforeTurnId&&t.chatId===chatId&&!t.parentTurnId&&!t.automatic&&!t.goal?.automatic&&!t.contextSnapshot);
    if(sideChat||!retry)throw Error('Choose an ordinary message in this chat.');
    const roots=new Set(turns.slice(0,turns.indexOf(retry)).filter(t=>t.chatId===chatId).map(t=>t.id));
-   const kept=turns.filter(t=>roots.has(t.id)||!!t.parentTurnId&&roots.has(t.parentTurnId)),keptIds=new Set(kept.map(t=>t.id)),tools=this.store.all<ToolCall>('tool');
+   const kept=turns.filter(t=>roots.has(t.id)||!!t.parentTurnId&&roots.has(t.parentTurnId)),keptIds=new Set(kept.map(t=>t.id)),acted=new Set(this.store.toolsOf(turns.filter(t=>!keptIds.has(t.id))).map(tool=>tool.turnId));
    // Branching rewinds the conversation, not the filesystem or outside services.
    // Preserve executed outcomes so a fresh engine cannot mistake them for work still to do.
-   const effects=turns.filter(t=>!keptIds.has(t.id)&&tools.some(tool=>tool.turnId===t.id)).map(t=>({...t,chatId,parentTurnId:undefined,jobs:undefined,automatic:undefined,command:undefined,commandContext:undefined,review:undefined,remote:undefined,routine:undefined,voice:undefined,attachments:[],prompt:'Actions already performed in the original chat. Files and external effects have not been reverted. Inspect their current state before repeating or replacing an action.',text:'',reasoning:'',error:null,usage:null,status:'context',contextSnapshot:{turnId:t.id,status:t.status}}));
+   const effects=turns.filter(t=>!keptIds.has(t.id)&&acted.has(t.id)).map(t=>({...t,chatId,parentTurnId:undefined,jobs:undefined,automatic:undefined,command:undefined,commandContext:undefined,review:undefined,remote:undefined,routine:undefined,voice:undefined,attachments:[],prompt:'Actions already performed in the original chat. Files and external effects have not been reverted. Inspect their current state before repeating or replacing an action.',text:'',reasoning:'',error:null,usage:null,status:'context',contextSnapshot:{turnId:t.id,status:t.status}}));
    turns=[...kept,...effects];owned=owned.filter(c=>c.id===chatId||kept.some(t=>t.chatId===c.id));
   }
   const chatIds=new Map(owned.map(c=>[c.id,randomUUID()]));
   const turnIds=new Map(turns.map(t=>[t.id,randomUUID()])),newId=chatIds.get(chatId)!;
-  const forkedTools=this.store.all<ToolCall>('tool').filter(tool=>turnIds.has(tool.turnId)),toolIds=new Map(forkedTools.map(tool=>[tool.id,randomUUID()]));
+  // Copied whole: each copy is saved under its new id with its own results row (store.put).
+  const forkedTools=this.store.withResults('tool',this.store.toolsOf(turns)),toolIds=new Map(forkedTools.map(tool=>[tool.id,randomUUID()]));
   const sources=this.store.all<import('./web-research').WebSource>('web-source').filter(row=>row.chatId===source.id&&turnIds.has(row.turnId)),sourceIds=new Map(sources.map(row=>[row.id,randomUUID()]));
   const outputs=this.store.all<import('./chat-files').ChatOutput>('chat-output').filter(row=>row.chatId===source.id&&turnIds.has(row.turnId)),outputIds=new Map(outputs.map(row=>[row.id,randomUUID()]));
   const aliases=(chat:Chat)=>Object.fromEntries([...turnIds,...toolIds,...sourceIds,...outputIds,...Object.entries(chat.historyAliases||{}).flatMap(([old,id])=>{const next=turnIds.get(id)||toolIds.get(id)||sourceIds.get(id)||outputIds.get(id);return next?[[old,next]]:[];})]);
@@ -102,7 +103,7 @@ export class Sidebar {
   const chats=new Set(this.owned(chatId).map(c=>c.id)),turns=new Set(this.store.all<Turn>('turn').filter(t=>chats.has(t.chatId)).map(t=>t.id));
   if(this.store.all<Turn>('turn').some(t=>turns.has(t.id)&&pendingTurn(t.status)))throw Error('Finish or stop current work before deleting.');
   this.store.transaction(()=>{
-   for(const row of this.store.db.prepare('SELECT kind,id,data FROM records').all() as any[]){const value=JSON.parse(row.data);if(chats.has(value.chatId)||turns.has(value.turnId)||turns.has(value.job)||turns.has(value.group)||row.kind==='turn'&&turns.has(row.id)||['chat','goal'].includes(row.kind)&&chats.has(row.id)||row.kind==='goal-report'&&turns.has(row.id))this.store.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(row.kind,row.id);}
+   for(const row of this.store.db.prepare('SELECT kind,id,data FROM records').all() as any[]){const value=JSON.parse(row.data);if(chats.has(value.chatId)||turns.has(value.turnId)||turns.has(value.job)||turns.has(value.group)||row.kind==='turn'&&turns.has(row.id)||['chat','goal'].includes(row.kind)&&chats.has(row.id)||row.kind==='goal-report'&&turns.has(row.id)){this.store.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(row.kind,row.id);if(row.kind==='tool'||row.kind==='work-action')this.store.db.prepare('DELETE FROM results WHERE kind=? AND id=?').run(row.kind,row.id);}}
   });
  }
 }

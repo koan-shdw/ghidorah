@@ -83,8 +83,8 @@ try{
  await instance.evaluate(({app})=>app.quit());await instance.close();
  const saved=new Store(path.join(data,'chat.sqlite')),a=saved.get<Chat>('chat',independent.jobs[0].chatId),b=saved.get<Chat>('chat',independent.jobs[1].chatId);
  assert.equal(a.projectId,b.projectId);assert.ok(a.storedId&&b.storedId);assert.notEqual(a.storedId,b.storedId);
- assert.ok(saved.all<any>('work-action').some(row=>row.group===independent.parent&&row.job===independent.jobs[0].id&&row.status==='completed'));
- assert.equal(saved.all<any>('work-action').some(row=>row.status==='running'),false);saved.db.close();
+ assert.ok(saved.where<any>('work-action','job',independent.jobs[0].id).some(row=>row.group===independent.parent&&row.status==='completed'));
+ assert.equal(saved.where<any>('work-action','status','running').length,0);saved.db.close();
  await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({scope:'seeded backend prerequisite; no multi-selection or side-window claim',checks:['same project separate Hermes sessions','simultaneous approvals','approve/deny/stop isolation','shared-target stale write refusal','backend failure isolation','crash partial output','restart no replay','durable action ledger']},null,2));
  console.log('PASS concurrent crash/restart preserves partial results and session ownership without replay\nEvidence: '+data);
 }finally{await instance.evaluate(({app})=>app.quit()).catch(()=>{});await instance.close().catch(()=>{});ds.stdin.end();gpt.stdin.end();dl.close();gl.close();await host.host('delete_key');}
