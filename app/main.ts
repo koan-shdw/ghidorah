@@ -98,7 +98,7 @@ import {Sidebar} from './sidebar';
 import {claudeUsage,claudeRateUsage} from './usage';
 import {claudeTurnEvent,claudeTurnUsage} from './claude-turn';
 import {handover,managementText} from './history';
-import {joinTurn,resetJoinedText,settleJoined,busyHermesRows,lateToolOwner} from './turn-joins';
+import {joinTurn,resetJoinedText,settleJoined,requeueJoined,busyHermesRows,lateToolOwner} from './turn-joins';
 import {finalText} from './turn-text';
 import {inspectProjectTrust,projectSkillFolders,type ProjectSourceGrant,type ProjectTrustReview} from './project-trust';
 import {nativePluginCatalog,reviewNativePlugin,reviewHermesPlugin,installNativePlugin,nativePluginDirectories,verifyPlugins,checkRuntimeOnChange,ChangeGate,hermesPluginCopies,hermesPluginKey,pluginCommand,pluginServer,sharedCommands,type NativePlugin,type NativePluginInstall} from './native-plugins';
@@ -1161,11 +1161,17 @@ export function receive(event:any){
       for(const a of store.all<Approval>('approval'))if(a.turnId===id && a.status==='pending')store.update<Approval>('approval',a.id,{status:'expired'});
       for(const pending of mcpToolRequests.values())if(pending.chatId===chat.id)pending.controller.abort();
       for(const tool of store.where<ToolCall>('tool','turnId',id))if(tool.status==='running')store.update<ToolCall>('tool',tool.id,{status:'uncertain'});
-      // Every other message this turn answered (steered into it, or merged in Hermes's queue) is answered by it.
+      // Every other message this turn answered (steered into it, or merged in Hermes's queue) is answered by it. A reply
+      // that failed answered none of them: they go back to the queue as their own messages (Koan 2026-11-09), so the
+      // queue sends them on, or asks for a model when the failure took theirs (the account limit mid-reply).
       const waiting=waitingFor(chat.id);
-      for(const row of Array.isArray(p.client_ids)?p.client_ids:[])if(typeof row==='string'&&row!==id&&store.find<Turn>('turn',row)){joinTurn(store,row,id,{text:0,tools:0});waiting.delete(row);hermesQueued.delete(row);hermesStarted.delete(row);store.update<Turn>('turn',row,{status:status==='stopped'?'stopped':'completed',delivery:undefined,activity:undefined,error:null});}
-      // Messages it read but did not list (a reply that failed mid-way) settle with it, or they stay busy and block Fork.
-      for(const row of settleJoined(store,id,status,p.error||p.failure_reason||null,waiting))hermesStarted.delete(row);
+      for(const row of Array.isArray(p.client_ids)?p.client_ids:[])if(typeof row==='string'&&row!==id&&store.find<Turn>('turn',row)){
+        waiting.delete(row);hermesQueued.delete(row);hermesStarted.delete(row);
+        if(status==='failed')store.update<Turn>('turn',row,{status:'queued',answeredIn:undefined,readAt:undefined,delivery:undefined,activity:undefined,error:null});
+        else{joinTurn(store,row,id,{text:0,tools:0});store.update<Turn>('turn',row,{status,delivery:undefined,activity:undefined,error:null});}
+      }
+      // Messages it read but did not list (a reply that failed mid-way) go back to the queue too, or they stay busy and block Fork.
+      for(const row of status==='failed'?requeueJoined(store,id,waiting):settleJoined(store,id,status,null,waiting))hermesStarted.delete(row);
       // Stop drops Hermes's queue: those messages go out again, never lost. A steered one survives Stop and runs next.
       if(status==='stopped')for(const row of [...waiting])if(hermesQueued.has(row)){waiting.delete(row);hermesQueued.delete(row);if(store.find<Turn>('turn',row))store.update<Turn>('turn',row,{status:'queued',delivery:undefined,activity:undefined});}
       hermesStarted.delete(id);

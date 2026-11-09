@@ -4,7 +4,7 @@ import ts from 'typescript';
 import {mainSource} from './fixtures/main-source';
 import {limitPause,limitReset,pausePatch,pauseText,resumeDue} from '../app/limit-pause';
 import {Store} from '../app/store';
-import type {Availability} from '../app/availability';
+import {blockedFor,type Availability} from '../app/availability';
 import type {Turn} from '../app/types';
 
 // Resume after the usage limit (Koan 2026-11-09): the main-process pieces that put a limit-stopped message to wait and send it again.
@@ -31,10 +31,19 @@ test('checkDispatch: a model blocked by a limit with a reset ahead pauses the me
 
 test('runStep: a paused message holds with its pause text until the reset, then goes',async()=>{
   const held:string[]=[],sent:string[]=[],paused=turn({resume:{at:later,reason:'limit'}});
-  const env=(rows:Availability[])=>({store:{get:()=>({id:'c1'}),where:()=>[paused]},waitingRow:()=>paused,nameBehind:()=>{},hold:(_c:string,_t:Turn,reason:string)=>held.push(reason),holdReason:()=>'',dispatch:async(_c:any,t:Turn)=>{sent.push(t.id);},health:{rows:()=>rows},resumeDue,pauseText});
+  const env=(rows:Availability[])=>({store:{get:()=>({id:'c1'}),where:()=>[paused]},waitingRow:()=>paused,nameBehind:()=>{},hold:(_c:string,_t:Turn,reason:string)=>held.push(reason),holdReason:()=>'',dispatch:async(_c:any,t:Turn)=>{sent.push(t.id);},health:{rows:()=>rows},resumeDue,pauseText,blockedFor,checkDispatch:()=>true});
   assert.equal(await main('runStep',env([limitRow()]))('c1'),false);assert.deepEqual(held,[pauseText(later)]);assert.deepEqual(sent,[]);
   assert.equal(await main('runStep',env([limitRow(now-1)]))('c1'),true,'the reset passed');assert.deepEqual(sent,['t1']);
   assert.equal(await main('runStep',env([]))('c1'),true,'the limit lifted early');
+});
+
+// A queued message whose model its account blocks used to hold at "Waiting for DeepSeek to connect" for good; it never
+// reached the model check, so the account limit mid-reply left it there (availability.e2e, 11-09).
+test('runStep: a message whose model is blocked by its account goes to the model check instead of waiting to connect',async()=>{
+  const checked:string[]=[],held:string[]=[],sent:string[]=[],plain=turn();
+  const env=(rows:Availability[])=>({store:{get:()=>({id:'c1'}),where:()=>[plain]},waitingRow:()=>plain,nameBehind:()=>{},hold:(_c:string,_t:Turn,reason:string)=>held.push(reason),holdReason:()=>'Waiting for Claude to connect',dispatch:async(_c:any,t:Turn)=>{sent.push(t.id);},health:{rows:()=>rows},resumeDue,pauseText,blockedFor,checkDispatch:(_c:any,t:Turn)=>{checked.push(t.model);return false;}});
+  assert.equal(await main('runStep',env([limitRow(null)]))('c1'),true,'look again: the check set the row');assert.deepEqual(checked,['claude-code:opus']);assert.deepEqual(sent,[]);assert.deepEqual(held,[]);
+  checked.length=0;assert.equal(await main('runStep',env([]))('c1'),false,'not blocked: the usual hold');assert.deepEqual(checked,[]);assert.deepEqual(held,['Waiting for Claude to connect']);
 });
 
 test('nameBehind: messages behind a paused one say so, and drop the text when it goes',()=>{

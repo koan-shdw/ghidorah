@@ -8,7 +8,7 @@ import ts from 'typescript';
 import {Store} from '../app/store';
 import {clearHistoryReads} from '../app/chat-context';
 import {toolResultFailed} from '../app/tool-result';
-import {joinTurn,resetJoinedText,settleJoined} from '../app/turn-joins';
+import {joinTurn,resetJoinedText,settleJoined,requeueJoined} from '../app/turn-joins';
 import {finalText} from '../app/turn-text';
 import {limitPause} from '../app/limit-pause';
 import type {Turn} from '../app/types';
@@ -22,7 +22,7 @@ function hermes(){
  const store=new Store(':memory:'),chat=store.chat(store.project().id);store.update<any>('chat',chat.id,{runtimeId:'session',storedId:'stored'});
  const hermesTurns=new Map<string,string>(),hermesSent=new Map<string,Set<string>>(),hermesStarted=new Set<string>(),hermesQueued=new Set<string>(),woken:string[]=[];
  const waitingFor=main('waitingFor',{hermesSent});
- const env:Record<string,unknown>={store,joinTurn,resetJoinedText,settleJoined,finalText,limitPause,hermesTurnRows:new Map<string,string>(),hermesTurns,hermesSent,hermesStarted,hermesQueued,waitingFor,wake:(id:string)=>woken.push(id),emit:()=>{},emitStream:()=>{},
+ const env:Record<string,unknown>={store,joinTurn,resetJoinedText,settleJoined,requeueJoined,finalText,limitPause,hermesTurnRows:new Map<string,string>(),hermesTurns,hermesSent,hermesStarted,hermesQueued,waitingFor,wake:(id:string)=>woken.push(id),emit:()=>{},emitStream:()=>{},
   hermesEvents:new Map(),hermesErrors:new Map(),hermesModels:new Map(),streamScrubbers:new Map(),usageBaseline:new Map(),requests:new Map(),mcpToolRequests:new Map(),
   backend:{generation:'g',scrubber:{value:(v:any)=>v,text:(s:string)=>s,stream:()=>(s:string)=>s}},nextWatermark:main('nextWatermark',{}),clearHistoryReads,toolResultFailed,
   coordination:{interrupt:()=>{},denied:()=>{}},background:{stopChat:async()=>{}},apiProviders:{rows:()=>[]},health:{hermes:()=>{},rows:()=>[]},blockedFor:()=>false,
@@ -81,12 +81,16 @@ test('a background update Hermes announces and then runs is one row, closed by i
 });
 
 // 10-19 KOAN.live chat: a reply failed (PendingSteer) without listing the messages it had read; they stayed busy
-// until a restart and Fork said "Wait for queued work to finish."
-test('a reply that fails settles the messages it read, so nothing stays busy',()=>{
- const h=hermes();h.send('A');h.start({client_ids:['A']});h.send('B',true);h.send('C',true);
+// until a restart and Fork said "Wait for queued work to finish." 11-09 (the account limit mid-reply): a failed reply
+// answered nothing it read, so those messages go back to the queue, sent on or given a model choice, never lost.
+test('a reply that fails sends the messages it read back to the queue, so nothing stays busy and nothing is lost',()=>{
+ const h=hermes();h.send('A');h.start({client_ids:['A']});h.send('B',true);h.send('C',true);h.send('D',true);
  h.event('message.read',{client_ids:['B']});assert.equal(h.turn('B').answeredIn,'A');
- h.event('message.complete',{status:'error',error:'PendingSteer crash',client_ids:['A']});
- assert.deepEqual([h.turn('A').status,h.turn('B').status,h.turn('B').error],['failed','failed','PendingSteer crash']);
+ h.event('message.complete',{status:'error',error:'PendingSteer crash',client_ids:['A','D']});
+ assert.deepEqual([h.turn('A').status,h.turn('A').error],['failed','PendingSteer crash']);
+ assert.deepEqual([h.turn('B').status,h.turn('B').answeredIn,h.turn('B').error],['queued',undefined,null],'read, not listed: its own message again');
+ assert.deepEqual([h.turn('D').status,h.turn('D').answeredIn,h.turn('D').error],['queued',undefined,null],'listed by the failed reply: its own message again');
+ assert.equal(h.hermesSent.get(h.chat.id)?.has('D'),false,'nothing left with the failed reply');
  assert.equal(h.turn('C').status,'running','C was never read: Hermes still holds it');
 });
 

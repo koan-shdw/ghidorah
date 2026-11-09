@@ -35,6 +35,15 @@ export function settleJoined(store:Store,ownerId:string,status:'completed'|'stop
  return rows.map(row=>row.id);
 }
 
+// A reply that failed never answered the messages it read: they go back to the queue as their own messages, so the
+// queue sends them on or asks for a model when theirs is gone (Koan 2026-11-09, the account limit mid-reply). Ones the
+// engine still holds run next, as before.
+export function requeueJoined(store:Store,ownerId:string,held:Set<string>){
+ const rows=ownerChat(store,ownerId).filter(row=>row.answeredIn===ownerId&&row.id!==ownerId&&busy.includes(row.status)&&!held.has(row.id));
+ for(const row of rows)store.update<Turn>('turn',row.id,{status:'queued',answeredIn:undefined,readAt:undefined,delivery:undefined,activity:undefined,error:null});
+ return rows.map(row=>row.id);
+}
+
 // Hermes rows still busy. Called only when Tris tracks nothing in the chat: then each of these ended unseen.
 export function busyHermesRows(rows:Turn[]){
  return rows.filter(row=>busy.includes(row.status)&&row.status!=='queued'&&!row.command&&!row.contextCommand&&!row.jobs?.length&&!row.model.startsWith('claude-code:'));

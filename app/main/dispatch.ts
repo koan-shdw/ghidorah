@@ -103,6 +103,9 @@ export async function runStep(chatId:string){
   // or for the limit to lift earlier, then goes by itself.
   if(turn.resume&&!resumeDue(turn,health.rows())){hold(chatId,turn,pauseText(turn.resume.at));return false;}
   if(turn.status==='needs-model'){hold(chatId,turn,'Choose a model');return false;}
+  // A model blocked by its account is not about to connect: a limit with a reset ahead pauses the message until then,
+  // anything else asks for a model (Koan 2026-11-09). "Waiting for ... to connect" is for models not listed yet.
+  if(!turn.command&&!turn.routePending&&!turn.contextCommand&&(turn.models||[turn.model]).some(model=>blockedFor(health.rows(),model))&&!(turn.models||[turn.model]).every(model=>checkDispatch(chat,{...turn,model})))return true;
   const reason=holdReason(chat,turn);hold(chatId,turn,reason);if(reason)return false;
   await dispatch(chat,turn);return true;
 }
