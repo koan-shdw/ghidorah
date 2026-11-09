@@ -1,6 +1,7 @@
 // models: moved out of app/main.ts unchanged (SPLIT-PLAN); module state stays in main.ts.
 import {attachmentMismatch,conversationAttachments,readsVideo} from '../attachments';
 import {availabilityMessage,blockedFor} from '../availability';
+import {limitReset,pausePatch} from '../limit-pause';
 import {apiProviders,backend,claude,claudeExecutable,codex,connected,emit,health,namespace,store,visionModels} from '../main';
 import {modelLabel,newestFirst,providerFor} from '../models';
 import type {Chat,Turn} from '../types';
@@ -24,8 +25,11 @@ export async function loadInputCapabilities(turn:Turn,signal?:AbortSignal){
   if(missing.length)Object.assign(visionModels,await backend.host('attachment_capabilities',{models:missing},signal));
 }
 export function checkDispatch(chat:Chat,turn:Turn){
-  const mismatch=inputMismatch(turn);
-  if(!mismatch&&availableModels().includes(turn.model)&&(chat.pool||['deepseek-flash']).includes(turn.model))return true;
+  const mismatch=inputMismatch(turn),inPool=(chat.pool||['deepseek-flash']).includes(turn.model);
+  if(!mismatch&&availableModels().includes(turn.model)&&inPool)return true;
+  // Resume after the usage limit (Koan 2026-11-09): a limit with a reset time ahead is a wait, not a model choice.
+  const at=!mismatch&&inPool?limitReset(health.rows(),turn.model):null;
+  if(at!==null){store.transaction(()=>{store.update<Turn>('turn',turn.id,{...pausePatch(at),preparation:undefined});recordRoute(turn.id,{model:turn.model,reason:'limit',until:at});});emit();return false;}
   const error=mismatch||unavailableMessage(turn.model);store.transaction(()=>{store.update<Turn>('turn',turn.id,{status:'needs-model',error});recordRoute(turn.id,{model:turn.model,reason:'unavailable',error});});emit();return false;
 }
 export function fixtureClaude(){return namespace.startsWith('Trismegistus/Test/')?process.env.TRISMEGISTUS_TEST_CLAUDE:undefined;}

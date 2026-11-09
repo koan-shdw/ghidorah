@@ -1,6 +1,7 @@
 // context: moved out of app/main.ts unchanged (SPLIT-PLAN); module state stays in main.ts.
 import {blockedFor} from '../availability';
 import {backendSendError} from '../backend-state';
+import {limitReset} from '../limit-pause';
 import {ContextDraft,contextSource,contextSystem,resumeDraft,saveContext,summaryModel} from '../chat-context';
 import {claudeOneShot} from '../claude';
 import {claudeTurnUsage} from '../claude-turn';
@@ -159,7 +160,10 @@ export async function submitTurn({id,chatId,text,selected,models,goalRun}:any,so
     // the chosen chat's model selection while preserving its unsent draft.
     const picks:string[]=source?.remote?locked:[...new Set([...locked,...(models??(typeof selected==='boolean'?(selected?['deepseek-flash']:[]):chat.selectedModels||(chat.selected?['deepseek-flash']:[])))])];
     const engineError=backendSendError(backend.status,picks);if(engineError)throw Error(engineError);
-    if(!availableModels().length){
+    // Resume after the usage limit (Koan 2026-11-09): a model blocked only by a limit with a reset ahead still takes the
+    // message. It queues, says "Paused until ..." and goes at the reset (checkDispatch) instead of being refused here.
+    const pool=chat.pool||['deepseek-flash'],waitingModel=(candidates:(string|null|undefined)[])=>candidates.find((model):model is string=>!!model&&pool.includes(model)&&limitReset(health.rows(),model)!==null);
+    if(!availableModels().length&&!waitingModel([...picks,chat.model,...pool])){
       const model=picks[0]||(chat.pool||[]).find(model=>blockedFor(health.rows(),model))||connectedModels()[0];
       throw Error(model?unavailableMessage(model):'Connect an available model in Settings to send a message.');
     }
@@ -173,13 +177,22 @@ export async function submitTurn({id,chatId,text,selected,models,goalRun}:any,so
       if(goalRun&&['New chat','New project'].includes(current.title))store.update<Chat>('chat',chatId,{title:goals.get(chatId)!.objective.slice(0,55)});
       return turn;
     };
+    const waitWith=(model:string,reason:'selected'|'previous'|'app-previous')=>{
+      const dispatchError=backendSendError(backend.status,[model]);if(dispatchError)throw Error(dispatchError);
+      store.transaction(()=>{accept(model);store.update<Turn>('turn',id,{requestedModels:picks});recordRoute(id,{model,reason});});wake(chatId);emit();return id;
+    };
+    // The message typed behind a waiting one follows it: the chat's latest message names the model, before the chat's own.
+    const latest=store.where<Turn>('turn','chatId',chatId).filter(t=>!t.command&&!t.contextCommand&&!t.automatic).sort((a,b)=>a.created-b.created).at(-1)?.model||null;
+    if(!picks.length&&!availableModels().some(model=>pool.includes(model))){const waiting=waitingModel([latest,previous,chat.model,...pool]);if(waiting)return waitWith(waiting,'previous');}
     if(!picks.length&&(classifierActive()||chatSelector(chat))){
       store.transaction(()=>{accept(chat.model);store.update<Turn>('turn',id,{routePending:true,routeBy:chatSelector(chat)||decisionEngine(),requestedModels:picks,models:picks.length>1?picks:undefined});recordRoute(id,{reason:'routing-requested',selected:picks});});wake(chatId);emit();return id;
     }
-    const unavailable=picks.find(model=>!availableModels().includes(model));if(unavailable)throw Error(unavailableMessage(unavailable));
+    const unavailable=picks.find(model=>!availableModels().includes(model));
+    if(unavailable){const waiting=picks.length===1?waitingModel(picks):undefined;if(!waiting)throw Error(unavailableMessage(unavailable));return waitWith(waiting,'selected');}
     const appPrevious=store.all<{id:string;model?:string}>('settings').find(row=>row.id==='last-model')?.model||history.at(-1)?.model||null;
     const input={selected:picks,eligible:availableModels().filter(model=>(chat.pool||['deepseek-flash']).includes(model)),previous,appPrevious};
-    const decision=await route(input).catch(error=>{const model=source&&remoteFallback(source,input);if(!model)throw error;return {model,reason:'remote-fallback',models:undefined};});
+    const decision=await route(input).catch(error=>{const model=source&&remoteFallback(source,input);if(model)return {model,reason:'remote-fallback',models:undefined};
+      const waiting=waitingModel([latest,previous,chat.model,appPrevious,...pool]);if(!waiting)throw error;return {model:waiting,reason:waiting===appPrevious&&waiting!==latest&&waiting!==previous&&waiting!==chat.model?'app-previous':'previous',models:undefined};});
     const dispatchError=backendSendError(backend.status,decision.models||[decision.model]);if(dispatchError)throw Error(dispatchError);
     store.transaction(()=>{accept(decision.model);store.update<Turn>('turn',id,{models:decision.models,requestedModels:picks});recordRoute(id,decision);});wake(chatId);emit();return id;
     }finally{const pending=(submittingChats.get(chatId)||1)-1;if(pending)submittingChats.set(chatId,pending);else submittingChats.delete(chatId);goals.schedule();pluginChanges.poke();}

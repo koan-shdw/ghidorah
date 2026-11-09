@@ -157,7 +157,8 @@ def response(body):
             return ToolCall('tool_call',{'calls':[{'name':name,'arguments':spec['arguments']}]})
         return ToolCall(name,spec['arguments'])
     if 'HEALTH_EFFECT' in last:
-        if messages[-1].get('role')!='tool':return ToolCall('write_file',{'path':'before-limit.txt','content':'Write completed before the account limit.'})
+        # The message typed during the write arrives as a steer row after the tool result (Hermes busy mode), so look for the write's result, not at the last message.
+        if not any(m.get('role')=='tool' for m in messages[user_start(messages)+1:]):return ToolCall('write_file',{'path':'before-limit.txt','content':'Write completed before the account limit.'})
         health_value('exhausted');return Error(status=402,message='Insufficient Balance')
     if 'EXHAUST_FIXTURE' in last:
         if 'SLOW_EXHAUST_FIXTURE' in last:time.sleep(2)

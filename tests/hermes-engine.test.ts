@@ -10,6 +10,7 @@ import {clearHistoryReads} from '../app/chat-context';
 import {toolResultFailed} from '../app/tool-result';
 import {joinTurn,resetJoinedText,settleJoined} from '../app/turn-joins';
 import {finalText} from '../app/turn-text';
+import {limitPause} from '../app/limit-pause';
 import type {Turn} from '../app/types';
 
 const source=mainSource();
@@ -21,10 +22,10 @@ function hermes(){
  const store=new Store(':memory:'),chat=store.chat(store.project().id);store.update<any>('chat',chat.id,{runtimeId:'session',storedId:'stored'});
  const hermesTurns=new Map<string,string>(),hermesSent=new Map<string,Set<string>>(),hermesStarted=new Set<string>(),hermesQueued=new Set<string>(),woken:string[]=[];
  const waitingFor=main('waitingFor',{hermesSent});
- const env:Record<string,unknown>={store,joinTurn,resetJoinedText,settleJoined,finalText,hermesTurnRows:new Map<string,string>(),hermesTurns,hermesSent,hermesStarted,hermesQueued,waitingFor,wake:(id:string)=>woken.push(id),emit:()=>{},emitStream:()=>{},
+ const env:Record<string,unknown>={store,joinTurn,resetJoinedText,settleJoined,finalText,limitPause,hermesTurnRows:new Map<string,string>(),hermesTurns,hermesSent,hermesStarted,hermesQueued,waitingFor,wake:(id:string)=>woken.push(id),emit:()=>{},emitStream:()=>{},
   hermesEvents:new Map(),hermesErrors:new Map(),hermesModels:new Map(),streamScrubbers:new Map(),usageBaseline:new Map(),requests:new Map(),mcpToolRequests:new Map(),
   backend:{generation:'g',scrubber:{value:(v:any)=>v,text:(s:string)=>s,stream:()=>(s:string)=>s}},nextWatermark:main('nextWatermark',{}),clearHistoryReads,toolResultFailed,
-  coordination:{interrupt:()=>{},denied:()=>{}},background:{stopChat:async()=>{}},apiProviders:{rows:()=>[]},health:{hermes:()=>{}},blockedFor:()=>false,
+  coordination:{interrupt:()=>{},denied:()=>{}},background:{stopChat:async()=>{}},apiProviders:{rows:()=>[]},health:{hermes:()=>{},rows:()=>[]},blockedFor:()=>false,
   wireModel:(m:string)=>m,providerFor:()=>'deepseek',modelLabel:(m:string)=>m,claude:{},codex:{},providerStatus:'',recordRoute:()=>{},randomUUID:()=>crypto.randomUUID()};
  env.automaticHermes=main('automaticHermes',env);
  const receive=main('receive',env);let seq=0;

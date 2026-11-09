@@ -290,8 +290,9 @@ export class Store {
   interrupt(engine?:Engine,reason:Turn['stopReason']='app-restart') {
     const turns=this.all<Turn>('turn').filter(turn=>!engine||!turn.jobs?.length&&!turn.command&&(turn.model.startsWith('claude-code:')?'claude':'hermes')===engine),ids=new Set(turns.map(turn=>turn.id));
     for(const turn of turns)if(['running','waiting','dispatching','stopping'].includes(turn.status)||turn.parentTurnId&&turn.status==='queued')this.update<Turn>('turn',turn.id,{status:'interrupted',stopReason:turn.stopReason||reason,error:'Interrupted. Check any uncertain tool outcome before retrying.'});
-    // After a restart old queued messages wait paused for one click (Koan, 2026-10-08), never auto-sent.
-    if(!engine)for(const turn of turns)if(turn.status==='queued'&&!turn.parentTurnId&&!turn.automatic)this.update<Turn>('turn',turn.id,{paused:true});
+    // After a restart old queued messages wait paused for one click (Koan, 2026-10-08), never auto-sent; one waiting for
+    // a usage limit's reset keeps waiting and goes by itself at that time (Koan 2026-11-09).
+    if(!engine)for(const turn of turns)if(turn.status==='queued'&&!turn.parentTurnId&&!turn.automatic&&!turn.resume)this.update<Turn>('turn',turn.id,{paused:true});
     for(const approval of this.all<Approval>('approval'))if(ids.has(approval.turnId)&&approval.status==='pending')this.update<Approval>('approval',approval.id,{status:'expired'});
     for(const tool of this.where<ToolCall>('tool','status','running'))if(ids.has(tool.turnId))this.update<ToolCall>('tool',tool.id,{status:'uncertain'});
   }

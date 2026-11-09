@@ -42,6 +42,7 @@ import {execFile,spawn,spawnSync,type ChildProcess} from 'node:child_process';
 import {promisify} from 'node:util';
 import {Store,OUTPUT_KEEP_DAYS} from './store';
 import {timing} from './timing';
+import {limitPause} from './limit-pause';
 import {Goals,goalTool} from './goals';
 import {Previews} from './previews';
 import {previewable} from './preview-files';
@@ -754,7 +755,8 @@ export function emit(){
   settleRemote();
   for(const chatId of settleParallel(store)){const id=commandTurns.get(chatId);if(id&&['completed','partial','failed','stopped','interrupted'].includes(store.get<Turn>('turn',id).status)){commandTurns.delete(chatId);wake(chatId);}}
   wakeWaiting();
-  const resets=health.rows().filter(row=>row.blocked&&row.reason==='limit'&&row.resetAt!==null&&row.resetAt>Date.now()).map(row=>row.resetAt!);
+  // Resume after the usage limit (Koan 2026-11-09): messages paused by a limit wake at their reset time too.
+  const resets=[...health.rows().filter(row=>row.blocked&&row.reason==='limit'&&row.resetAt!==null&&row.resetAt>Date.now()).map(row=>row.resetAt!),...store.where<Turn>('turn','status','queued').filter(turn=>turn.resume&&turn.resume.at>Date.now()).map(turn=>turn.resume!.at)];
   const next=resets.length?Math.min(...resets):null;
   if(next!==scheduledReset){clearTimeout(resetTimer);scheduledReset=next;if(next!==null){resetTimer=setTimeout(()=>{scheduledReset=null;emit();},Math.min(next-Date.now()+10,2147483647));resetTimer.unref();}}
   if(updateTimer)return;updateTimer=setTimeout(()=>{updateTimer=null;if(!quitting)workNotifications?.scan(alwaysOn().desktopNotifications,notificationChatVisible,showWorkNotice,()=>{if(alwaysOn().questionSound&&!namespace.startsWith('Trismegistus/Test/'))shell.beep();});let shared:ReturnType<typeof snapshot>|undefined;const light=()=>shared??=snapshot({tools:false});for(const w of BrowserWindow.getAllWindows())if(!w.isDestroyed()&&!closingWindows.has(w)){const job=[...jobWindows].find(([,window])=>window===w)?.[0];const chat=[...chatWindows].find(([,window])=>window===w)?.[0];const workspace=[...workspaceWindows.values()].find(entry=>entry.window===w);if(!workspace&&!job&&!chat)sendMainState(w,light());else sendState(w,workspace?workspaceWindowState(workspace,light()):job?.startsWith('agent:')?agentSnapshot(job.slice(6),light()):job?jobSnapshot(job,light()):chatSnapshot(chat!,light()));}},32);
@@ -1151,7 +1153,11 @@ export function receive(event:any){
       }
       const currentChat=store.get<Chat>('chat',chat.id);
       if(typeof p.text==='string'&&!p.text.startsWith(turn.text))resetJoinedText(store,id);
-      store.finishEngine(id,'hermes',currentChat.storedId||currentChat.runtimeId,{status,stopReason:turn.stopReason||(status==='stopped'?'unknown':status==='failed'?'provider-error':undefined),text:finalText(typeof p.text==='string'?p.text:'',turn.text+tail,turn.interimText),reasoning:p.reasoning||turn.reasoning+reasoningTail,usage,error:p.error||p.failure_reason||null});
+      // Resume after the usage limit (Koan 2026-11-09): a reply a provider's limit stopped waits for the reset it gave
+      // instead of failing; the session did not answer it, so its position stays and the message goes again.
+      const plain:Partial<Turn>={status,stopReason:turn.stopReason||(status==='stopped'?'unknown':status==='failed'?'provider-error':undefined),text:finalText(typeof p.text==='string'?p.text:'',turn.text+tail,turn.interimText),reasoning:p.reasoning||turn.reasoning+reasoningTail,usage,error:p.error||p.failure_reason||null};
+      const ending=turn.automatic?plain:limitPause(turn,plain,health.rows());
+      if(ending.resume)store.update<Turn>('turn',id,ending);else store.finishEngine(id,'hermes',currentChat.storedId||currentChat.runtimeId,ending);
       for(const a of store.all<Approval>('approval'))if(a.turnId===id && a.status==='pending')store.update<Approval>('approval',a.id,{status:'expired'});
       for(const pending of mcpToolRequests.values())if(pending.chatId===chat.id)pending.controller.abort();
       for(const tool of store.where<ToolCall>('tool','turnId',id))if(tool.status==='running')store.update<ToolCall>('tool',tool.id,{status:'uncertain'});

@@ -1,6 +1,7 @@
 // dispatch: moved out of app/main.ts unchanged (SPLIT-PLAN); module state stays in main.ts.
 import {attachmentContent,attachmentMismatch,conversationAttachments} from '../attachments';
 import {blockedFor} from '../availability';
+import {limitPause,pauseText,resumeDue} from '../limit-pause';
 import {backgroundProcess} from '../background-work';
 import {clearHistoryReads,readRuntimeHistory,shouldAutoCompact} from '../chat-context';
 import {chatToolCall} from '../chat-coordination';
@@ -98,6 +99,9 @@ export async function runStep(chatId:string){
   const rows=store.where<Turn>('turn','chatId',chatId),turn=waitingRow(chatId,rows);
   if(!turn){hold(chatId,undefined,'');return false;}
   nameBehind(rows,turn);
+  // Resume after the usage limit (Koan 2026-11-09): a message a limit paused waits for the reset time its answer gave,
+  // or for the limit to lift earlier, then goes by itself.
+  if(turn.resume&&!resumeDue(turn,health.rows())){hold(chatId,turn,pauseText(turn.resume.at));return false;}
   if(turn.status==='needs-model'){hold(chatId,turn,'Choose a model');return false;}
   const reason=holdReason(chat,turn);hold(chatId,turn,reason);if(reason)return false;
   await dispatch(chat,turn);return true;
@@ -105,11 +109,13 @@ export async function runStep(chatId:string){
 // Messages behind one that waits for a model choice say so instead of "Sending" (10-26: three showed "Sending" for
 // minutes behind it). The text goes once the first message has its model or is skipped.
 export const BEHIND='Waiting for a model for the message above';
+export const BEHIND_PAUSED='Waiting for the paused message above';
 export function nameBehind(rows:Turn[],head:Turn){
   let changed=false;
+  const paused=!!head.resume&&!resumeDue(head,health.rows());
   for(const t of rows){
     if(t.status!=='queued'||t.id===head.id)continue;
-    const text=head.status==='needs-model'&&!t.paused?BEHIND:t.hold===BEHIND?'':t.hold||'';
+    const text=head.status==='needs-model'&&!t.paused?BEHIND:paused&&!t.paused?BEHIND_PAUSED:t.hold===BEHIND||t.hold===BEHIND_PAUSED?'':t.hold||'';
     if((t.hold||'')!==text){store.update<Turn>('turn',t.id,{hold:text||undefined});changed=true;}
   }
   if(changed)setImmediate(emit);
@@ -178,7 +184,7 @@ export async function dispatch(chat:Chat,turn:Turn){
     store.update<Turn>('turn',turn.id,{status:'interrupted',error:'Tris got stuck on "'+phase+'" for '+Math.round(limit/1000)+' s, so nothing was sent to the model. Send your message again.'});
     controller.abort();claudeControllers.get(turn.id)?.abort();if(hermesTurns.get(chatId)===turn.id)hermesTurns.delete(chatId);done();emit();release();
   },500);
-  store.update<Turn>('turn',turn.id,{status:'dispatching',hold:undefined});emit();
+  store.update<Turn>('turn',turn.id,{status:'dispatching',hold:undefined,resume:undefined});emit();
   const work=(async()=>{
     try{
       if(turn.command){finish('plugin command');commandTurns.set(chatId,turn.id);done();void dispatchPluginCommand(chat,turn,p);return;}
@@ -270,7 +276,7 @@ export async function dispatch(chat:Chat,turn:Turn){
         if(answer.status==='queued')hermesQueued.add(turn.id);
         store.update<Turn>('turn',turn.id,{delivery:'sent',activity:answer.status==='queued'?'Sent, '+label+' answers it next':'Sent, '+label+' reads it after the current step'});
       }
-    }catch(e){if(!stuck){const status=store.get<Turn>('turn',turn.id).status;if(hermesTurns.get(chatId)===turn.id)hermesTurns.delete(chatId);hermesSent.get(chatId)?.delete(turn.id);if(providerFor(turn.model)!=='claude-code'&&!hermesTurns.has(chatId)&&!hermesWaiting(chatId)){releaseHermesSession(chat);store.update<Chat>('chat',chatId,{runtimeId:null});}if(status!=='needs-model')store.update<Turn>('turn',turn.id,{status:status==='stopping'?'stopped':'interrupted',error:status==='stopping'?null:phase+': '+backend.scrubber.text(String(e))});}}
+    }catch(e){if(!stuck){const status=store.get<Turn>('turn',turn.id).status;if(hermesTurns.get(chatId)===turn.id)hermesTurns.delete(chatId);hermesSent.get(chatId)?.delete(turn.id);if(providerFor(turn.model)!=='claude-code'&&!hermesTurns.has(chatId)&&!hermesWaiting(chatId)){releaseHermesSession(chat);store.update<Chat>('chat',chatId,{runtimeId:null});}if(status!=='needs-model')store.update<Turn>('turn',turn.id,limitPause(turn,{status:status==='stopping'?'stopped':'interrupted',error:status==='stopping'?null:phase+': '+backend.scrubber.text(String(e))},health.rows()));}}
     finally{if(!stuck){finish(store.get<Turn>('turn',turn.id).status);done();emit();}}
   })();
   await Promise.race([work,released]);
@@ -304,15 +310,19 @@ export function finishNative(chat:Chat,turn:Turn,result:ClaudeResult,runtimeId:s
   if(!store.find<Turn>('turn',turn.id))return;
   const current=store.get<Turn>('turn',turn.id),context=current.usage?.context_used!=null?{context_used:current.usage.context_used,context_max:current.usage.context_max}:{};
   // Claude's result may replace streamed commentary with only its final message.
-  const patch:Partial<Turn>=result.answeredIn?{status:result.status,answeredIn:result.answeredIn,delivery:undefined,error:null}:{status:result.status,delivery:undefined,text:typeof result.result?.result==='string'?result.result.result:current.text,usage:{...claudeTurnUsage(result.result),...context},error:result.status==='failed'?(result.result?.errors?.join('\n')||result.result?.result||'Claude could not finish the turn.'):null};
+  let patch:Partial<Turn>=result.answeredIn?{status:result.status,answeredIn:result.answeredIn,delivery:undefined,error:null}:{status:result.status,delivery:undefined,text:typeof result.result?.result==='string'?result.result.result:current.text,usage:{...claudeTurnUsage(result.result),...context},error:result.status==='failed'?(result.result?.errors?.join('\n')||result.result?.result||'Claude could not finish the turn.'):null};
+  // Resume after the usage limit (Koan 2026-11-09): a reply the limit stopped waits for the reset instead of failing and
+  // goes into the same session again. Agents and side replies (automatic) are not re-sent by the chat queue: as before.
+  if(!current.automatic)patch=limitPause(current,patch,health.rows());
   if(patch.text!==undefined&&patch.text!==current.text)resetJoinedText(store,turn.id);
   // A message from another Claude session that the prompt check refused shows as stopped, not failed (TURN-BUILD decision 2).
   if(current.automatic?.source==='other-session'&&patch.status==='failed')Object.assign(patch,{status:'stopped',error:current.error});
   // Every stopped turn says why; Stop has already written its reason (batch 4, 6a).
   if(patch.status==='stopped'&&!current.stopReason)patch.stopReason='unknown';
   native.finished(runtimeId,turn,result);
-  if(!turn.automatic)store.finishEngine(turn.id,'claude',result.sessionId||null,patch);else store.update<Turn>('turn',turn.id,patch);
-  if(result.status==='failed')claude.status='Last turn failed';else if(result.status==='completed'){claude.status='Signed in';health.clear('claude-code',['auth','model'],started,turn.model);}
+  // A paused message was not answered: the session's position stays where it was.
+  if(turn.automatic||patch.resume)store.update<Turn>('turn',turn.id,patch);else store.finishEngine(turn.id,'claude',result.sessionId||null,patch);
+  if(patch.status==='failed')claude.status='Last turn failed';else if(patch.status==='completed'){claude.status='Signed in';health.clear('claude-code',['auth','model'],started,turn.model);}
 }
 export function cleanupNative(chat:Chat,turn:Turn){
   clearHistoryReads(store,turn.id);

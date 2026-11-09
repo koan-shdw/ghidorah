@@ -143,8 +143,13 @@ lines.on('line',async line=>{
   }
   const goalFixture=/GOAL_FIXTURE (\{[^\n]+\})/.exec(prompt.split('Current user message:').at(-1));
   if(goalFixture){const config=JSON.parse(goalFixture[1]);spec={action:'mcp',server:'ghidorah',tool:'goal_status',arguments:{status:config.status||'complete',summary:'Native fixture verified the outcome',evidence:'Native MCP goal tool returned in this chat.'}};}
-  if(spec.action==='limit'){
-    health('unknown');send({type:'rate_limit_event',rate_limit_info:{status:'rejected',rateLimitType:spec.window||'five_hour',resetsAt:spec.reset||4102444800,utilization:1}});
+  // limit-resume.e2e: `once` limits the first time only; the message sent again by itself after the reset gets a reply. The mark sits beside the records, so it outlives a restart.
+  const onceFile=spec.action==='limit'&&spec.once&&recordIndex>=0?path.join(path.dirname(process.argv[recordIndex+1]),'limit-once-'+spec.reset):'';
+  if(onceFile&&fs.existsSync(onceFile)){
+    result({result:'Resumed after the limit.'});
+  }else if(spec.action==='limit'){
+    if(onceFile)fs.writeFileSync(onceFile,'');
+    health('unknown');send({type:'rate_limit_event',rate_limit_info:{status:'rejected',rateLimitType:spec.window||'five_hour',...(spec.reset?{resetsAt:spec.reset}:{}),utilization:1}});
     send({type:'assistant',error:'rate_limit',message:{content:[]}});result({is_error:true,errors:['Usage limit reached.'],result:'Usage limit reached.'});
   }else if(spec.action==='auth-failure'){
     health('unknown');send({type:'assistant',error:'authentication_failed',message:{content:[]}});result({is_error:true,errors:['Sign in again.']});

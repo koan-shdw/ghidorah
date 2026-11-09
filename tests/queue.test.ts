@@ -5,6 +5,7 @@ import ts from 'typescript';
 import {providerFor} from '../app/models';
 import {Store} from '../app/store';
 import type {Turn} from '../app/types';
+import {resumeDue} from '../app/limit-pause';
 import {mainSource} from './fixtures/main-source';
 
 const source=mainSource();
@@ -31,7 +32,7 @@ test('messages behind one waiting for a model choice say so, and the text goes o
   const store=new Store(':memory:'),chat=store.chat(store.project().id);
   const head=store.accept('head',chat.id,'first'),b=store.accept('b',chat.id,'second'),c=store.accept('c',chat.id,'third'),paused=store.accept('d',chat.id,'paused');
   store.update<Turn>('turn',head.id,{status:'needs-model'});store.update<Turn>('turn',paused.id,{paused:true});
-  const nameBehind=fromMain('nameBehind',{store,emit:()=>{}},['BEHIND']),rows=()=>store.where<Turn>('turn','chatId',chat.id),hold=(id:string)=>store.get<Turn>('turn',id).hold;
+  const nameBehind=fromMain('nameBehind',{store,emit:()=>{},resumeDue,health:{rows:()=>[]}},['BEHIND','BEHIND_PAUSED']),rows=()=>store.where<Turn>('turn','chatId',chat.id),hold=(id:string)=>store.get<Turn>('turn',id).hold;
   nameBehind(rows(),store.get<Turn>('turn',head.id));
   assert.equal(hold(b.id),'Waiting for a model for the message above');assert.equal(hold(c.id),'Waiting for a model for the message above');
   assert.equal(hold(paused.id),undefined,'a paused message keeps its own text');

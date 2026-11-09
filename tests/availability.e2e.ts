@@ -8,7 +8,8 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {Backend,PYTHON} from '../app/backend';
 
-const root=path.resolve('.'),data=await fs.mkdtemp(path.join(root,'work','availability-')),folder=path.join(data,'workspace'),healthFile=path.join(data,'health.json');await fs.mkdir(folder);
+// The working folder sits beside the data folder, not inside it: the app refuses its own data folder as a root.
+const root=path.resolve('.'),data=await fs.mkdtemp(path.join(root,'work','availability-')),folder=await fs.mkdtemp(path.join(root,'work','availability-files-')),healthFile=path.join(data,'health.json');
 const setHealth=async(patch:any)=>fs.writeFile(healthFile,JSON.stringify({...await fs.readFile(healthFile,'utf8').then(JSON.parse,()=>({})),...patch}));await setHealth({deepseek:'ready',codex:'ready',claude:'ready'});
 const namespace='Trismegistus/Test/'+path.basename(data),host=new Backend(root,data,namespace,()=>{});await host.host('initialize');await host.host('save_key',{key:'synthetic-deepseek-regression-credential'});
 const ds=spawn(PYTHON,['tests/fake_provider.py'],{env:{...process.env,FIXTURE_RECORDS:path.join(data,'deepseek.jsonl'),FIXTURE_HEALTH_FILE:healthFile},windowsHide:true,stdio:'pipe'}),dl=createInterface({input:ds.stdout}),[dline]=await once(dl,'line');
@@ -49,8 +50,12 @@ try{
  await done(await send(c,'EXHAUST_GPT_FIXTURE','gpt-6-astra'),'failed');assert.equal((await call('state')).availableModels.includes('gpt-6-astra'),false);const gptCount=(await requests('gpt')).length;
  await setHealth({codex:'unknown'});await call('codexCheck');assert.equal((await call('state')).availableModels.includes('gpt-6-astra'),false);await setHealth({codex:'ready'});await call('codexCheck');await wait(s=>s.availableModels.includes('gpt-6-astra'));assert.equal((await requests('gpt')).length,gptCount);
  await done(await send(b,JSON.stringify({action:'auth-failure'}),'claude-code:haiku'),'failed');await call('claudeCheck');assert.equal((await call('state')).availableModels.includes('claude-code:haiku'),false);await setHealth({claude:'ready'});await call('claudeCheck');await ready();
- const reset=Math.ceil(Date.now()/1000)+10;await done(await send(b,JSON.stringify({action:'limit',reset}),'claude-code:haiku'),'failed');assert.equal((await call('state')).availableModels.includes('claude-code:haiku'),false);const nativeCount=(await requests('claude-requests')).length;
- await wait(s=>s.availableModels.includes('claude-code:haiku'));assert.equal((await requests('claude-requests')).length,nativeCount);await done(await send(b,'Continue explicitly after the reported reset.','claude-code:haiku'));
+ // Resume after the usage limit (2026-11-09): a limit with a reset time ahead pauses the message, which goes again by itself at the reset.
+ const reset=Math.ceil(Date.now()/1000)+10,paused=await send(b,JSON.stringify({action:'limit',reset}),'claude-code:haiku');
+ const pausedRow=(await wait(s=>s.turns.some((t:any)=>t.id===paused&&t.resume))).turns.find((t:any)=>t.id===paused);assert.equal(pausedRow.status,'queued');assert.equal(pausedRow.resume.at,reset*1000);assert.match(pausedRow.hold,/^Paused until \d\d:\d\d, limit\. Resumes by itself$/);assert.equal(pausedRow.error,null);
+ assert.equal((await call('state')).availableModels.includes('claude-code:haiku'),false);const nativeCount=(await requests('claude-requests')).length;
+ await wait(s=>s.availableModels.includes('claude-code:haiku'));await done(paused,'failed');assert.equal((await requests('claude-requests')).length,nativeCount+1,'sent again by itself at the reset');
+ await done(await send(b,'Continue explicitly after the reported reset.','claude-code:haiku'));
  await setHealth({deepseek:'auth'});await call('checkAccount');assert.equal((await call('state')).availableModels.includes('deepseek-flash'),false);assert.ok((await call('state')).availableModels.includes('gpt-6-astra'));await setHealth({deepseek:'ready'});await call('checkAccount');await ready();
  console.log('PASS GPT quota stop/restoration, native sign-in refusal/restoration, provider-reported reset, account-scoped failures and explicit continuation');
  const held=await send(a,'WRITE_FIXTURE','deepseek-flash');s=await wait(s=>s.approvals.some((row:any)=>row.turnId===held&&row.status==='pending'));
