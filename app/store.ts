@@ -15,8 +15,13 @@ const contextOverflow=(error:unknown)=>/context|too long|too large|maximum.{0,20
 // no error shown.
 export const PREVIEW_CUT=2000;
 export const PREVIEW_MARK='\n… [cut here: open the row for the whole result]';
-// The mark as it reads inside JSON text (the newline escaped), for checks on a saved row's text.
-const MARK_IN_JSON=JSON.stringify(PREVIEW_MARK).slice(1,-1);
+// The preview's mark once the whole text has been aged out (ageResults): the row is all that is left.
+export const AGED_MARK='\n… [cut; the whole result was removed after its keep time]';
+// Whole outputs are kept this many days, then aged out (Koan 2026-11-09: they grew about 210 MB a day).
+export const OUTPUT_KEEP_DAYS=14;
+// The marks as they read inside JSON text (the newline escaped), for checks on a saved row's text.
+const inJson=(mark:string)=>JSON.stringify(mark).slice(1,-1);
+const MARK_IN_JSON=inJson(PREVIEW_MARK),AGED_IN_JSON=inJson(AGED_MARK);
 function cutStrings(value:any,depth=0):any{
   if(typeof value==='string')return value.length>PREVIEW_CUT?value.slice(0,PREVIEW_CUT)+PREVIEW_MARK:value;
   if(!value||typeof value!=='object'||depth>20)return value;
@@ -148,6 +153,17 @@ export class Store {
     });
     return false;
   }
+  // Whole outputs whose message is older than keepDays go; the preview stays, its mark saying so. Uncertain and
+  // background actions keep theirs (the start-up repair reads them). A chunk per call, like splitResults; true when
+  // nothing is left to age. The file does not shrink: SQLite reuses the freed pages, so it stops growing.
+  ageResults(keepDays=OUTPUT_KEEP_DAYS,rows=200):boolean {
+    if(!this.db.isOpen||!(keepDays>0))return true;
+    const before=Date.now()-keepDays*86400000;
+    const old=this.db.prepare(`SELECT s.kind,s.id FROM results s JOIN records r ON r.kind=s.kind AND r.id=s.id JOIN records t ON t.kind='turn' AND t.id=json_extract(r.data,CASE s.kind WHEN 'tool' THEN '$.turnId' ELSE '$.job' END) WHERE json_extract(t.data,'$.created')<? AND NOT (s.kind='work-action' AND json_extract(r.data,'$.status') IN ('uncertain','background')) LIMIT ?`).all(before,rows) as any[];
+    if(!old.length)return true;
+    this.transaction(()=>{for(const row of old){this.db.prepare('DELETE FROM results WHERE kind=? AND id=?').run(row.kind,row.id);this.db.prepare('UPDATE records SET data=replace(data,?,?) WHERE kind=? AND id=?').run(MARK_IN_JSON,AGED_IN_JSON,row.kind,row.id);}});
+    return old.length<rows;
+  }
   // A read on a field with no index: SQLite walks the kind's rows, only the matches are parsed. For tests and the
   // group lookups that have no job list; everyday paths use where/whereIn.
   scan<T>(kind:string,field:string,value:string):T[] {if(!/^\w+$/.test(field))throw Error('Unknown field');return this.db.prepare(`SELECT data FROM records WHERE kind=? AND json_extract(data,'$.${field}')=? ORDER BY rowid`).all(kind,value).map((r:any)=>this.parse(kind,r.data));}
@@ -213,7 +229,7 @@ export class Store {
   // A row that already carries a preview is kept as is.
   private pack(kind:string,value:any){
     const text=value.result===undefined?undefined:JSON.stringify(value.result);
-    if(value.resultCut===true&&text!==undefined&&text.includes(MARK_IN_JSON))return value;
+    if(value.resultCut===true&&text!==undefined&&(text.includes(MARK_IN_JSON)||text.includes(AGED_IN_JSON)))return value;
     if(text!==undefined&&text.length>PREVIEW_CUT){
       const holder=kind==='work-action'&&value.toolId&&!['uncertain','background'].includes(value.status)?this.find<ToolCall>('tool',value.toolId):undefined;
       if(kind==='tool'||!(holder&&holder.turnId===value.job))this.db.prepare('INSERT INTO results(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind,value.id,text);

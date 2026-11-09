@@ -40,7 +40,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 import {execFile,spawn,spawnSync,type ChildProcess} from 'node:child_process';
 import {promisify} from 'node:util';
-import {Store} from './store';
+import {Store,OUTPUT_KEEP_DAYS} from './store';
 import {Goals,goalTool} from './goals';
 import {Previews} from './previews';
 import {previewable} from './preview-files';
@@ -766,7 +766,16 @@ function splitSavedResults(){
   if(quitting||!store)return;
   const start=Date.now();let done=false;
   while(Date.now()-start<30&&!(done=store.splitResults(15)));
-  if(!done){const timer=setTimeout(splitSavedResults,200);timer.unref?.();}
+  const timer=setTimeout(done?ageSavedResults:splitSavedResults,200);timer.unref?.();
+}
+// Whole outputs older than the keep time go, 50 rows a call at the same pace, once the split is done and then daily
+// (Koan 2026-11-09: 14 days; the settings row 'outputs' {keepDays} changes it, 0 keeps everything).
+export function outputsKeepDays(){const row=store.all<any>('settings').find(row=>row.id==='outputs');return typeof row?.keepDays==='number'?row.keepDays:OUTPUT_KEEP_DAYS;}
+function ageSavedResults(){
+  if(quitting||!store)return;
+  const start=Date.now();let done=false;
+  while(Date.now()-start<30&&!(done=store.ageResults(outputsKeepDays(),50)));
+  const timer=setTimeout(ageSavedResults,done?24*3600*1000:200);timer.unref?.();
 }
 export let gitOperation:{chatId:string;controller:AbortController}|null=null;
 export let worktreeChanging=false,folderChanging=false,creatingProjects=0,folderRecoveryRequired=false,checkpointChanging=false;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {Store,PREVIEW_CUT,PREVIEW_MARK} from '../app/store';
+import {Store,PREVIEW_CUT,PREVIEW_MARK,AGED_MARK} from '../app/store';
 import {WorkCoordination} from '../app/work-coordination';
 import type {ToolCall} from '../app/types';
 
@@ -69,6 +69,27 @@ test('rows saved whole by earlier versions move to the results table a batch at 
   assert.equal(w0.resultCut,true);assert.deepEqual(store.whole('work-action',w0),result);assert.deepEqual(store.whole('work-action',w9),result);
   assert.equal(count(store,"SELECT count(*) AS n FROM results WHERE kind='work-action'"),1,'only the action with no tool row keeps its own copy');
   assert.ok(count(store,"SELECT sum(length(data)) AS n FROM records WHERE kind IN ('tool','work-action')")<8*3*PREVIEW_CUT);
+  store.db.close();
+});
+
+test('whole outputs older than the keep time go; the preview stays and says so',()=>{
+  const {store,chat,turn}=fixture(),old=store.accept('t0',chat.id,'Old work'),result={output:long('old ')};
+  store.update<any>('turn',old.id,{created:Date.now()-20*86400000});
+  store.put<ToolCall>('tool',{id:'old-tool',turnId:old.id,name:'Bash',args:{},result,status:'completed'});
+  store.put<ToolCall>('tool',{id:'new-tool',turnId:turn.id,name:'Bash',args:{},result,status:'completed'});
+  store.put('work-action',{id:'old-open',job:old.id,group:'g',name:'Bash',args:{},resource:'.',access:'write',signature:'s',status:'uncertain',result});
+  store.put('work-action',{id:'old-done',job:old.id,group:'g',name:'Bash',args:{},resource:'.',access:'write',signature:'s2',status:'completed',result});
+  assert.equal(count(store,'SELECT count(*) AS n FROM results'),4);
+  let passes=0;while(!store.ageResults(14,1))passes++;assert.ok(passes>=2,'a chunk per call');
+  const aged=store.get<any>('tool','old-tool');
+  assert.equal(aged.resultCut,true);assert.ok(aged.result.output.endsWith(AGED_MARK));assert.deepEqual(store.whole('tool',aged),aged.result,'the preview is what is left');
+  assert.deepEqual(store.whole('tool',store.get('tool','new-tool')),result,'recent outputs stay');
+  assert.deepEqual(store.whole('work-action',store.get('work-action','old-open')),result,'an uncertain action keeps its whole result');
+  assert.ok(store.get<any>('work-action','old-done').result.output.endsWith(AGED_MARK));
+  assert.equal(count(store,'SELECT count(*) AS n FROM results'),2);
+  store.update<ToolCall>('tool','old-tool',{status:'failed'});
+  assert.equal(count(store,"SELECT count(*) AS n FROM results WHERE id='old-tool'"),0,'a re-saved aged row makes no new copy');
+  assert.equal(store.ageResults(14),true);assert.equal(store.ageResults(0),true,'no keep time: nothing aged');
   store.db.close();
 });
 
