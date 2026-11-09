@@ -188,5 +188,11 @@
     "Ghidorah no longer closes by itself or freezes while you type: tool outputs are saved once, in their own table, and nothing reads them all at once.",
     "Whole tool outputs are kept 14 days: after that the first 2,000 characters stay, and opening the row says the rest was removed.",
     "The chat file is reorganised in the background on the first start after this update, a few rows at a time."
+  ]},
+  {"version":"0.1.40","date":"2026-11-09","notes":[
+    "Everything is quicker: each change reaches the window on its own instead of the whole chat state every time, so chat switches and typing no longer stall.",
+    "A message Claude's usage limit stops waits instead of failing: its row says Paused until 14:00, limit. Resumes by itself, and it is sent again at that time, also after a restart. Stop on the message cancels the wait.",
+    "A message typed while a reply runs is yours again if that reply fails: it goes back to the queue and is sent on, or asks you for a model.",
+    "A message whose model is blocked by its account asks you to choose a model instead of waiting for it to connect."
   ]}
 ]
