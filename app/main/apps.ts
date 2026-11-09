@@ -8,7 +8,7 @@ import {claudeOneShot} from '../claude';
 import {claudeTurnUsage} from '../claude-turn';
 import {apiChanging,appLights,appSummaryErrors,appSummaryJobs,appWatchJobs,appWatchSteps,backend,claudeExecutable,data,emit,goals,installing,pluginChanges,pluginsChanging,store} from '../main';
 import {redactPastedKeys} from '../redaction';
-import type {AppTodo,SavedApp} from '../saved-apps';
+import {appTurnOwners,type AppTodo,type SavedApp} from '../saved-apps';
 import type {Chat,Snapshot,Turn} from '../types';
 import {fixtureClaudeArgs} from './accounts';
 import {availableModels} from './models';
@@ -19,9 +19,24 @@ import path from 'node:path';
 export function defaultFolder(){return store.all<{id:string,folder:string|null}>('settings').find(s=>s.id==='working-folder')?.folder||null;}
 export function defaultModels():string[]{return store.all<{id:string,models:string[]}>('settings').find(s=>s.id==='default-models')?.models||['deepseek-flash'];}
 export function favouriteModels():string[]{return store.all<{id:string,models:string[]}>('settings').find(s=>s.id==='favourite-models')?.models||[];}
+// The summary revision hashes every source text of an app's chats (8 KB slices of each message): about 40 ms per
+// snapshot on Koan's data, on every push (LAG 2026-11-09). The sources change only when a row they are made of
+// changes, so each app's revision is kept with a short fingerprint of those rows (ids, states, text sizes, the notes
+// themselves) and hashed again only when the fingerprint differs.
+const revisionMemo=new Map<string,{fingerprint:string;revision:string}>();
+export function appRevision(app:SavedApp,state:Pick<Snapshot,'chats'|'turns'|'goals'|'approvals'>){
+ const owners=appTurnOwners(app.chatIds,state.turns),ownerChats=new Set(owners.values());
+ const fingerprint=JSON.stringify([app.name,app.stage,app.current,app.ideas,app.planned,app.questions||'',app.chatIds,(app.todos||[]).map(todo=>[todo.id,todo.title,todo.done,todo.created]),
+  state.turns.filter(t=>owners.has(t.id)).map(t=>[t.id,owners.get(t.id),t.status,t.created,t.prompt.length,t.text.length,t.error?.length||0]),
+  state.chats.filter(c=>ownerChats.has(c.id)).map(c=>[c.id,c.title]),
+  (state.goals||[]).filter(goal=>app.chatIds.includes(goal.id)).map(goal=>[goal.id,goal.objective,goal.status,goal.summary,goal.evidence]),
+  state.approvals.filter(r=>r.status==='pending'&&(app.chatIds.includes(r.chatId)||owners.has(r.turnId))).map(r=>[r.id,r.method,r.params])]);
+ const memo=revisionMemo.get(app.id);if(memo&&memo.fingerprint===fingerprint)return memo.revision;
+ const revision=summaryRevision(appSummarySources(app,state));revisionMemo.set(app.id,{fingerprint,revision});return revision;
+}
 export function savedAppRows(base:Pick<Snapshot,'chats'|'turns'|'approvals'>=store.snapshot({tools:false})){
  const state={...base,goals:goals?.rows()||[]},summaries=store.all<AppSummary>('app-summary');
- return store.all<SavedApp>('saved-app').map(app=>{const chatIds=app.chatIds.filter(id=>state.chats.some(c=>c.id===id)),value={...app,chatIds,todos:store.all<AppTodo>('app-todo').filter(todo=>todo.appId===app.id).sort((a,b)=>a.created-b.created||a.id.localeCompare(b.id))},revision=summaryRevision(appSummarySources(value,state));const watch={...watchRow(app.id),running:appWatchJobs.has(app.id),step:appWatchSteps.get(app.id)},ideas=store.all<AppIdea>('app-idea').filter(idea=>idea.appId===app.id&&idea.status!=='dismissed').sort((a,b)=>b.found-a.found);return {...value,watch,updates:ideas,watchUnread:ideas.some(idea=>idea.status==='new'&&idea.found>watch.seen),light:appLights.get(app.id),summary:summaries.find(row=>row.id===app.id&&row.sources.every(source=>!source.chatId||chatIds.includes(source.chatId))),summaryRevision:revision,summaryRunning:appSummaryJobs.has(app.id),summaryError:appSummaryErrors.get(app.id)?.revision===revision?appSummaryErrors.get(app.id)?.message:undefined};});
+ return store.all<SavedApp>('saved-app').map(app=>{const chatIds=app.chatIds.filter(id=>state.chats.some(c=>c.id===id)),value={...app,chatIds,todos:store.all<AppTodo>('app-todo').filter(todo=>todo.appId===app.id).sort((a,b)=>a.created-b.created||a.id.localeCompare(b.id))},revision=appRevision(value,state);const watch={...watchRow(app.id),running:appWatchJobs.has(app.id),step:appWatchSteps.get(app.id)},ideas=store.all<AppIdea>('app-idea').filter(idea=>idea.appId===app.id&&idea.status!=='dismissed').sort((a,b)=>b.found-a.found);return {...value,watch,updates:ideas,watchUnread:ideas.some(idea=>idea.status==='new'&&idea.found>watch.seen),light:appLights.get(app.id),summary:summaries.find(row=>row.id===app.id&&row.sources.every(source=>!source.chatId||chatIds.includes(source.chatId))),summaryRevision:revision,summaryRunning:appSummaryJobs.has(app.id),summaryError:appSummaryErrors.get(app.id)?.revision===revision?appSummaryErrors.get(app.id)?.message:undefined};});
 }
 export function watchRow(id:string){return store.all<AppWatch>('app-watch').find(row=>row.id===id)||defaultWatch(id);}
 export function watchModel(watch:AppWatch){const model=updateModel(watch.model,availableModels(),jevSettings().summaryModel);if(!model)throw Error('Choose an available update model for this app.');return model;}

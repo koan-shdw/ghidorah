@@ -1,8 +1,8 @@
 import {ExportChatDialog} from './export-dialog';
 import {SavedAppsPanel} from './saved-apps-panel';
-import React,{useEffect,useRef,useState} from 'react';
+import React,{useEffect,useMemo,useRef,useState} from 'react';
 import type {Chat,Snapshot,Turn} from './types';
-import {chatStamp,chatState,chatUnread,chatUpdated,pendingTurn,type SidebarGroup,type SidebarPreferences} from './sidebar';
+import {chatStamp,chatState,chatUnread,chatUpdated,pendingTurn,turnsByChat,type SidebarGroup,type SidebarPreferences} from './sidebar';
 import {SidebarHoverCard} from './sidebar-overlays';
 import {Button,Dialog,Notice,SidebarMenu,SidebarIcon,type MenuItem} from './kit';
 
@@ -36,7 +36,7 @@ export function SidebarPanel({state,selected,choose,call,create,terminal,split,p
  useEffect(()=>{localStorage.setItem('sidebar-activity',String(activity));},[activity]);
  useEffect(()=>{const key=(event:KeyboardEvent)=>{if(!event.defaultPrevented&&!document.querySelector('dialog[open],[role="dialog"]')&&event.ctrlKey&&event.altKey&&event.key.toLowerCase()==='u'){event.preventDefault();clearHover();setActivity(value=>!value);}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[]);
  const groups=state.sidebar?.groups||[],preferences=state.sidebar?.preferences||{id:'sidebar',groupBy:'folders',sort:'updated',visibility:'active',stateDays:7} as SidebarPreferences;
- const turns=state.turns,chat=state.chats.find(c=>c.id===selected),stamp=chat?chatStamp(chat,turns):'';
+ const turns=useMemo(()=>turnsByChat(state.turns),[state.turns]),chat=state.chats.find(c=>c.id===selected),stamp=chat?chatStamp(chat,turns):'';
  async function run(action:()=>Promise<any>){try{setError('');await action();}catch(error){setError(String(error).replace(/^Error invoking remote method 'app': (?:Error: )?/,''));}}
  function closeMenu(){setMenu(null);returnFocus.current?.focus();}
  const change=(action:string,args:any)=>run(async()=>{closeMenu();await call('sidebarChat',{action,...args});});
@@ -113,7 +113,7 @@ export function SidebarPanel({state,selected,choose,call,create,terminal,split,p
    setDropNotice(ids.length+' chat'+(ids.length===1?'':'s')+(app?' linked to '+app.name:target.kind==='pin'?' pinned':' moved'));
   });
  }
- function chatRow(c:Chat){const last=turns.filter(t=>t.chatId===c.id).at(-1);const unread=chatUnread(c,turns),status=chatState(c,turns);return <div key={glow?.chatId===c.id?c.id+':glow'+glow.key:c.id} className={'sidebar-chat '+(glow?.chatId===c.id?'app-glow ':'')+(c.id===selected?'current ':'')+(unread?'unread ':'')+(picked.includes(c.id)?'is-picked':'')} data-chat-id={c.id} onMouseEnter={event=>showHover(event,c.id)} onMouseLeave={clearHover} onFocus={event=>showHover(event,c.id)} onBlur={clearHover} draggable onDragStart={event=>{if(batchLock.current){event.preventDefault();return;}clearHover();closeMenu();setDropNotice('');const ids=picked.includes(c.id)?picked:[c.id];setPicked(ids);event.dataTransfer.setData('application/x-trismegistus-chats',JSON.stringify(visibleIds.filter(id=>ids.includes(id))));event.dataTransfer.setData('application/x-trismegistus-chat',c.id);event.dataTransfer.effectAllowed='move';}} onDragEnd={()=>setDropTarget('')} {...chatDropProps({kind:c.pinned&&!c.archived?'pin':'folder',id:c.groupId||null,beforeId:c.id})} onContextMenu={event=>openMenu(event,c.id,'chat')}>
+ function chatRow(c:Chat){const last=(turns.get(c.id)||[]).at(-1);const unread=chatUnread(c,turns),status=chatState(c,turns);return <div key={glow?.chatId===c.id?c.id+':glow'+glow.key:c.id} className={'sidebar-chat '+(glow?.chatId===c.id?'app-glow ':'')+(c.id===selected?'current ':'')+(unread?'unread ':'')+(picked.includes(c.id)?'is-picked':'')} data-chat-id={c.id} onMouseEnter={event=>showHover(event,c.id)} onMouseLeave={clearHover} onFocus={event=>showHover(event,c.id)} onBlur={clearHover} draggable onDragStart={event=>{if(batchLock.current){event.preventDefault();return;}clearHover();closeMenu();setDropNotice('');const ids=picked.includes(c.id)?picked:[c.id];setPicked(ids);event.dataTransfer.setData('application/x-trismegistus-chats',JSON.stringify(visibleIds.filter(id=>ids.includes(id))));event.dataTransfer.setData('application/x-trismegistus-chat',c.id);event.dataTransfer.effectAllowed='move';}} onDragEnd={()=>setDropTarget('')} {...chatDropProps({kind:c.pinned&&!c.archived?'pin':'folder',id:c.groupId||null,beforeId:c.id})} onContextMenu={event=>openMenu(event,c.id,'chat')}>
   <button className={'chat-link '+(c.id===selected?'current':'')} aria-describedby={hover?.id===c.id?'sidebar-chat-tooltip':undefined} aria-current={c.id===selected?'page':undefined} aria-pressed={picked.includes(c.id)} onClick={event=>pick(event,c.id)}><span className={'chat-state '+(status==='Working'?'working':status==='Needs input'?'waiting':'')} title={unread?'Unread · '+status:status} aria-label={unread?'Unread · '+status:status}>{status==='Working'?<span className="kit-spinner" aria-hidden="true"/>:status==='Needs input'?'!':''}</span><span className="sidebar-chat-copy"><span className="sidebar-chat-title">{c.title}</span>{activity&&<span className="sidebar-chat-preview">{last?.text||last?.prompt||chatState(c,turns)}</span>}</span>{c.archived&&<small>Archived</small>}{unread&&<span className="unread-dot" aria-hidden="true"/>}</button><button className="sidebar-more" aria-label={'Actions for '+c.title} onClick={event=>openMenu(event,c.id,'chat')}><SidebarIcon name="more"/></button>
  </div>;}
  const hoverChat=state.chats.find(c=>c.id===hover?.id);

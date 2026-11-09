@@ -40,6 +40,10 @@ type IndexedField=typeof indexedFields[number];
 const turnFields=['jobs','remote'] as const;
 const chatFields=['parentChatId','runtimeId'] as const;
 
+// The small kinds kept in memory (LAG 2026-11-09): every window push parsed all 2,500 turns three times, 100 ms of
+// main-process time, and the sidebar read them again. Tool, work-action and blob kinds stay on disk.
+const cachedKinds=new Set(['turn','chat','project','approval','settings','context-usage','side-answer','sidebar-group','saved-app','saved-app-group','routine','remote-alert','hermes-release','native-plugin']);
+export interface RowChange {kind:string;id:string;rev:number;removed:boolean}
 export class Store {
   db:DatabaseSync;
   constructor(file:string) {
@@ -67,11 +71,28 @@ export class Store {
   // growing row with a full sync, 1.8 s of main-process work for 600 pieces). Every read in this process sees it; any
   // other change to the turn writes it at once. A crash can lose the last 250 ms of a reply's partial text.
   private streamed=new Map<string,Partial<Turn>>();private streamTimer?:NodeJS.Timeout;
+  // In-memory copies of the cached kinds, in saved order. Rows go out as shallow copies, so a caller's change never
+  // reaches the copy; every write through put, update and remove keeps it current; a rolled-back transaction drops it.
+  private cache=new Map<string,Map<string,any>>();
+  private rows(kind:string):Map<string,any>{let map=this.cache.get(kind);if(!map){map=new Map();for(const r of this.db.prepare('SELECT id,data FROM records WHERE kind=? ORDER BY rowid').all(kind) as any[])map.set(String(r.id),this.parse(kind,r.data));this.cache.set(kind,map);}return map;}
+  private cachedRows<T>(kind:string,keep?:(row:any)=>boolean):T[]{const out:T[]=[];for(const row of this.rows(kind).values())if(!keep||keep(row))out.push({...row});return out;}
+  // Every write bumps the revision and logs its row, so a window can be sent what changed since the state it holds
+  // (changesSince). Null when the log no longer reaches back that far, or after a rollback: then send everything.
+  revision=0;private log:RowChange[]=[];private prunedThrough=0;
+  private changed(kind:string,id:string,removed:boolean){this.revision++;this.log.push({kind,id,rev:this.revision,removed});}
+  changesSince(since:number):RowChange[]|null {
+    if(since<this.prunedThrough||since>this.revision)return null;
+    let low=0,high=this.log.length;while(low<high){const mid=(low+high)>>1;if(this.log[mid].rev<=since)low=mid+1;else high=mid;}
+    const latest=new Map<string,RowChange>();for(let i=low;i<this.log.length;i++){const entry=this.log[i],key=entry.kind+':'+entry.id;latest.delete(key);latest.set(key,entry);}
+    return [...latest.values()];
+  }
+  forgetChangesBefore(rev:number){let n=0;while(n<this.log.length&&this.log[n].rev<=rev)n++;if(n)this.log.splice(0,n);this.prunedThrough=Math.max(this.prunedThrough,Math.min(rev,this.revision));}
   private parse(kind:string,data:string){const value=JSON.parse(data);if(kind==='turn'&&this.streamed.size){const pending=this.streamed.get(value.id);if(pending)Object.assign(value,pending);}return value;}
   stream(id:string,patch:Pick<Partial<Turn>,'text'|'reasoning'|'activity'>):Turn {
     const previous=this.get<Turn>('turn',id),v:Turn={...previous,...patch,lastActivity:Date.now()};
     if(v.activity!==previous.activity)v.stageSince=Date.now();
     this.streamed.set(id,{text:v.text,reasoning:v.reasoning,activity:v.activity,lastActivity:v.lastActivity,stageSince:v.stageSince});
+    const rows=this.cache.get('turn');if(rows?.has(id))rows.set(id,{...rows.get(id),...this.streamed.get(id)});this.changed('turn',id,false);
     this.streamTimer??=setTimeout(()=>this.flush(),250);this.streamTimer.unref?.();
     return v;
   }
@@ -82,20 +103,21 @@ export class Store {
   }
   // Tool and work-action rows are never read all at once (OUTPUTS 2026-11-09: on Koan's data that parsed 1.3 GB
   // after every reply). They are read by turn, job or status.
-  all<T>(kind:string):T[] {if(kind==='tool'||kind==='work-action')throw Error(`Read ${kind} records by turn, job or status (where, whereIn, toolsOf), never all at once.`);return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map((r:any)=>this.parse(kind,r.data));}
+  all<T>(kind:string):T[] {if(kind==='tool'||kind==='work-action')throw Error(`Read ${kind} records by turn, job or status (where, whereIn, toolsOf), never all at once.`);if(cachedKinds.has(kind))return this.cachedRows<T>(kind);return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map((r:any)=>this.parse(kind,r.data));}
   // Per-tool lookups read only matching rows through expression indexes; all() parses every row (RUN-PLAN 3c:
   // 244 ms for Koan's 7,179 tool rows, several times per tool call).
-  where<T>(kind:string,field:IndexedField,value:string):T[] {return this.db.prepare(`SELECT data FROM records WHERE kind=? AND json_extract(data,'$.${field}')=? ORDER BY rowid`).all(kind,value).map((r:any)=>this.parse(kind,r.data));}
+  where<T>(kind:string,field:IndexedField,value:string):T[] {if(cachedKinds.has(kind))return this.cachedRows<T>(kind,row=>row[field]===value);return this.db.prepare(`SELECT data FROM records WHERE kind=? AND json_extract(data,'$.${field}')=? ORDER BY rowid`).all(kind,value).map((r:any)=>this.parse(kind,r.data));}
   whereIn<T>(kind:string,field:IndexedField,values:string[]):T[] {
+    if(cachedKinds.has(kind)){const wanted=new Set(values);return this.cachedRows<T>(kind,row=>wanted.has(row[field]));}
     const rows:{rowid:number;data:string}[]=[];
     for(let i=0;i<values.length;i+=900){const chunk=values.slice(i,i+900);rows.push(...this.db.prepare(`SELECT rowid,data FROM records WHERE kind=? AND json_extract(data,'$.${field}') IN (${chunk.map(()=>'?').join(',')})`).all(kind,...chunk) as any[]);}
     return rows.sort((a,b)=>a.rowid-b.rowid).map(r=>this.parse(kind,r.data));
   }
   // Turns that carry parallel jobs or came from remote, in saved order.
-  turnsWith<T=Turn>(field:typeof turnFields[number]):T[] {if(!turnFields.includes(field))throw Error('Unknown turn field');return this.db.prepare(`SELECT data FROM records WHERE kind='turn' AND json_extract(data,'$.${field}') IS NOT NULL ORDER BY rowid`).all().map((r:any)=>this.parse('turn',r.data));}
+  turnsWith<T=Turn>(field:typeof turnFields[number]):T[] {if(!turnFields.includes(field))throw Error('Unknown turn field');if(cachedKinds.has('turn'))return this.cachedRows<T>('turn',row=>row[field]!==undefined&&row[field]!==null);return this.db.prepare(`SELECT data FROM records WHERE kind='turn' AND json_extract(data,'$.${field}') IS NOT NULL ORDER BY rowid`).all().map((r:any)=>this.parse('turn',r.data));}
   // Turns that finished after a time, for copying desktop work into Telegram topics.
   // ponytail: scans every turn; index finished if this shows up in profiles.
-  turnsFinishedAfter<T=Turn>(at:number):T[] {return this.db.prepare(`SELECT data FROM records WHERE kind='turn' AND json_extract(data,'$.finished')>? ORDER BY rowid`).all(at).map((r:any)=>this.parse('turn',r.data));}
+  turnsFinishedAfter<T=Turn>(at:number):T[] {if(cachedKinds.has('turn'))return this.cachedRows<T>('turn',row=>typeof row.finished==='number'&&row.finished>at);return this.db.prepare(`SELECT data FROM records WHERE kind='turn' AND json_extract(data,'$.finished')>? ORDER BY rowid`).all(at).map((r:any)=>this.parse('turn',r.data));}
   // A chat's turns and those of its job chats, in saved order: every turn whose root message is in this chat.
   // Automatic follow-ups are saved in their own chat, parallel jobs in a child chat (SPEED-PLAN 1a, 3).
   ownedTurns<T=Turn>(chatId:string):T[] {return this.whereIn<T>('turn','chatId',[chatId,...this.chatsWhere('parentChatId',chatId).map(chat=>chat.id)]);}
@@ -145,7 +167,7 @@ export class Store {
       for(const row of batch){
         const value=JSON.parse(row.data);if(value.resultCut||value.result==null||JSON.stringify(value.result).length<=PREVIEW_CUT)continue;
         // Written straight, not through put(): put stamps an old tool row without a start time with today's.
-        this.db.prepare('UPDATE records SET data=? WHERE rowid=?').run(JSON.stringify(this.pack(row.kind,value)),row.rowid);
+        this.db.prepare('UPDATE records SET data=? WHERE rowid=?').run(JSON.stringify(this.pack(row.kind,value)),row.rowid);this.changed(row.kind,row.id,false);
         // An action whose tool row never took its result keeps the whole text itself.
         if(row.kind==='work-action'&&!['uncertain','background'].includes(value.status)){const tool=value.toolId?this.find<ToolCall>('tool',value.toolId):undefined;if(!tool||tool.turnId!==value.job||tool.result==null)this.db.prepare('INSERT INTO results(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run('work-action',value.id,JSON.stringify(value.result));}
       }
@@ -161,21 +183,22 @@ export class Store {
     const before=Date.now()-keepDays*86400000;
     const old=this.db.prepare(`SELECT s.kind,s.id FROM results s JOIN records r ON r.kind=s.kind AND r.id=s.id JOIN records t ON t.kind='turn' AND t.id=json_extract(r.data,CASE s.kind WHEN 'tool' THEN '$.turnId' ELSE '$.job' END) WHERE json_extract(t.data,'$.created')<? AND NOT (s.kind='work-action' AND json_extract(r.data,'$.status') IN ('uncertain','background')) LIMIT ?`).all(before,rows) as any[];
     if(!old.length)return true;
-    this.transaction(()=>{for(const row of old){this.db.prepare('DELETE FROM results WHERE kind=? AND id=?').run(row.kind,row.id);this.db.prepare('UPDATE records SET data=replace(data,?,?) WHERE kind=? AND id=?').run(MARK_IN_JSON,AGED_IN_JSON,row.kind,row.id);}});
+    this.transaction(()=>{for(const row of old){this.db.prepare('DELETE FROM results WHERE kind=? AND id=?').run(row.kind,row.id);this.db.prepare('UPDATE records SET data=replace(data,?,?) WHERE kind=? AND id=?').run(MARK_IN_JSON,AGED_IN_JSON,row.kind,row.id);this.changed(row.kind,row.id,false);}});
     return old.length<rows;
   }
   // A read on a field with no index: SQLite walks the kind's rows, only the matches are parsed. For tests and the
   // group lookups that have no job list; everyday paths use where/whereIn.
-  scan<T>(kind:string,field:string,value:string):T[] {if(!/^\w+$/.test(field))throw Error('Unknown field');return this.db.prepare(`SELECT data FROM records WHERE kind=? AND json_extract(data,'$.${field}')=? ORDER BY rowid`).all(kind,value).map((r:any)=>this.parse(kind,r.data));}
-  chatsWhere(field:typeof chatFields[number],value:string):Chat[] {if(!chatFields.includes(field))throw Error('Unknown chat field');return this.db.prepare(`SELECT data FROM records WHERE kind='chat' AND json_extract(data,'$.${field}')=? ORDER BY rowid`).all(value).map((r:any)=>JSON.parse(r.data));}
+  scan<T>(kind:string,field:string,value:string):T[] {if(!/^\w+$/.test(field))throw Error('Unknown field');if(cachedKinds.has(kind))return this.cachedRows<T>(kind,row=>row[field]===value);return this.db.prepare(`SELECT data FROM records WHERE kind=? AND json_extract(data,'$.${field}')=? ORDER BY rowid`).all(kind,value).map((r:any)=>this.parse(kind,r.data));}
+  chatsWhere(field:typeof chatFields[number],value:string):Chat[] {if(!chatFields.includes(field))throw Error('Unknown chat field');if(cachedKinds.has('chat'))return this.cachedRows<Chat>('chat',row=>row[field]===value);return this.db.prepare(`SELECT data FROM records WHERE kind='chat' AND json_extract(data,'$.${field}')=? ORDER BY rowid`).all(value).map((r:any)=>JSON.parse(r.data));}
   // Record ids only, straight from the index: nothing is parsed (SPEED-PLAN 1).
   idsWhere(kind:string,field:IndexedField,values:string[]):string[] {
+    if(cachedKinds.has(kind)){const wanted=new Set(values),ids:string[]=[];for(const row of this.rows(kind).values())if(wanted.has(row[field]))ids.push(row.id);return ids;}
     const ids:{rowid:number;id:string}[]=[];
     for(let i=0;i<values.length;i+=900){const chunk=values.slice(i,i+900);ids.push(...this.db.prepare(`SELECT rowid,id FROM records WHERE kind=? AND json_extract(data,'$.${field}') IN (${chunk.map(()=>'?').join(',')})`).all(kind,...chunk) as any[]);}
     return ids.sort((a,b)=>a.rowid-b.rowid).map(row=>String(row.id));
   }
-  has(kind:string,id:string){return !!this.db.prepare('SELECT 1 FROM records WHERE kind=? AND id=?').get(kind,id);}
-  find<T>(kind:string,id:string):T|undefined {const r:any=this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind,id);return r?this.parse(kind,r.data):undefined;}
+  has(kind:string,id:string){if(cachedKinds.has(kind))return this.rows(kind).has(id);return !!this.db.prepare('SELECT 1 FROM records WHERE kind=? AND id=?').get(kind,id);}
+  find<T>(kind:string,id:string):T|undefined {if(cachedKinds.has(kind)){const row=this.rows(kind).get(id);return row?{...row}:undefined;}const r:any=this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind,id);return r?this.parse(kind,r.data):undefined;}
   enginePosition(chatId:string,engine:Engine):EnginePosition {
     this.get('chat',chatId);
     try{return this.get('engine',chatId+':'+engine);}catch{return {id:chatId+':'+engine,chatId,engine,sessionId:null,throughTurnId:null,uncertain:false};}
@@ -220,9 +243,9 @@ export class Store {
       for(const position of this.all<EnginePosition>('engine'))this.put('engine',{...position,sessionId:null,uncertain:true});
     });
   }
-  get<T>(kind:string,id:string):T {const r:any=this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind,id);if(!r)throw Error(`${kind} not found`);return this.parse(kind,r.data);}
+  get<T>(kind:string,id:string):T {if(cachedKinds.has(kind)){const row=this.rows(kind).get(id);if(!row)throw Error(`${kind} not found`);return {...row};}const r:any=this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind,id);if(!r)throw Error(`${kind} not found`);return this.parse(kind,r.data);}
   // A tool record keeps when it started and finished, for the action list's times (TRIS-TODO 4.1, A2).
-  put<T extends {id:string}>(kind:string,value:T) {if(kind==='tool'){const tool:any=value;tool.started??=Date.now();if(!tool.finished&&['completed','failed','stopped'].includes(tool.status))tool.finished=Date.now();}if(kind==='turn')this.streamed.delete(value.id);const row=kind==='tool'||kind==='work-action'?this.pack(kind,value):value;this.db.prepare('INSERT INTO records(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind,value.id,JSON.stringify(row));return value;}
+  put<T extends {id:string}>(kind:string,value:T) {if(kind==='tool'){const tool:any=value;tool.started??=Date.now();if(!tool.finished&&['completed','failed','stopped'].includes(tool.status))tool.finished=Date.now();}if(kind==='turn')this.streamed.delete(value.id);const row=kind==='tool'||kind==='work-action'?this.pack(kind,value):value;this.db.prepare('INSERT INTO records(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind,value.id,JSON.stringify(row));if(cachedKinds.has(kind))this.rows(kind).set(value.id,{...row});this.changed(kind,value.id,false);return value;}
   // The row saved for a tool or work-action. A long result becomes a preview; the whole text goes to the results
   // table when no other row holds it: always for a tool, for an action while it is uncertain or in the background,
   // or when no tool row of its job will take its result (a finished action's result is otherwise on its tool row).
@@ -239,9 +262,9 @@ export class Store {
     this.db.prepare('DELETE FROM results WHERE kind=? AND id=?').run(kind,value.id);
     if(value.resultCut===undefined)return value;const {resultCut,...rest}=value;return rest;
   }
-  remove(kind:string,id:string){if(kind==='turn')this.streamed.delete(id);this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind,id);if(kind==='tool'||kind==='work-action')this.db.prepare('DELETE FROM results WHERE kind=? AND id=?').run(kind,id);}
+  remove(kind:string,id:string){if(kind==='turn')this.streamed.delete(id);this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind,id);if(kind==='tool'||kind==='work-action')this.db.prepare('DELETE FROM results WHERE kind=? AND id=?').run(kind,id);if(cachedKinds.has(kind))this.cache.get(kind)?.delete(id);this.changed(kind,id,true);}
   update<T extends {id:string}>(kind:string,id:string,patch:Partial<T>):T {const previous:any=this.get<T>(kind,id),v:any={...previous,...patch};if(kind==='turn'){v.lastActivity=Date.now();if(['stopped','interrupted','failed'].includes(v.status)&&!v.stopReason)v.stopReason='unknown';if(v.status!==previous.status||v.preparation!==previous.preparation||v.activity!==previous.activity)v.stageSince=Date.now();}if(kind==='turn'&&!v.finished&&['completed','stopped','failed','interrupted'].includes(v.status))v.finished=Date.now();this.put(kind,v);return v;}
-  transaction<T>(fn:()=>T):T {if(this.db.isTransaction)return fn();this.db.exec('BEGIN IMMEDIATE');try{const v=fn();this.db.exec('COMMIT');return v;}catch(e){this.db.exec('ROLLBACK');throw e;}}
+  transaction<T>(fn:()=>T):T {if(this.db.isTransaction)return fn();this.db.exec('BEGIN IMMEDIATE');try{const v=fn();this.db.exec('COMMIT');return v;}catch(e){this.db.exec('ROLLBACK');this.cache.clear();this.changed('store','rollback',false);this.prunedThrough=this.revision;throw e;}}
   event(id:string,fn:()=>void){return this.transaction(()=>{if(!this.db.prepare('INSERT OR IGNORE INTO events VALUES(?)').run(id).changes)return false;fn();return true;});}
   defaultMode(value?:unknown):Mode {
     const valid=(mode:unknown):mode is Mode=>typeof mode==='string'&&['manual','accept-edits','plan','auto','bypass'].includes(mode);

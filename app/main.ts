@@ -41,6 +41,7 @@ import {pathToFileURL} from 'node:url';
 import {execFile,spawn,spawnSync,type ChildProcess} from 'node:child_process';
 import {promisify} from 'node:util';
 import {Store,OUTPUT_KEEP_DAYS} from './store';
+import {timing} from './timing';
 import {Goals,goalTool} from './goals';
 import {Previews} from './previews';
 import {previewable} from './preview-files';
@@ -116,7 +117,7 @@ import {discoverySettings,hermesFeed,hermesPin,updateFeed,updateSettings} from '
 import {freeVoiceKey,speechInstalled,speechReady,voiceRequest,voiceRow,voiceSettings,voiceTestEndpoint,wakeDetected,wakeSettings} from './main/voice';
 import {configure,configureInBackground,configureSoon,session} from './main/backend';
 import {addAppTask,changeProjectMode,createApp,linkCurrentApp,listAppTasks,projectFor,requireIdleFolder,requireStableFolder,updateApp,updateAppTask,workingDirectory} from './main/projects';
-import {askApproval,mainSnapshot,sendState,snapshot} from './main/snapshot';
+import {askApproval,mainSnapshot,sendMainState,sendState,snapshot} from './main/snapshot';
 import {agentSnapshot,agentWindowRequest,chatSnapshot,jobSnapshot,modelWindowHash,openChatWindow,openJob,openWorkspaceWindow,saveChatWindows,saveJobWindows,saveWorkspaceWindows,workspaceWindowRequest,workspaceWindowState} from './main/windows';
 import {changePlugin,generateContext,goalHold,pluginChangeWait,queryHistory,sideFirst,sideRow,submitTurn} from './main/context';
 import {automaticClaude,automaticHermes,continueNative,coordinateChat,providerUrls,request,requestProjectReview,stateProviderInChat,waitingFor,wake} from './main/dispatch';
@@ -756,7 +757,7 @@ export function emit(){
   const resets=health.rows().filter(row=>row.blocked&&row.reason==='limit'&&row.resetAt!==null&&row.resetAt>Date.now()).map(row=>row.resetAt!);
   const next=resets.length?Math.min(...resets):null;
   if(next!==scheduledReset){clearTimeout(resetTimer);scheduledReset=next;if(next!==null){resetTimer=setTimeout(()=>{scheduledReset=null;emit();},Math.min(next-Date.now()+10,2147483647));resetTimer.unref();}}
-  if(updateTimer)return;updateTimer=setTimeout(()=>{updateTimer=null;if(!quitting)workNotifications?.scan(alwaysOn().desktopNotifications,notificationChatVisible,showWorkNotice,()=>{if(alwaysOn().questionSound&&!namespace.startsWith('Trismegistus/Test/'))shell.beep();});let shared:ReturnType<typeof snapshot>|undefined;const light=()=>shared??=snapshot({tools:false});for(const w of BrowserWindow.getAllWindows())if(!w.isDestroyed()&&!closingWindows.has(w)){const job=[...jobWindows].find(([,window])=>window===w)?.[0];const chat=[...chatWindows].find(([,window])=>window===w)?.[0];const workspace=[...workspaceWindows.values()].find(entry=>entry.window===w);sendState(w,workspace?workspaceWindowState(workspace,light()):job?.startsWith('agent:')?agentSnapshot(job.slice(6),light()):job?jobSnapshot(job,light()):chat?chatSnapshot(chat,light()):mainSnapshot(light()));}},32);
+  if(updateTimer)return;updateTimer=setTimeout(()=>{updateTimer=null;if(!quitting)workNotifications?.scan(alwaysOn().desktopNotifications,notificationChatVisible,showWorkNotice,()=>{if(alwaysOn().questionSound&&!namespace.startsWith('Trismegistus/Test/'))shell.beep();});let shared:ReturnType<typeof snapshot>|undefined;const light=()=>shared??=snapshot({tools:false});for(const w of BrowserWindow.getAllWindows())if(!w.isDestroyed()&&!closingWindows.has(w)){const job=[...jobWindows].find(([,window])=>window===w)?.[0];const chat=[...chatWindows].find(([,window])=>window===w)?.[0];const workspace=[...workspaceWindows.values()].find(entry=>entry.window===w);if(!workspace&&!job&&!chat)sendMainState(w,light());else sendState(w,workspace?workspaceWindowState(workspace,light()):job?.startsWith('agent:')?agentSnapshot(job.slice(6),light()):job?jobSnapshot(job,light()):chatSnapshot(chat!,light()));}},32);
 }
 // Outputs saved whole by earlier versions move to their own table a few rows at a time, after the window is up
 // (store.splitResults, OUTPUTS 2026-11-09): 15 rows take about 25 ms, so typing never waits; the whole pass over a
@@ -1478,7 +1479,7 @@ function window(){
   win=new BrowserWindow({show:!process.argv.includes('--hidden'),icon:nativeImage.createFromPath(path.join(app.getAppPath(),'assets/icon.png')),width:1280,height:850,minWidth:650,minHeight:500,title:appName,backgroundColor:'#141413',titleBarStyle:'hidden',titleBarOverlay:{color:'#141413',symbolColor:'#e8e6dc',height:36},webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false}});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   if(dev)win.on('page-title-updated',event=>event.preventDefault());
-  win.webContents.once('did-finish-load',()=>{markOpened(updateWatchFile,app.getVersion());splitSavedResults();});
+  win.webContents.once('did-finish-load',()=>{markOpened(updateWatchFile,app.getVersion());timing.start();splitSavedResults();});
   win.webContents.on('will-navigate',event=>event.preventDefault());
   win.on('close',e=>{if(!quitting){e.preventDefault();win.hide();}});
   previews=new Previews(win,store,defaultFolder,[data],path.join(root,'runtime/poppler/Library/bin'),data,withOwner,openChatLink);
@@ -1512,7 +1513,7 @@ app.whenReady().then(async()=>{
   app.setAppUserModelId(dev?'app.trismegistus.dev':'app.trismegistus.desktop');
   await fs.mkdir(data,{recursive:true});
   await promisify(execFile)('icacls',[data,'/inheritance:r','/grant:r',`${process.env.USERDOMAIN}\\${process.env.USERNAME}:(OI)(CI)F`,'/grant:r','SYSTEM:(OI)(CI)F'],{windowsHide:true});
-  store=new Store(path.join(data,'chat.sqlite'));workNotifications=new WorkNotifications(store);sidebar=new Sidebar(store);sidebar.initialize();health=new AccountHealth(store);store.interrupt();store.initializeWorkingFolder();store.initializeNativeMemoryIsolation();store.initializeToolContext();
+  store=new Store(path.join(data,'chat.sqlite'));timing.wrapStore(store);workNotifications=new WorkNotifications(store);sidebar=new Sidebar(store);sidebar.initialize();health=new AccountHealth(store);store.interrupt();store.initializeWorkingFolder();store.initializeNativeMemoryIsolation();store.initializeToolContext();
   browserPreviews=new BrowserPreviews(store,data,defaultFolder,url=>shell.openExternal(url));
   inlinePreviews=new InlinePreviews(store,data);protocol.handle('tris-inline',request=>inlinePreviews.response(request));
   for(const c of store.all<Chat>('chat'))store.update<Chat>('chat',c.id,{runtimeId:null});
@@ -1542,7 +1543,7 @@ app.whenReady().then(async()=>{
   mcp=new McpOwner(backend,stopped=>{if(quitting)return;if(stopped){mcpRows=mcpRows.map(row=>({...row,status:row.enabled?'Service stopped':'Off',tools:0}));emit();}else void refreshMcp();});
   // The theme's colours for the window buttons; only the main window's page may set them, and only as hex colours.
   ipcMain.on('title-bar',(event,colors)=>{const hex=/^#[0-9a-f]{3,8}$/i;if(!win||event.sender!==win.webContents||event.senderFrame!==event.sender.mainFrame||!hex.test(colors?.color)||!hex.test(colors?.symbolColor))return;try{win.setTitleBarOverlay({color:colors.color,symbolColor:colors.symbolColor,height:36});}catch{}});
-  ipcMain.handle('app',async(event,method,args)=>{
+  const appRequest=async(event:Electron.IpcMainInvokeEvent,method:string,args:any):Promise<any>=>{
     if(wakeWindow&&event.sender===wakeWindow.webContents){if(event.senderFrame!==event.sender.mainFrame||event.senderFrame?.url!==pathToFileURL(path.join(__dirname,'index.html')).href+'#wake')throw Error('Request refused');return wakeRequest(method,args||{});}
     if(voiceWindow&&event.sender===voiceWindow.webContents){if(event.senderFrame!==event.sender.mainFrame||event.senderFrame?.url!==pathToFileURL(path.join(__dirname,'index.html')).href+'#voice')throw Error('Request refused');return voiceRequest(method,args||{});}
 
@@ -1625,7 +1626,8 @@ app.whenReady().then(async()=>{
       return handlers[method]({...args,owner});
     }
     return handlers[method](args||{});
-  });
+  };
+  ipcMain.handle('app',(event,method,args)=>timing.on?timing.timeAsync('ipc:'+method,()=>appRequest(event,method,args)):appRequest(event,method,args));
   terminals=new Terminals(()=>backend.environment(),backend.python,root);
   if(app.isPackaged&&!shareTest())app.setAsDefaultProtocolClient('trismegistus',process.execPath,[]);
   window();{const link=process.argv.find(arg=>arg.startsWith('trismegistus://'));if(link)win.webContents.once('did-finish-load',()=>setTimeout(()=>openChatLink(link),1500));}/* ponytail: a fixed wait for the window to listen; a ready signal if it ever misses */app.on('browser-window-focus',(_event,window)=>{if(window===win||[...chatWindows.values(),...jobWindows.values(),...[...workspaceWindows.values()].map(entry=>entry.window)].includes(window))voiceFront=window;});win.on('focus',()=>void refreshAppLights());void refreshAppLights();

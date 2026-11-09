@@ -210,12 +210,12 @@ export const chatsHandlers:Record<string,(args:any)=>any>={
     if(sideChatOpening.has(chatId))return sideChatOpening.get(chatId);
     const existing=store.all<Chat>('chat').find(chat=>chat.sideSourceId===chatId&&!chat.parentChatId);if(existing)return existing.id;
     const id=sidebar.fork(chatId,{sideChat:true}),side=store.get<Chat>('chat',id);
-    const opening=configure(projectFor(side)).then(()=>{emit();return id;}).catch(error=>{sidebar.delete(id);store.db.prepare("DELETE FROM records WHERE kind='project' AND id=?").run(side.projectId);throw error;}).finally(()=>sideChatOpening.delete(chatId));sideChatOpening.set(chatId,opening);return opening;
+    const opening=configure(projectFor(side)).then(()=>{emit();return id;}).catch(error=>{sidebar.delete(id);store.remove('project',side.projectId);throw error;}).finally(()=>sideChatOpening.delete(chatId));sideChatOpening.set(chatId,opening);return opening;
   },
   sideChatKeep({chatId}){if(managingChats.has(chatId))throw Error('This side chat is closing.');const chat=sidebar.root(chatId);if(!chat.sideSourceId)throw Error('This is not a side chat.');store.update<Chat>('chat',chatId,{sideSourceId:undefined});emit();return chatId;},
   async sideChatDiscard({chatId}){
     const chat=sidebar.root(chatId);if(!chat.sideSourceId)throw Error('This is not a side chat.');
-    await handlers.sidebarChat({action:'delete',chatId});store.db.prepare("DELETE FROM records WHERE kind='project' AND id=?").run(chat.projectId);
+    await handlers.sidebarChat({action:'delete',chatId});store.remove('project',chat.projectId);
   },
   async newChat(){return handlers.addProject({});},
   draft({chatId,text}){if(typeof text!=='string')throw Error('Invalid draft');store.update<Chat>('chat',chatId,{draft:redactPastedKeys(backend.scrubber.text(text))});},

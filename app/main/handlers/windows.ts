@@ -7,7 +7,8 @@ import {Menu,shell} from 'electron';
 export const windowsHandlers:Record<string,(args:any)=>any>={
   // The window asks with {window:true} and gets cut results; a bare request (tests, tools, the workspace window) gets
   // the same shown chats' tools uncut, never every tool row (OUTPUTS 2026-11-09).
-  state:(args)=>args?.window?mainWindowState(typeof args.chatId==='string'?args.chatId:undefined):mainSnapshot(snapshot({tools:false})),
+  // With rev, the revision of the state it holds, the window gets the changes since then (LAG 2026-11-09).
+  state:(args)=>args?.window?mainWindowState(typeof args.chatId==='string'?args.chatId:undefined,typeof args.rev==='number'?args.rev:undefined):mainSnapshot(snapshot({tools:false})),
   openChatWindow({chatId}){openChatWindow(chatId);},
   openMainChat({chatId}){sidebar.root(chatId);chatWindows.get(chatId)?.close();win.show();win.focus();win.webContents.send('select-chat',chatId);},
   openJob({id}){openJob(id);},

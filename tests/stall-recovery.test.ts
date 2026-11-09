@@ -146,6 +146,15 @@ test('the main window state carries the shown chats and the chat being opened, c
  assert.deepEqual(mainSnapshot({turns:[],tools:[]},'opening').tools,['scoped']);assert.deepEqual(asked,['shown','opening']);
  assert.deepEqual(mainSnapshot({turns:[],tools:[]}).tools,['scoped']);assert.deepEqual(asked,['shown']);
  assert.deepEqual(main('mainSnapshot',env(false))({turns:[],tools:[]},'opening').tools,['scoped'],'no saved layout: the recent chats, never every tool row (OUTPUTS 2026-11-09)');assert.deepEqual(asked,['recent','opening']);
- const cut:unknown[]=[],mainWindowState=main('mainWindowState',{mainSnapshot,snapshot:(o:any)=>({turns:[],tools:o?.tools===false?[]:['every tool']}),windowTools:(s:unknown)=>{cut.push(s);return s;}});
- assert.deepEqual(mainWindowState('opening').tools,['scoped']);assert.equal(cut.length,1,'results are cut');assert.deepEqual(asked,['shown','opening']);
+ // LAG 2026-11-09: a window's state comes from mainState for the shown chats' turns; a request names the chat being
+ // opened and the revision the window holds, and is never skipped.
+ const calls:unknown[]=[],mainWindowState=main('mainWindowState',{snapshot:(o:any)=>({turns:[],tools:o?.tools===false?[]:['every tool']}),mainShownChats:()=>new Set(['shown']),ownTurnIds:(_:unknown,ids:Set<string>)=>{asked=[...ids];return new Set(['t1']);},mainState:(_:unknown,turnIds:Set<string>,since:unknown,skip:boolean)=>{calls.push({turnIds:[...turnIds],since,skip});return {tools:['scoped']};}});
+ assert.deepEqual(mainWindowState('opening',7).tools,['scoped']);assert.deepEqual(asked,['shown','opening']);assert.deepEqual(calls,[{turnIds:['t1'],since:7,skip:false}]);
+ // mainState: everything, with the revision, when nothing was sent yet or the window holds another revision than the
+ // one last sent; otherwise the changes since; nothing at all when no row and nothing else changed.
+ const cut:unknown[]=[],mainState=main('mainState',{store:{revision:5},buildDelta:(_:unknown,sent:{rev:number})=>sent.rev===5?{turnChanges:{changed:[],removed:[]},toolChanges:{changed:[],removed:[],dropTurns:[]}}:null,emptyChanges:(c:any)=>!c.turnChanges.changed.length,toolsOfTurns:(ids:Set<string>)=>ids.size?['scoped']:[],windowTools:(s:any)=>{cut.push(s);return s;},mainSent:null});
+ const whole=mainState({turns:['turn'],tools:[],chats:[]},new Set(['t1']),undefined,false);assert.deepEqual(whole.tools,['scoped']);assert.equal(whole.rev,5);assert.equal(cut.length,1,'results are cut');
+ assert.equal(mainState({turns:['turn'],tools:[],chats:[]},new Set(['t1']),5,true),null,'nothing changed, nothing sent');
+ const delta=mainState({turns:['turn'],tools:[],chats:['c']},new Set(['t1']),5,true);assert.equal(delta.delta,true);assert.equal(delta.base,5);assert.equal(delta.rev,5);assert.deepEqual(delta.chats,['c']);assert.equal('turns' in delta,false);assert.deepEqual(delta.toolChanges.changed,[]);
+ assert.deepEqual(mainState({turns:[],tools:[],chats:[]},new Set(['t1']),4,false).tools,['scoped'],'another revision than the one last sent gets everything');
 });

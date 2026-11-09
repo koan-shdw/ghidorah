@@ -44,7 +44,7 @@ export const handoverHandlers:Record<string,(args:any)=>any>={
         // Project memory is his, not the old chat's context (his answer 10-24): the new chat starts with a copy.
         const memories=(profile:string)=>path.join(data,'hermes','profiles',profile,'memories');
         await fs.cp(memories(oldProject.profile),memories(projectFor(fresh).profile),{recursive:true,force:true}).catch(error=>{if(error.code!=='ENOENT')throw error;});
-      }catch(error){sidebar.delete(id);store.db.prepare("DELETE FROM records WHERE kind='project' AND id=?").run(fresh.projectId);store.db.prepare("DELETE FROM records WHERE kind='goal' AND id=?").run(id);throw error;}
+      }catch(error){sidebar.delete(id);store.remove('project',fresh.projectId);store.db.prepare("DELETE FROM records WHERE kind='goal' AND id=?").run(id);throw error;}
       const titles=seriesTitles(old.title);
       store.transaction(()=>{
         store.update<Chat>('chat',id,{title:titles.next,handoverFrom:old.id,pinned:true,archived:false});

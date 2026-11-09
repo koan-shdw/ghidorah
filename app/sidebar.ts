@@ -7,10 +7,15 @@ export interface SidebarGroup {id:string;name:string;position:number;collapsed:b
 export interface SidebarPreferences {id:'sidebar';groupBy:'folders'|'date'|'state'|'working-folder'|'none';sort:'updated'|'created'|'name'|'manual';sortVersion?:1;visibility:'active'|'archived'|'all';stateDays:1|3|7|30;}
 const defaults:SidebarPreferences={id:'sidebar',groupBy:'folders',sort:'updated',visibility:'active',stateDays:7};
 export const pendingTurn=(status:string)=>['queued','dispatching','running','waiting','stopping','needs-model'].includes(status);
-export function chatStamp(chat:Chat,turns:Turn[]){const own=turns.filter(t=>t.chatId===chat.id);return own.map(t=>`${t.id}:${t.status}`).join('|');}
-export function chatUnread(chat:Chat,turns:Turn[]){return !!chat.unread||chat.readThrough!==undefined&&chat.readThrough!==chatStamp(chat,turns);}
-export function chatUpdated(chat:Chat,turns:Turn[]){return Math.max(chat.updated||chat.created||0,...turns.filter(t=>t.chatId===chat.id).map(t=>t.created));}
-export function chatState(chat:Chat,turns:Turn[]){const own=turns.filter(t=>t.chatId===chat.id);if(own.some(t=>['waiting','needs-model'].includes(t.status)))return 'Needs input';if(own.some(t=>pendingTurn(t.status)))return 'Working';return ['failed','interrupted','partial'].includes(own.at(-1)?.status||'')?'Needs attention':own.length?'Completed':'New';}
+// The chat list computes these for every chat on every render; given all turns each one scanned them all (LAG
+// 2026-11-09: 1.7 s of a 60 s run on Koan's data), so the panel groups the turns by chat once and passes the map.
+export type ChatTurns=Turn[]|Map<string,Turn[]>;
+export function turnsByChat(turns:Turn[]):Map<string,Turn[]>{const map=new Map<string,Turn[]>();for(const turn of turns){const list=map.get(turn.chatId);if(list)list.push(turn);else map.set(turn.chatId,[turn]);}return map;}
+const ownTurns=(chat:Chat,turns:ChatTurns)=>Array.isArray(turns)?turns.filter(t=>t.chatId===chat.id):turns.get(chat.id)||[];
+export function chatStamp(chat:Chat,turns:ChatTurns){return ownTurns(chat,turns).map(t=>`${t.id}:${t.status}`).join('|');}
+export function chatUnread(chat:Chat,turns:ChatTurns){return !!chat.unread||chat.readThrough!==undefined&&chat.readThrough!==chatStamp(chat,turns);}
+export function chatUpdated(chat:Chat,turns:ChatTurns){let updated=chat.updated||chat.created||0;for(const t of ownTurns(chat,turns))if(t.created>updated)updated=t.created;return updated;}
+export function chatState(chat:Chat,turns:ChatTurns){const own=ownTurns(chat,turns);if(own.some(t=>['waiting','needs-model'].includes(t.status)))return 'Needs input';if(own.some(t=>pendingTurn(t.status)))return 'Working';return ['failed','interrupted','partial'].includes(own.at(-1)?.status||'')?'Needs attention':own.length?'Completed':'New';}
 function name(value:unknown){if(typeof value!=='string'||!value.trim()||value.trim().length>100||/[\x00-\x1f]/.test(value))throw Error('Enter a name between 1 and 100 characters.');return value.trim();}
 export class Sidebar {
  constructor(private store:Store){}
@@ -39,7 +44,7 @@ export class Sidebar {
   const group=this.store.get<SidebarGroup>('sidebar-group',args.id);
   if(action==='rename'){const title=name(args.name);if(this.groups().some(g=>g.id!==group.id&&g.name.toLowerCase()===title.toLowerCase()))throw Error('A folder with that name already exists.');return this.store.update<SidebarGroup>('sidebar-group',group.id,{name:title});}
   if(action==='collapse'){if(typeof args.collapsed!=='boolean')throw Error('Invalid folder state.');return this.store.update<SidebarGroup>('sidebar-group',group.id,{collapsed:args.collapsed});}
-  if(action==='delete')return this.store.transaction(()=>{for(const chat of this.store.all<Chat>('chat'))if(chat.groupId===group.id)this.store.update<Chat>('chat',chat.id,{groupId:null});this.store.db.prepare("DELETE FROM records WHERE kind='sidebar-group' AND id=?").run(group.id);});
+  if(action==='delete')return this.store.transaction(()=>{for(const chat of this.store.all<Chat>('chat'))if(chat.groupId===group.id)this.store.update<Chat>('chat',chat.id,{groupId:null});this.store.remove('sidebar-group',group.id);});
   if(action==='move'){const rows=this.groups(),index=rows.findIndex(g=>g.id===group.id),target=args.beforeId?rows.findIndex(g=>g.id===args.beforeId):rows.length;if(target<0)throw Error('Folder no longer exists.');rows.splice(index,1);rows.splice(target-(index<target?1:0),0,group);return this.store.transaction(()=>rows.forEach((g,i)=>this.store.update<SidebarGroup>('sidebar-group',g.id,{position:i})));}
   throw Error('Unknown folder action.');
  }
@@ -103,7 +108,7 @@ export class Sidebar {
   const chats=new Set(this.owned(chatId).map(c=>c.id)),turns=new Set(this.store.all<Turn>('turn').filter(t=>chats.has(t.chatId)).map(t=>t.id));
   if(this.store.all<Turn>('turn').some(t=>turns.has(t.id)&&pendingTurn(t.status)))throw Error('Finish or stop current work before deleting.');
   this.store.transaction(()=>{
-   for(const row of this.store.db.prepare('SELECT kind,id,data FROM records').all() as any[]){const value=JSON.parse(row.data);if(chats.has(value.chatId)||turns.has(value.turnId)||turns.has(value.job)||turns.has(value.group)||row.kind==='turn'&&turns.has(row.id)||['chat','goal'].includes(row.kind)&&chats.has(row.id)||row.kind==='goal-report'&&turns.has(row.id)){this.store.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(row.kind,row.id);if(row.kind==='tool'||row.kind==='work-action')this.store.db.prepare('DELETE FROM results WHERE kind=? AND id=?').run(row.kind,row.id);}}
+   for(const row of this.store.db.prepare('SELECT kind,id,data FROM records').all() as any[]){const value=JSON.parse(row.data);if(chats.has(value.chatId)||turns.has(value.turnId)||turns.has(value.job)||turns.has(value.group)||row.kind==='turn'&&turns.has(row.id)||['chat','goal'].includes(row.kind)&&chats.has(row.id)||row.kind==='goal-report'&&turns.has(row.id))this.store.remove(row.kind,row.id);}
   });
  }
 }
