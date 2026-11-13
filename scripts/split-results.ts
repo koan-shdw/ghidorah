@@ -1,5 +1,6 @@
-// Moves the tool outputs saved whole by earlier versions into the results table and compacts the file (OUTPUTS
-// 2026-11-09). The app does the same a few rows at a time after its window opens; this runs it to the end at once.
+// Moves the tool outputs saved whole by earlier versions into the results table (OUTPUTS 2026-11-09), turns pictures
+// saved as copies into file places (STORAGE 2026-11-13) and compacts the file. The app does the first two a few rows
+// at a time after its window opens; this runs them to the end at once. Only this shrinks the file.
 //   node --import tsx scripts/split-results.ts <path to chat.sqlite> [--keep-days 14]
 // --keep-days also ages out the whole outputs older than that many days before compacting (what the app does daily).
 // The app must be closed, and a backup made first. Needs free space on the drive for the compacted copy.
@@ -16,6 +17,10 @@ console.log(`before: ${mb(fs.statSync(file).size)}; tool+action rows ${mb(count(
 let rounds=0;
 while(!store.splitResults(200))if(++rounds%25===0)console.log(`  ${rounds*200} rows looked at, ${seconds(started)}`);
 console.log(`split done in ${seconds(started)}: tool+action rows ${mb(count("SELECT sum(length(data)) AS n FROM records WHERE kind IN ('tool','work-action')"))}, results ${count('SELECT count(*) AS n FROM results')} rows ${mb(count('SELECT sum(length(data)) AS n FROM results'))}`);
+// Pictures saved as copies become file places (STORAGE 2026-11-13); what the app does after the split.
+const slimming=Date.now();rounds=0;
+while(!store.slimResults(200))if(++rounds%25===0)console.log(`  ${rounds*200} rows looked at, ${seconds(slimming)}`);
+console.log(`pictures done in ${seconds(slimming)}: tool+action rows ${mb(count("SELECT sum(length(data)) AS n FROM records WHERE kind IN ('tool','work-action')"))}, results ${count('SELECT count(*) AS n FROM results')} rows ${mb(count('SELECT sum(length(data)) AS n FROM results'))}`);
 if(keepDays>0){const aging=Date.now();while(!store.ageResults(keepDays,200));console.log(`aged out outputs older than ${keepDays} days in ${seconds(aging)}: results ${count('SELECT count(*) AS n FROM results')} rows ${mb(count('SELECT sum(length(data)) AS n FROM results'))}`);}
 store.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
 const compacting=Date.now();console.log('compacting…');store.db.exec('VACUUM');console.log(`compacted in ${seconds(compacting)}`);

@@ -35,6 +35,29 @@ export function previewOf(result:unknown){
   return text.length<=8*PREVIEW_CUT&&text.includes(MARK_IN_JSON)?shaped:JSON.stringify(result).slice(0,PREVIEW_CUT)+PREVIEW_MARK;
 }
 
+// A picture or document a model read from a file is saved as where the file is, never as a copy (STORAGE 2026-11-13:
+// 19,147 picture reads saved as base64 text were 7.1 GB of Koan's 10.1 GB file, each one already on the disk as the
+// file that was read). The tool call names the file; a picture with no file behind it (a screenshot) is saved as before.
+const absolute=(file:unknown):file is string=>typeof file==='string'&&/^(?:[A-Za-z]:[\\/]|[\\/])/.test(file);
+export function filePointers(result:any,args:any):any {
+  // Some engines save a call's arguments as JSON text.
+  if(typeof args==='string')try{args=JSON.parse(args);}catch{}
+  const file=[args?.file_path,args?.path].find(absolute);
+  if(!file||!result||typeof result!=='object')return result;
+  const walk=(value:any,depth:number):any=>{
+    if(!value||typeof value!=='object'||depth>20)return value;
+    // The two shapes Claude Code gives a picture: a content block {source:{type:'base64',data}} and its own
+    // record of the read {file:{base64,type,originalSize,dimensions}} (1,123 of Koan's rows were the second).
+    const source=value.source,inner=value.file;
+    if(!Array.isArray(value)&&source?.type==='base64'&&typeof source.data==='string'&&source.data.length>PREVIEW_CUT)return {...value,source:{type:'file',path:file,...(typeof source.media_type==='string'?{media_type:source.media_type}:{}),bytes:Math.floor(source.data.length*3/4)}};
+    if(!Array.isArray(value)&&inner&&typeof inner==='object'&&typeof inner.base64==='string'&&inner.base64.length>PREVIEW_CUT){const {base64,...rest}=inner;return {...value,file:{...rest,path:file,bytes:Math.floor(base64.length*3/4)}};}
+    let next=value;
+    for(const key of Object.keys(value)){const item=walk(value[key],depth+1);if(item!==value[key]){if(next===value)next=Array.isArray(value)?[...value]:{...value};next[key]=item;}}
+    return next;
+  };
+  return walk(result,0);
+}
+
 const indexedFields=['turnId','job','status','signature','chatId'] as const;
 type IndexedField=typeof indexedFields[number];
 const turnFields=['jobs','remote'] as const;
@@ -103,7 +126,7 @@ export class Store {
   }
   // Tool and work-action rows are never read all at once (OUTPUTS 2026-11-09: on Koan's data that parsed 1.3 GB
   // after every reply). They are read by turn, job or status.
-  all<T>(kind:string):T[] {if(kind==='tool'||kind==='work-action')throw Error(`Read ${kind} records by turn, job or status (where, whereIn, toolsOf), never all at once.`);if(cachedKinds.has(kind))return this.cachedRows<T>(kind);return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map((r:any)=>this.parse(kind,r.data));}
+  all<T>(kind:string):T[] {if(kind==='tool'||kind==='work-action')throw Error(`Read ${kind} records by turn, job or status (where, whereIn, toolsOf), never all at once.`);if(kind==='checkpoint-blob')throw Error('Read a checkpoint blob by its id (get), or list their ids (ids), never all at once.');if(cachedKinds.has(kind))return this.cachedRows<T>(kind);return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map((r:any)=>this.parse(kind,r.data));}
   // Per-tool lookups read only matching rows through expression indexes; all() parses every row (RUN-PLAN 3c:
   // 244 ms for Koan's 7,179 tool rows, several times per tool call).
   where<T>(kind:string,field:IndexedField,value:string):T[] {if(cachedKinds.has(kind))return this.cachedRows<T>(kind,row=>row[field]===value);return this.db.prepare(`SELECT data FROM records WHERE kind=? AND json_extract(data,'$.${field}')=? ORDER BY rowid`).all(kind,value).map((r:any)=>this.parse(kind,r.data));}
@@ -164,14 +187,51 @@ export class Store {
     const batch=this.db.prepare(`SELECT rowid,kind,id,data FROM records NOT INDEXED WHERE rowid>? AND kind IN ('tool','work-action') AND length(data)>? ORDER BY rowid LIMIT ?`).all(progress,PREVIEW_CUT,rows) as any[];
     if(!batch.length){this.transaction(()=>{this.remove('settings','results-split');this.event('results-split-v1',()=>{});});return true;}
     this.transaction(()=>{
-      for(const row of batch){
-        const value=JSON.parse(row.data);if(value.resultCut||value.result==null||JSON.stringify(value.result).length<=PREVIEW_CUT)continue;
-        // Written straight, not through put(): put stamps an old tool row without a start time with today's.
-        this.db.prepare('UPDATE records SET data=? WHERE rowid=?').run(JSON.stringify(this.pack(row.kind,value)),row.rowid);this.changed(row.kind,row.id,false);
-        // An action whose tool row never took its result keeps the whole text itself.
-        if(row.kind==='work-action'&&!['uncertain','background'].includes(value.status)){const tool=value.toolId?this.find<ToolCall>('tool',value.toolId):undefined;if(!tool||tool.turnId!==value.job||tool.result==null)this.db.prepare('INSERT INTO results(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run('work-action',value.id,JSON.stringify(value.result));}
-      }
+      for(const row of batch)this.repack(row);
       this.put('settings',{id:'results-split',rowid:batch.at(-1).rowid});
+    });
+    return false;
+  }
+  // One row saved whole, packed again (splitResults, slimResults).
+  private repack(row:{rowid:number;kind:string;id:string;data:string}){
+    const value=JSON.parse(row.data);if(value.resultCut||value.result==null||JSON.stringify(value.result).length<=PREVIEW_CUT)return;
+    const result=filePointers(value.result,value.args),packed=this.pack(row.kind,{...value,result});
+    // Written straight, not through put(): put stamps an old tool row without a start time with today's.
+    this.db.prepare('UPDATE records SET data=? WHERE rowid=?').run(JSON.stringify(packed),row.rowid);this.changed(row.kind,row.id,false);
+    // An action whose tool row never took its result keeps the whole text itself.
+    if(row.kind==='work-action'&&packed.resultCut&&!['uncertain','background'].includes(value.status)){const tool=value.toolId?this.find<ToolCall>('tool',value.toolId):undefined;if(!tool||tool.turnId!==value.job||tool.result==null)this.db.prepare('INSERT INTO results(kind,id,data) VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run('work-action',value.id,JSON.stringify(result));}
+  }
+  // The pictures saved before filePointers become file places, a few rows at a time like splitResults (STORAGE
+  // 2026-11-13). First the tool and action rows an old build still saved whole after the split had finished (2,460
+  // of each from 2026-11-09, 1.9 GB on Koan's file): each is packed again. Then the saved whole results that hold a
+  // picture: the row takes the file's place and the copy goes. True once done; remembered in events. The file does
+  // not shrink until it is compacted (scripts/split-results.ts, with the app closed).
+  slimResults(rows=15):boolean {
+    if(!this.db.isOpen)return false;
+    if(this.db.prepare("SELECT 1 FROM events WHERE id='results-slim-v1'").get())return true;
+    const progress=this.find<{id:string;stage?:string;rowid?:number}>('settings','results-slim'),from=progress?.rowid||0;
+    if(progress?.stage!=='results'){
+      const batch=this.db.prepare(`SELECT rowid,kind,id,data FROM records NOT INDEXED WHERE rowid>? AND kind IN ('tool','work-action') AND length(data)>? ORDER BY rowid LIMIT ?`).all(from,PREVIEW_CUT,rows) as any[];
+      this.transaction(()=>{
+        for(const row of batch)this.repack(row);
+        this.put('settings',batch.length?{id:'results-slim',stage:'rows',rowid:batch.at(-1).rowid}:{id:'results-slim',stage:'results',rowid:0});
+      });
+      // The rows are short now, so the group index is quick to make.
+      if(!batch.length)this.indexGroup();
+      return false;
+    }
+    const batch=this.db.prepare('SELECT rowid,kind,id,data FROM results WHERE rowid>? ORDER BY rowid LIMIT ?').all(from,rows) as any[];
+    if(!batch.length){this.transaction(()=>{this.remove('settings','results-slim');this.event('results-slim-v1',()=>{});});return true;}
+    this.transaction(()=>{
+      for(const row of batch){
+        if(!row.data.includes('"base64"'))continue;
+        const saved=this.db.prepare('SELECT rowid,data FROM records WHERE kind=? AND id=?').get(row.kind,row.id) as any;if(!saved)continue;
+        const {resultCut,...record}=JSON.parse(saved.data),whole=JSON.parse(row.data),result=filePointers(whole,record.args);
+        if(result===whole)continue;
+        // pack saves the row with the file's place; what is still long after that (text beside the picture) stays in results.
+        this.db.prepare('UPDATE records SET data=? WHERE rowid=?').run(JSON.stringify(this.pack(row.kind,{...record,result})),saved.rowid);this.changed(row.kind,row.id,false);
+      }
+      this.put('settings',{id:'results-slim',stage:'results',rowid:batch.at(-1).rowid});
     });
     return false;
   }
@@ -191,11 +251,32 @@ export class Store {
   scan<T>(kind:string,field:string,value:string):T[] {if(!/^\w+$/.test(field))throw Error('Unknown field');if(cachedKinds.has(kind))return this.cachedRows<T>(kind,row=>row[field]===value);return this.db.prepare(`SELECT data FROM records WHERE kind=? AND json_extract(data,'$.${field}')=? ORDER BY rowid`).all(kind,value).map((r:any)=>this.parse(kind,r.data));}
   chatsWhere(field:typeof chatFields[number],value:string):Chat[] {if(!chatFields.includes(field))throw Error('Unknown chat field');if(cachedKinds.has('chat'))return this.cachedRows<Chat>('chat',row=>row[field]===value);return this.db.prepare(`SELECT data FROM records WHERE kind='chat' AND json_extract(data,'$.${field}')=? ORDER BY rowid`).all(value).map((r:any)=>JSON.parse(r.data));}
   // Record ids only, straight from the index: nothing is parsed (SPEED-PLAN 1).
-  idsWhere(kind:string,field:IndexedField,values:string[]):string[] {
+  idsWhere(kind:string,field:IndexedField|'group',values:string[]):string[] {
     if(cachedKinds.has(kind)){const wanted=new Set(values),ids:string[]=[];for(const row of this.rows(kind).values())if(wanted.has(row[field]))ids.push(row.id);return ids;}
     const ids:{rowid:number;id:string}[]=[];
     for(let i=0;i<values.length;i+=900){const chunk=values.slice(i,i+900);ids.push(...this.db.prepare(`SELECT rowid,id FROM records WHERE kind=? AND json_extract(data,'$.${field}') IN (${chunk.map(()=>'?').join(',')})`).all(kind,...chunk) as any[]);}
     return ids.sort((a,b)=>a.rowid-b.rowid).map(row=>String(row.id));
+  }
+  // The index for group lookups (ownedBy). slimResults makes it once the rows saved whole are short: at start, on
+  // Koan's 10 GB file before its clean-up, it took 9 s, which the update watcher could read as a failed start.
+  indexGroup(){if(this.db.isOpen)this.db.exec(`CREATE INDEX IF NOT EXISTS records_group ON records(kind,json_extract(data,'$.group'))`);}
+  // A kind's ids, straight from the key: no row is read.
+  ids(kind:string):string[] {return (this.db.prepare('SELECT id FROM records WHERE kind=? ORDER BY rowid').all(kind) as any[]).map(row=>String(row.id));}
+  // Every record that belongs to these chats and turns, as [kind,id], found through the indexes: no row is read
+  // (STORAGE 2026-11-13: deleting any chat, even an empty one, read and parsed all 2.3 GB of records: 4 s and 3 GB
+  // of memory on Koan's file).
+  ownedBy(chats:string[],turns:string[]):[string,string][] {
+    const found=new Map<string,[string,string]>(),add=(kind:string,id:string)=>{found.set(kind+'\n'+id,[kind,id]);};
+    // Until the group index is made (indexGroup), group lookups walk only the kinds that carry a group.
+    const grouped=this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name='records_group'").get()?null:new Set(['work-action','work-claim','work-note']);
+    for(const {kind} of this.db.prepare('SELECT DISTINCT kind FROM records').all() as {kind:string}[]){
+      for(const id of this.idsWhere(kind,'chatId',chats))add(kind,id);
+      for(const field of ['turnId','job'] as const)for(const id of this.idsWhere(kind,field,turns))add(kind,id);
+      if(!grouped||grouped.has(kind))for(const id of this.idsWhere(kind,'group',turns))add(kind,id);
+    }
+    for(const id of turns)for(const kind of ['turn','goal-report'])if(this.has(kind,id))add(kind,id);
+    for(const id of chats)for(const kind of ['chat','goal'])if(this.has(kind,id))add(kind,id);
+    return [...found.values()];
   }
   has(kind:string,id:string){if(cachedKinds.has(kind))return this.rows(kind).has(id);return !!this.db.prepare('SELECT 1 FROM records WHERE kind=? AND id=?').get(kind,id);}
   find<T>(kind:string,id:string):T|undefined {if(cachedKinds.has(kind)){const row=this.rows(kind).get(id);return row?{...row}:undefined;}const r:any=this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind,id);return r?this.parse(kind,r.data):undefined;}
@@ -251,6 +332,8 @@ export class Store {
   // or when no tool row of its job will take its result (a finished action's result is otherwise on its tool row).
   // A row that already carries a preview is kept as is.
   private pack(kind:string,value:any){
+    // A picture read from a file is saved as the file's place (filePointers); a row that carries a preview is left.
+    if(value.resultCut!==true){const slim=filePointers(value.result,value.args);if(slim!==value.result)value={...value,result:slim};}
     const text=value.result===undefined?undefined:JSON.stringify(value.result);
     if(value.resultCut===true&&text!==undefined&&(text.includes(MARK_IN_JSON)||text.includes(AGED_IN_JSON)))return value;
     if(text!==undefined&&text.length>PREVIEW_CUT){

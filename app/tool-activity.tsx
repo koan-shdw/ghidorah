@@ -52,11 +52,16 @@ export function activityInfo(tool:ToolCall){
  return {kind,key,args,result,files,detail,counts,state,words,internal:internal.has(key)};
 }
 
+// A picture or document saved as its file (store.filePointers, both shapes): the file and its size.
+const placeOf=(part:any)=>part?.source?.type==='file'?part.source:typeof part?.file?.path==='string'&&typeof part.file.bytes==='number'?part.file:null;
+const placeText=(part:any)=>{const place=placeOf(part);return place?`${['document','pdf'].includes(part.type)?'Document':'Picture'}: ${place.path} (${Math.max(1,Math.round((place.bytes||0)/1024))} KB)`:'';};
 // A result as the text a person reads.
 export function resultText(value:any):string{
  if(value==null)return '';
  if(typeof value==='string')return value;
  if(Array.isArray(value.content))return value.content.map((part:any)=>part?.type==='text'?part.text:'').join('\n');
+ if(placeOf(value))return placeText(value);
+ if(Array.isArray(value)&&value.some(placeOf))return value.map((part:any)=>part?.type==='text'?part.text:placeText(part)).filter(Boolean).join('\n');
  for(const key of ['output','stdout','content','result','text','error','message'])if(typeof value[key]==='string'&&value[key])return [value[key],key!=='stderr'&&typeof value.stderr==='string'?value.stderr:''].filter(Boolean).join('\n');
  return JSON.stringify(value,null,2);
 }

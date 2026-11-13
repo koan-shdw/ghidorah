@@ -769,7 +769,15 @@ function splitSavedResults(){
   if(quitting||!store)return;
   const start=Date.now();let done=false;
   while(Date.now()-start<30&&!(done=store.splitResults(15)));
-  const timer=setTimeout(done?ageSavedResults:splitSavedResults,200);timer.unref?.();
+  const timer=setTimeout(done?slimSavedResults:splitSavedResults,200);timer.unref?.();
+}
+// Pictures saved as copies before 2026-11-13 become file places at the same pace (store.slimResults), 4 rows a call:
+// one saved picture is about 600 KB of text to read.
+function slimSavedResults(){
+  if(quitting||!store)return;
+  const start=Date.now();let done=false;
+  while(Date.now()-start<30&&!(done=store.slimResults(4)));
+  const timer=setTimeout(done?ageSavedResults:slimSavedResults,200);timer.unref?.();
 }
 // Whole outputs older than the keep time go, 50 rows a call at the same pace, once the split is done and then daily
 // (Koan 2026-11-09: 14 days; the settings row 'outputs' {keepDays} changes it, 0 keeps everything).

@@ -112,7 +112,7 @@ export const chatsHandlers:Record<string,(args:any)=>any>={
           const popped=chatWindows.get(chat.id);if(popped&&!popped.isDestroyed())popped.close();
           // A worktree chat's folder is kept; the window offers to remove it.
           const worktree=projectFor(chat).worktree;sidebar.delete(chat.id);
-          const blobs=new Set(store.all<{blob?:string}>('checkpoint-file').map(row=>row.blob));for(const row of store.all<{id:string}>('checkpoint-blob'))if(!blobs.has(row.id))store.remove('checkpoint-blob',row.id);
+          const blobs=new Set(store.all<{blob?:string}>('checkpoint-file').map(row=>row.blob));for(const id of store.ids('checkpoint-blob'))if(!blobs.has(id))store.remove('checkpoint-blob',id);
           emit();return worktree&&!store.all<Chat>('chat').some(row=>projectFor(row).worktree===worktree)?{worktree}:undefined;
         }
         const result=action==='fork'?sidebar.fork(chat.id,{beforeTurnId:args.beforeTurnId}):sidebar.chat(action,args);emit();return result;

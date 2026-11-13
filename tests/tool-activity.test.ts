@@ -35,6 +35,9 @@ test('A2: rows in plain words, internal steps hidden, a closed line that names t
  assert.deepEqual(editLines({old_string:'a',new_string:'b\nc'},null)?.map(l=>l.sign+l.text),['-a','+b','+c']);
  assert.deepEqual(editLines({},{diff:'--- f\n+++ f\n@@ -1 +1 @@\n-old\n+new'})?.map(l=>l.sign+l.text),['-old','+new']);
  assert.equal(resultText({output:'done',exit_code:0}),'done');assert.equal(resultText({content:[{type:'text',text:'hi'}]}),'hi');
+ // A picture saved as its file (store.filePointers) reads as the file and its size, not as a wall of base64.
+ assert.equal(resultText([{type:'image',source:{type:'file',path:'I:\\pics\\a.jpg',media_type:'image/jpeg',bytes:450000}}]),'Picture: I:\\pics\\a.jpg (439 KB)');
+ assert.equal(resultText({type:'image',file:{type:'image/jpeg',originalSize:900000,path:'I:\\pics\\a.jpg',bytes:450000}}),'Picture: I:\\pics\\a.jpg (439 KB)');
 
  const tools=[tool(),tool({id:'cmd',name:'terminal',args:{command:'node --version'},result:'v24',status:'running'}),tool({id:'failed',result:{success:false,error:'No files modified'}}),tool({id:'check',name:'inspect_action',status:'completed',result:'ok'})];
  const normal=renderToStaticMarkup(React.createElement(ToolActivity,{tools}));

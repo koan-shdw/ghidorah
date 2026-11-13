@@ -107,9 +107,8 @@ export class Sidebar {
   if(this.store.all<Chat>('chat').some(chat=>chat.sideSourceId===chatId&&!chat.parentChatId))throw Error('Keep or discard this thread’s side chat before deleting the thread.');
   const chats=new Set(this.owned(chatId).map(c=>c.id)),turns=new Set(this.store.all<Turn>('turn').filter(t=>chats.has(t.chatId)).map(t=>t.id));
   if(this.store.all<Turn>('turn').some(t=>turns.has(t.id)&&pendingTurn(t.status)))throw Error('Finish or stop current work before deleting.');
-  this.store.transaction(()=>{
-   for(const row of this.store.db.prepare('SELECT kind,id,data FROM records').all() as any[]){const value=JSON.parse(row.data);if(chats.has(value.chatId)||turns.has(value.turnId)||turns.has(value.job)||turns.has(value.group)||row.kind==='turn'&&turns.has(row.id)||['chat','goal'].includes(row.kind)&&chats.has(row.id)||row.kind==='goal-report'&&turns.has(row.id))this.store.remove(row.kind,row.id);}
-  });
+  // The chat's rows are found through the indexes (store.ownedBy), never by reading the whole table.
+  this.store.transaction(()=>{for(const [kind,id] of this.store.ownedBy([...chats],[...turns]))this.store.remove(kind,id);});
  }
 }
 // An app's most recently active chat (TRIS-TODO 4.2: it glows when the app page opens; "Back to" opens it).
