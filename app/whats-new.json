@@ -194,5 +194,11 @@
     "A message Claude's usage limit stops waits instead of failing: its row says Paused until 14:00, limit. Resumes by itself, and it is sent again at that time, also after a restart. Stop on the message cancels the wait.",
     "A message typed while a reply runs is yours again if that reply fails: it goes back to the queue and is sent on, or asks you for a model.",
     "A message whose model is blocked by its account asks you to choose a model instead of waiting for it to connect."
+  ]},
+  {"version":"0.1.41","date":"2026-11-13","notes":[
+    "Long picture jobs no longer fill the disk or slow the start: a picture a model reads is saved as its file, not a copy. Copies already saved are cleared in the background after this update, a few rows at a time.",
+    "Deleting a chat is instant: Ghidorah goes straight to that chat's rows instead of reading every chat.",
+    "Telegram: a message typed into a chat's topic reaches that chat. Before, it was answered with That message is no longer waiting for a reply.",
+    "A newer Claude model takes the place of the one you picked: Fable 5.2 replaces Fable 5.1 in your defaults, favourites and chats, once. Link Fable 5.1 again and it stays."
   ]}
 ]
