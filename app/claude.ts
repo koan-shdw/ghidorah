@@ -41,6 +41,22 @@ export function retiredClaudeModels(listed:{id:string;label:string}[]){
   }
   return renames;
 }
+// A newer version of a model saved under its short name (Koan 2026-11-13: Claude Code listed Fable 5.2 as
+// claude-fable-5-2 while fable stayed Fable 5.1, so his defaults, favourites and 57 chats stayed on 5.1). Each short
+// name (fable, opus: an id with no digit) whose label names an older version than another listed model of the same
+// name points to the newest one. A pick on a full older version (claude-opus-4-8) is someone's own and maps nothing.
+export function newerClaudeModels(listed:{id:string;label:string}[]){
+  const read=(label:string)=>{const match=/^(.*\D)\s*(\d+(?:\.\d+)*)$/.exec(label.trim());return match?{name:match[1].trim().toLowerCase(),version:match[2].split('.').map(Number)}:null;};
+  const newer=(a:number[],b:number[])=>{for(let i=0;i<Math.max(a.length,b.length);i++)if((a[i]||0)!==(b[i]||0))return (a[i]||0)>(b[i]||0);return false;};
+  const moves=new Map<string,string>();
+  for(const model of listed){
+    const own=read(model.label);if(!own||/\d/.test(model.id.replace(/^claude-code:/,'')))continue;
+    let best:{id:string;version:number[]}|null=null;
+    for(const other of listed){const next=read(other.label);if(next&&next.name===own.name&&newer(next.version,(best||own).version))best={id:other.id,version:next.version};}
+    if(best)moves.set(model.id,best.id);
+  }
+  return moves;
+}
 export async function findClaude(){
   const filename=process.platform==='win32'?'claude.exe':'claude';
   const roots=[path.join(process.env.APPDATA||'', 'npm'),...(process.env.PATH||'').split(path.delimiter)];

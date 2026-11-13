@@ -91,7 +91,7 @@ import {providerAccess} from './provider-access';
 import {providerFor,modelEfforts,modelLabel,wireModel,newestFirst} from './models';
 import {ApiProviders} from './api-providers';
 import {apiSuppliers,isApiProvider} from './api-catalog';
-import {findClaude,claudeModelList,retiredClaudeModels,claudeAccount,claudeEnvironment,runClaude,claudeOneShot,claudeDirectory,type ClaudeRun,type ClaudeResult} from './claude';
+import {findClaude,claudeModelList,retiredClaudeModels,newerClaudeModels,claudeAccount,claudeEnvironment,runClaude,claudeOneShot,claudeDirectory,type ClaudeRun,type ClaudeResult} from './claude';
 import {selectorSystem,selectorPrompt,selectorSummary,parseSelector} from './selector';
 import {NativeSessions} from './native-sessions';
 import {Sidebar} from './sidebar';
@@ -694,12 +694,18 @@ export async function signOutCodex(){
   finally{apiChanging=false;emit();}
 }
 let claudeRechecked=false;
-// Saved Claude choices follow Claude Code's renames: defaults, favourites, every chat and messages still waiting.
+// Saved Claude choices follow Claude Code's renames, and a newer version of a model saved under its short name
+// (newerClaudeModels): defaults, favourites, every chat and messages still waiting. A newer version is followed
+// once, remembered in settings 'claude-followed': the older one linked again on purpose afterwards stays.
 function renameRetiredClaude(listed:{id:string;label:string}[]){
-  const renames=retiredClaudeModels(listed);if(!renames.size)return;
-  const swap=(id:string)=>renames.get(id)||id,list=(ids?:string[]|null)=>ids?[...new Set(ids.map(swap))]:ids,named=(ids?:string[]|null)=>!!ids?.some(id=>renames.has(id));
+  const renames=retiredClaudeModels(listed),followed:string[]=store.all<any>('settings').find(row=>row.id==='claude-followed')?.models||[];
+  const fresh=[...newerClaudeModels(listed)].filter(([,to])=>!followed.includes(to));for(const [from,to] of fresh)renames.set(from,to);
+  if(!renames.size)return;
+  // Two steps at most: an old full name to the short name, the short name to its newer version.
+  const swap=(id:string)=>{const to=renames.get(id);return to?renames.get(to)||to:id;},list=(ids?:string[]|null)=>ids?[...new Set(ids.map(swap))]:ids,named=(ids?:string[]|null)=>!!ids?.some(id=>renames.has(id));
   const keys=(efforts?:Record<string,string>)=>efforts&&Object.fromEntries(Object.entries(efforts).map(([model,effort])=>[swap(model),effort]));
   store.transaction(()=>{
+    if(fresh.length)store.put('settings',{id:'claude-followed',models:[...followed,...fresh.map(([,to])=>to)]});
     for(const id of ['default-models','favourite-models']){const row=store.all<any>('settings').find(item=>item.id===id);if(row&&named(row.models))store.put('settings',{...row,models:list(row.models)});}
     for(const chat of store.all<Chat>('chat'))if(renames.has(chat.model)||named(chat.selectedModels)||named(chat.pool)||renames.has(chat.lockedModel||'')||renames.has(chat.selector||'')||Object.keys(chat.efforts||{}).some(id=>renames.has(id)))
       store.update<Chat>('chat',chat.id,{model:swap(chat.model),selectedModels:list(chat.selectedModels) as string[]|undefined,pool:list(chat.pool) as string[]|undefined,lockedModel:chat.lockedModel&&swap(chat.lockedModel),selector:chat.selector&&swap(chat.selector),efforts:keys(chat.efforts)});
