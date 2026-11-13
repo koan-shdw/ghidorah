@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
 import {readRemote,readInbound,parseRequest,remoteTurnId,gateChannel,GatewaySupervisor,RemoteDesk,replyFor,secretApproval,clip,topicName,type DeskDeps} from '../app/remote';
 import {Store} from '../app/store';
-import {claimRemoteOutbox,enqueueRemote,type TopicRecord} from '../app/remote-outbox';
+import {claimRemoteOutbox,enqueueRemote,recordRemoteReceipt,remotePrompt,type TopicRecord} from '../app/remote-outbox';
 
 test('only the owner\'s direct message is read; a code, Deny and the safe commands are told apart',()=>{
  assert.deepEqual(readRemote({enabled:true,owner:'4242',chatId:'c1'}),{enabled:true,owner:'4242',chatId:'c1',paused:false,topics:true,topicsSince:null,topicError:''});
@@ -58,7 +58,7 @@ function desk(overrides:Partial<DeskDeps>={}){
  const sent:string[]=[],threads:(string|undefined)[]=[],alerts:string[]=[],submitted:any[]=[],seen=new Set<string>();let settings={enabled:true,owner:'4242',chatId:null as string|null,paused:false,topics:true,topicsSince:null as number|null,topicError:''};
  const deps:DeskDeps={settings:()=>settings,save:patch=>{settings={...settings,...patch};},seen:id=>seen.has(id),done:id=>{seen.add(id);},send:(text,_deny,thread)=>{sent.push(text);threads.push(thread);},alert:(title,body)=>{alerts.push(title+': '+body);},
   chats:()=>[{id:'c2',title:'Second'},{id:'c1',title:'First'}],newChat:async()=>'c3',topicChat:thread=>thread==='55'?{id:'c1',title:'First'}:null,linkTopic:async()=>({id:'c9',title:'New chat'}),submit:async(id,chatId,text,thread)=>{submitted.push(thread?[id,chatId,text,thread]:[id,chatId,text]);},stop:async()=>{},status:()=>'Ready',
-  waiting:()=>null,code:async()=>'Approved.',deny:async()=>'Denied.',answer:async()=>'Answered.',...overrides};
+  waiting:()=>null,prompt:()=>false,code:async()=>'Approved.',deny:async()=>'Denied.',answer:async()=>'Answered.',...overrides};
  return {desk:new RemoteDesk(deps),sent,threads,alerts,submitted,settings:()=>settings};
 }
 const from=(id:string,text:string)=>({message_id:id,chat_id:'4242',user_id:'4242',text});
@@ -109,6 +109,20 @@ test("a message in a topic goes to that topic's chat and is answered there; an u
  await run.desk.receive({...from('3','a topic made in Telegram'),thread_id:'77'});assert.deepEqual(run.submitted.at(-1),['telegram-4242-3','c9','a topic made in Telegram','77']);
  await run.desk.receive(from('4','no topic'));assert.deepEqual([run.submitted.at(-1),run.threads.at(-1)],[['telegram-4242-4','c2','no topic'],undefined]);
  assert.equal(topicName({title:'Plan',pinned:true}),'📌 Plan');assert.equal(topicName({title:'  '}),'New chat');assert.equal(topicName({title:'x'.repeat(300)}).length,128);
+});
+
+// 2026-11-01: two messages typed in an existing topic arrived as replies and were refused as late answers.
+test('a reply is a message; only a reply to an old question or approval is refused',async()=>{
+ const run=desk({prompt:id=>id==='900'});
+ await run.desk.receive({...from('1','typed in the topic'),thread_id:'55',reply_to_message_id:'300'});
+ assert.deepEqual(run.submitted,[['telegram-4242-1','c1','typed in the topic','55']]);assert.deepEqual([run.sent.at(-1),run.threads.at(-1)],['Sent to First.','55']);
+ await run.desk.receive({...from('2','a reply outside a topic'),reply_to_message_id:'301'});assert.deepEqual(run.submitted.at(-1),['telegram-4242-2','c2','a reply outside a topic']);
+ await run.desk.receive({...from('3','yes'),thread_id:'55',reply_to_message_id:'900'});
+ assert.equal(run.submitted.length,2,'a late answer starts no task');assert.match(run.sent.at(-1)!,/no longer waiting for a reply/);
+ const store=new Store(':memory:');
+ enqueueRemote(store,'4242','Approval needed','a1',true);enqueueRemote(store,'4242','a reply');
+ for(const seq of [1,2]){claimRemoteOutbox(store,seq-1,'4242');recordRemoteReceipt(store,seq,true,String(899+seq));}
+ assert.deepEqual([remotePrompt(store,'900'),remotePrompt(store,'901'),remotePrompt(store,'5')],[true,false,false]);
 });
 
 test("a row for a chat's topic waits for the topic, goes into it, and is dropped if the topic was never made",()=>{

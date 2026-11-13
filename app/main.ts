@@ -61,7 +61,7 @@ import whatsNew from './whats-new.json';
 import featureWheels from '../backend/feature-wheels.json';
 import whisperModels from '../backend/whisper-models.json';
 import {modelPages,diffModels,fetchModelPage,discoverySystem,discoveryPrompt,readDiscovery,plannedFeatures,type DiscoveryResult} from './model-discovery';
-import {enqueueRemote,claimRemoteOutbox,recordRemoteReceipt,recoverRemoteOutbox,enqueueRemoteReply} from './remote-outbox';
+import {enqueueRemote,claimRemoteOutbox,recordRemoteReceipt,recoverRemoteOutbox,enqueueRemoteReply,remotePrompt} from './remote-outbox';
 import {enqueueRemoteInbound,finishRemoteInbound,recoverRemoteInbox,type InRecord} from './remote-inbox';
 import {readInbound,parseRequest,readRemote,gateChannel,GatewaySupervisor,RemoteDesk,replyFor,STATUS,secretApproval,approvalPrompt,clip,type OutRow} from './remote';
 import {pair,pairingUri,checkCode,bindingDigest,type RemoteCodeState} from './remote-code';
@@ -416,7 +416,7 @@ export const remoteDesk=new RemoteDesk({
   submit:async(id,chatId,text,thread)=>{await submitTurn({id,chatId,text},{remote:{chatId:remoteSettings().owner,messageId:id,...(thread?{thread}:{})}});},
   stop:async chatId=>{await handlers.stop({chatId});},
   status:chatId=>{const turn=store.all<Turn>('turn').filter(turn=>turn.chatId===chatId&&!turn.parentTurnId).at(-1);return turn?(STATUS[turn.status]||turn.status)+(turn.text?': '+turn.text.slice(0,200):''):'Nothing sent yet.';},
-  waiting:()=>{const kind=remoteShown()?.kind;return kind==='approval'||kind==='question'?kind:null;},code:remoteCode,
+  waiting:()=>{const kind=remoteShown()?.kind;return kind==='approval'||kind==='question'?kind:null;},prompt:id=>remotePrompt(store,id),code:remoteCode,
   deny:async(replyTo,seq)=>{const shown=remoteShown();if(shown?.kind!=='approval'||!(shown.messageId&&replyTo===shown.messageId||seq&&seq===String(shown.seq)))return 'Reply to the current approval or use its Deny button.';store.remove('settings','remote-shown');await handlers.approve({id:shown.approvalId,choice:'deny'});return 'Denied.';},
   answer:async(text,replyTo)=>{const shown=remoteShown();if(shown?.kind!=='question'||!shown.messageId||replyTo!==shown.messageId)return 'Reply to the current question message with your answer.';const approval=store.get<Approval>('approval',shown.approvalId);if(approval.status!=='pending'||bindingDigest(remoteBinding(approval))!==shown.digest)return 'That question changed. Answer it on the desktop.';store.remove('settings','remote-shown');handlers.answer({id:shown.approvalId,answers:Object.fromEntries((approval.params.questions||[{qid:'single'}]).map((q:any)=>[q.qid,text]))});return 'Answered.';},
 });

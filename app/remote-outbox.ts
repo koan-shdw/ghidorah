@@ -32,6 +32,8 @@ export function recordRemoteReceipt(store:Store,seq:number,ok:boolean,messageId?
  if(row.status!=='sending')return row;
  return store.update<OutRecord>('remote-out',row.id,{status:ok?'sent':'uncertain',...(ok&&messageId?{messageId}:{})});
 }
+// Whether that Telegram message is a question or approval the app sent.
+export function remotePrompt(store:Store,messageId:string){return store.all<OutRecord>('remote-out').some(row=>!!row.approvalId&&row.messageId===messageId);}
 export function recoverRemoteOutbox(store:Store){
  return store.transaction(()=>store.all<OutRecord>('remote-out').filter(row=>row.status==='sending').map(row=>store.update<OutRecord>('remote-out',row.id,{status:'uncertain'})));
 }

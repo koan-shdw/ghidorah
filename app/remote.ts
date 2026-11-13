@@ -130,6 +130,7 @@ export interface DeskDeps {
  stop(chatId:string):Promise<void>;
  status(chatId:string):string;
  waiting():'approval'|'question'|null;       // what the message shown to the owner waits for
+ prompt(messageId:string):boolean;           // that Telegram message is a question or approval the app sent
  code(code:string,replyTo?:string):Promise<string>;
  deny(replyTo?:string,seq?:string):Promise<string>;
  answer(text:string,replyTo?:string):Promise<string>;
@@ -157,7 +158,9 @@ export class RemoteDesk {
   if(settings.paused){send('Remote messages are paused. Send /pause off to resume.');return;}
   if(waiting==='question'){send(await this.deps.answer(request.text,message.reply_to_message_id));return;}
   if(waiting==='approval'){send('Reply with the code for the approval shown, or Deny.');return;}
-  if(message.reply_to_message_id){send('That message is no longer waiting for a reply. Send a new message to start a task.');return;}
+  // Only a reply to an old question or approval is refused, so a late answer never starts a task. Any other reply is
+  // a message: Telegram sends what is typed in an existing topic as a reply (2026-11-01: two were refused here).
+  if(message.reply_to_message_id&&this.deps.prompt(message.reply_to_message_id)){send('That message is no longer waiting for a reply. Send a new message to start a task.');return;}
   if(thread&&!chat)chat=await this.deps.linkTopic(thread);
   if(!chat){send('There is no chat yet. Send /new to start one.');return;}
   try{await this.deps.submit(remoteTurnId(settings.owner,message.message_id),chat.id,request.text,thread);send('Sent to '+chat.title+'.');}
