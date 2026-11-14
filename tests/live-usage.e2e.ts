@@ -21,7 +21,7 @@ try{
     assert.match(await region.locator('.usage-context').getAttribute('title')||'',/\d[\s\S]*\//);assert.match(await region.locator('.usage-tokens').getAttribute('title')||'',/tokens/);
   }
   const claude=panel.getByRole('region',{name:'Claude Code account usage',exact:true});
-  assert.match(await claude.innerText(),/5-hour limit[\s\S]*Weekly · all models/);
+  assert.match(await claude.innerText(),/Current session[\s\S]*Weekly · all models/);
   assert.match(await panel.getByRole('region',{name:'OpenAI account usage',exact:true}).innerText(),/% left/);
   assert.match(await panel.getByRole('region',{name:'DeepSeek account usage',exact:true}).innerText(),/Prepaid credit/);
   await page.screenshot({path:path.join(root,'work','live-usage-models.png')});

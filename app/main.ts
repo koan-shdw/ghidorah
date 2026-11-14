@@ -95,7 +95,7 @@ import {findClaude,claudeModelList,retiredClaudeModels,newerClaudeModels,claudeA
 import {selectorSystem,selectorPrompt,selectorSummary,parseSelector} from './selector';
 import {NativeSessions} from './native-sessions';
 import {Sidebar} from './sidebar';
-import {claudeUsage,claudeRateUsage} from './usage';
+import {claudeUsage,claudeRateUsage,codexCredits} from './usage';
 import {claudeTurnEvent,claudeTurnUsage} from './claude-turn';
 import {handover,managementText} from './history';
 import {joinTurn,resetJoinedText,settleJoined,requeueJoined,busyHermesRows,lateToolOwner} from './turn-joins';
@@ -653,11 +653,12 @@ export async function checkCodex(check=true,signal?:AbortSignal){
   codexCheckController?.abort();const controller=codexCheckController=new AbortController();
   const version=++codexCheckVersion,started=Date.now();
   const task=codexCheckTask=backend.host('codex_status',{check},AbortSignal.any([controller.signal,...(signal?[signal]:[])]));
-  try{const result=await task;if(version!==codexCheckVersion)return;codex={...result,models:result.connected&&!result.models.length?codex.models:result.models,login:codex.login};
+  try{const result=await task;if(version!==codexCheckVersion)return;const credits=codexCredits(result.credits);codex={...result,credits,models:result.connected&&!result.models.length?codex.models:result.models,login:codex.login};
     if(result.status==='Sign in again')health.observe('openai-codex','auth','auth',true,started);
     if(result.models?.length)health.clear('openai-codex',['auth'],started);
     const windows=(result.windows||[]).filter((row:any)=>typeof row.usedPercent==='number'&&Number.isFinite(row.usedPercent));
-    for(const row of windows)health.observe('openai-codex','rate:'+row.label,'limit',row.usedPercent>=100,started,resetTime(row.resetAt));
+    // A full window does not hold a message while the account has credits left (Koan 2026-11-14): they take over at the plan limit.
+    for(const row of windows)health.observe('openai-codex','rate:'+row.label,'limit',row.usedPercent>=100&&!credits?.enabled,started,resetTime(row.resetAt));
     if(windows.length)health.clear('openai-codex',['billing','limit'],started);
     else if(result.status==='Usage limit reached'&&!health.rows().some(row=>row.provider==='openai-codex'&&row.blocked))health.observe('openai-codex','billing','limit',true,started);
     emit();return result.connected&&Array.isArray(result.models)?result.models as string[]:undefined;

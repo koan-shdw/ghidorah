@@ -6,6 +6,8 @@ import {isApiProvider} from './api-catalog';
 export interface Availability {
  id:string;provider:string;key:string;scope:string;blocked:boolean;
  reason:'auth'|'credit'|'limit'|'model';resetAt:number|null;observedAt:number;
+ /** Claude itself refused a message on this limit. A Claude limit row without it was set by the usage meter. */
+ refused?:boolean;
 }
 export function resetTime(value:unknown){const time=typeof value==='number'?value*1000:typeof value==='string'?Date.parse(value):NaN;return Number.isFinite(time)&&time>0&&time<=8.64e15?time:null;}
 export function affects(row:Availability,model:string,provider=providerFor(model)){return row.provider===provider&&(row.scope==='account'||row.scope===model||(['opus','sonnet'].includes(row.scope)&&model.toLowerCase().includes(row.scope)));}
@@ -35,11 +37,11 @@ export function modelStatus(state:Snapshot,model:string){
 export class AccountHealth {
  constructor(private store:Store){}
  rows(){return this.store.all<Availability>('availability');}
- observe(provider:string,key:string,reason:Availability['reason'],blocked:boolean,observedAt=Date.now(),resetAt:number|null=null,scope='account'){
+ observe(provider:string,key:string,reason:Availability['reason'],blocked:boolean,observedAt=Date.now(),resetAt:number|null=null,scope='account',refused=false){
   const id=provider+':'+key+':'+scope,previous=this.rows().find(row=>row.id===id);
   // A check started before a newer request failed cannot restore the account.
   if(previous&&previous.observedAt>observedAt)return;
-  this.store.put('availability',{id,provider,key,scope,reason,blocked,observedAt,resetAt});
+  this.store.put('availability',{id,provider,key,scope,reason,blocked,observedAt,resetAt,...(blocked&&refused?{refused:true}:{})});
  }
  clear(provider:string,keys:string[],observedAt:number,model?:string){
   for(const row of this.rows())if(row.provider===provider&&keys.includes(row.key)&&(!model||affects(row,model)))this.observe(provider,row.key,row.reason,false,observedAt,null,row.scope);
@@ -59,7 +61,7 @@ export class AccountHealth {
   if(info&&['allowed','allowed_warning','rejected'].includes(info.status)){
    const key=typeof info.rateLimitType==='string'?info.rateLimitType:'unknown';
    const scope=key==='seven_day_opus'?'opus':key==='seven_day_sonnet'?'sonnet':['five_hour','seven_day','seven_day_oauth_apps','overage'].includes(key)?'account':model;
-   this.observe('claude-code','rate:'+key,'limit',info.status==='rejected',info.status==='rejected'?Date.now():started,resetTime(info.resetsAt),scope);
+   this.observe('claude-code','rate:'+key,'limit',info.status==='rejected',info.status==='rejected'?Date.now():started,resetTime(info.resetsAt),scope,info.status==='rejected');
    return true;
   }
   if(event.type==='assistant'&&['authentication_failed','oauth_org_not_allowed','billing_error','model_not_found'].includes(event.error)){
@@ -68,16 +70,24 @@ export class AccountHealth {
   }
   return false;
  }
+ // The usage meter never holds a Claude message; only Claude's own refusal does (Koan 2026-11-14). Which limits an
+ // account has is Claude's to say: Max has the 5-hour session limit, verified Ultra has none, and what the usage
+ // answer carries for an account without one is not known here. Asking Claude is right on both. On an account at
+ // its limit that costs one refused request, then the message waits for the reset as before.
+ // A window with room lifts a refusal early; a full window leaves a refusal as it is and lifts a hold the meter of
+ // an older version set. Usage credits switched on lift every Claude limit: Claude refuses again when they run out.
  claudeUsage(response:any,started:number){
   if(response?.rate_limits_available!==true)return;
   const limits=response.rate_limits||{};let globalAvailable=false;
   for(const key of ['five_hour','seven_day','seven_day_opus','seven_day_sonnet','seven_day_oauth_apps']){
    const value=limits[key];if(typeof value?.utilization!=='number'||!Number.isFinite(value.utilization)||value.utilization<0)continue;
    const scope=key==='seven_day_opus'?'opus':key==='seven_day_sonnet'?'sonnet':'account';
-   this.observe('claude-code','rate:'+key,'limit',value.utilization>=100,started,resetTime(value.resets_at),scope);
-   if(scope==='account'&&value.utilization<100)globalAvailable=true;
+   if(value.utilization<100){this.observe('claude-code','rate:'+key,'limit',false,started,resetTime(value.resets_at),scope);if(scope==='account')globalAvailable=true;}
+   else if(this.rows().some(row=>row.id==='claude-code:rate:'+key+':'+scope&&row.blocked&&!row.refused))this.observe('claude-code','rate:'+key,'limit',false,started,resetTime(value.resets_at),scope);
   }
   this.clear('claude-code',['auth'],started);
   if(globalAvailable)this.clear('claude-code',['billing','limit'],started);
+  const spend=limits.spend,credits=spend&&typeof spend==='object'?spend.enabled===true&&spend.spend_limit_reached!==true:limits.extra_usage?.is_enabled===true&&limits.extra_usage.spend_limit_reached!==true;
+  if(credits)for(const row of this.rows())if(row.provider==='claude-code'&&row.reason==='limit'&&row.blocked)this.observe('claude-code',row.key,'limit',false,started,row.resetAt,row.scope);
  }
 }

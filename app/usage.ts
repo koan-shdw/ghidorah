@@ -1,4 +1,4 @@
-import type {Turn,ClaudeConnection,ModelPrice} from './types';
+import type {Turn,ClaudeConnection,ModelPrice,AccountCredits} from './types';
 import {resetTime} from './availability';
 import {modelLabel,providerFor} from './models';
 
@@ -22,7 +22,8 @@ export function contextTooltip(turns:Turn[],models:string[],labels?:{id:string;l
 }
 
 const number=(value:unknown):value is number=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
-const claudeWindowLabels={five_hour:'5-hour limit',seven_day:'Weekly · all models',seven_day_opus:'Weekly · Opus',seven_day_sonnet:'Weekly · Sonnet',seven_day_oauth_apps:'Weekly · connected apps'};
+// Claude's own usage page calls its 5-hour limit "Current session" (Koan 2026-11-14: one name in both apps).
+const claudeWindowLabels={five_hour:'Current session',seven_day:'Weekly · all models',seven_day_opus:'Weekly · Opus',seven_day_sonnet:'Weekly · Sonnet',seven_day_oauth_apps:'Weekly · connected apps'};
 export function claudeRateUsage(event:any,windows:NonNullable<ClaudeConnection['windows']>=[]){
  const info=event.type==='rate_limit_event'?event.rate_limit_info:null,label=info?claudeWindowLabels[info.rateLimitType as keyof typeof claudeWindowLabels]:undefined;
  if(!label||!number(info.utilization))return windows;
@@ -78,6 +79,34 @@ export function resetLabel(resetAt:string|null,now=Date.now()){
   return minutes<60?`Resets in ${minutes} min`:minutes<1440?`Resets in ${Math.floor(minutes/60)}h ${minutes%60}m`:`Resets ${date.toLocaleString()}`;
 }
 
+const sentence=(code:string)=>{const words=code.replace(/_/g,' ').trim();return words?words[0].toUpperCase()+words.slice(1):'';};
+/** An amount as the supplier gives it: {amount_minor,currency,exponent}, or a plain number with its currency. */
+export function moneyText(value:any,currency?:unknown){
+  const minor=value&&typeof value==='object',amount=minor?value.amount_minor/10**(number(value.exponent)?value.exponent:2):value,code=minor?value.currency:currency;
+  if(!number(amount))return undefined;
+  try{return new Intl.NumberFormat('en',{style:'currency',currency:typeof code==='string'&&code?code:'USD'}).format(amount);}catch{return amount.toFixed(2);}
+}
+/** Claude's usage credits from the same answer: `spend` where the CLI sends it, else `extra_usage`'s switch alone. */
+export function claudeCredits(limits:any):AccountCredits|undefined{
+  const spend=limits?.spend,extra=limits?.extra_usage,source=spend&&typeof spend==='object'?spend:extra&&typeof extra==='object'?extra:null;
+  if(!source)return undefined;
+  const enabled=source===spend?spend.enabled===true:extra.is_enabled===true,reason=typeof source.disabled_reason==='string'?sentence(source.disabled_reason.slice(0,80)):'';
+  return {enabled,...(!enabled&&reason?{reason}:{}),...(source===spend?{used:moneyText(spend.used),limit:moneyText(spend.limit),balance:moneyText(spend.balance)}:{})};
+}
+/** ChatGPT's credits and saved resets, from the fields the usage check passes on. */
+export function codexCredits(value:any):AccountCredits|undefined{
+  if(!value||typeof value!=='object')return undefined;
+  const resets=number(value.resets)?Math.floor(value.resets):0,enabled=value.hasCredits===true&&(value.unlimited===true||number(value.balance)&&value.balance>0);
+  return {enabled,...(value.unlimited===true?{balance:'Unlimited'}:number(value.balance)?{balance:moneyText(value.balance,'USD')}:{}),...(resets?{resets}:{})};
+}
+/** The facts behind On or Off: "A$3.20 used of A$50.00", "Out of credits", "$12.00 left · 2 resets saved". */
+export function creditsDetail(credits:AccountCredits){
+  return [...(!credits.enabled&&credits.reason?[credits.reason]:[]),...(credits.enabled&&credits.used?[credits.used+' used'+(credits.limit?' of '+credits.limit:'')]:[]),
+    ...(credits.balance?[credits.balance==='Unlimited'?'Unlimited':credits.balance+' left']:[]),...(credits.resets?[credits.resets+(credits.resets===1?' reset saved':' resets saved')]:[])].join(' · ');
+}
+/** The supplier's own page where usage credits are bought and switched on; no app can do either. */
+export function creditsLink(provider:string){return provider==='claude-code'?'claude-credits':provider==='openai-codex'?'codex-credits':null;}
+
 // get_usage is the CLI's public experimental control response. Its utilization
 // values are percentages; stream rate_limit_event values use a different scale.
 export function claudeUsage(response:any){
@@ -92,5 +121,6 @@ export function claudeUsage(response:any){
     for(const [key,label] of Object.entries(claudeWindowLabels))add(label,limits[key]);
     if(Array.isArray(limits.model_scoped))for(const bucket of limits.model_scoped)if(typeof bucket.display_name==='string')add('Weekly · '+bucket.display_name.slice(0,80),bucket);
   }
-  return {windows,plan:typeof response?.subscription_type==='string'?response.subscription_type:undefined,checkedAt:new Date().toISOString()};
+  const credits=response?.rate_limits_available===true?claudeCredits(response.rate_limits):undefined;
+  return {windows,...(credits?{credits}:{}),plan:typeof response?.subscription_type==='string'?response.subscription_type:undefined,checkedAt:new Date().toISOString()};
 }

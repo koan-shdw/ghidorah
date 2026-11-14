@@ -36,7 +36,25 @@ def usage_fields(usage):
             'usedPercent':percent if isinstance(percent,(int,float)) and math.isfinite(percent) and percent>=0 else None,
             'resetAt':window.reset_at.isoformat() if window.reset_at else None,
             'durationSeconds':seconds if isinstance(seconds,(int,float)) and math.isfinite(seconds) and seconds>0 else None})
-    return {'plan':usage.plan,'windows':windows,'checkedAt':usage.fetched_at.isoformat()}
+    return {'plan':usage.plan,'windows':windows,'credits':credit_fields(usage.raw or {}),'checkedAt':usage.fetched_at.isoformat()}
+
+
+def credit_fields(payload):
+    """Credits and saved resets from the usage answer: paid usage past the plan limit, bought on ChatGPT's own pages."""
+    def number(value):
+        try:
+            value=float(value)
+        except (TypeError,ValueError):
+            return None
+        return value if math.isfinite(value) and value>=0 else None
+    credits=payload.get('credits') if isinstance(payload.get('credits'),dict) else {}
+    resets=payload.get('rate_limit_reset_credits') if isinstance(payload.get('rate_limit_reset_credits'),dict) else {}
+    return {'hasCredits':credits.get('has_credits') is True,'unlimited':credits.get('unlimited') is True,
+        'balance':number(credits.get('balance')),'resets':int(number(resets.get('available_count')) or 0)}
+
+
+def credits_left(fields):
+    return bool(fields.get('hasCredits') and (fields.get('unlimited') or (fields.get('balance') or 0)>0))
 
 
 def login(emit, issuer='https://auth.openai.com'):
@@ -94,7 +112,8 @@ def status(check=False):
         usage=_fetch_codex_account_usage(api_key=token,base_url=credentials['base_url'])
         if usage:
             result.update(usage_fields(usage))
-            if any(window.used_percent is not None and window.used_percent>=100 for window in usage.windows):
+            # A full window with credits left is not a stop: credits take over at the plan limit.
+            if any(window.used_percent is not None and window.used_percent>=100 for window in usage.windows) and not credits_left(result['credits']):
                 result['status']='Usage limit reached'
     except Exception:
         pass

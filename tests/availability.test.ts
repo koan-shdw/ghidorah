@@ -38,6 +38,34 @@ test('account evidence persists, stale checks cannot clear it, and model windows
 });
 
 
+// Koan 2026-11-14: the meter no longer holds a Claude message; only Claude's own refusal does. Max has the 5-hour
+// session limit and verified Ultra has none, so the hold follows what Claude does with a message, not the meter.
+test('a full Claude usage window holds nothing; only Claude\'s own refusal holds a message',()=>{
+ const directory=fs.mkdtempSync(path.join(os.tmpdir(),'tris-claude-meter-')),store=new Store(path.join(directory,'chat.sqlite')),health=new AccountHealth(store);
+ // A refusal is stamped with the clock, a check with the time it started: the test moves one clock for both.
+ const real=Date.now;let now=real();Date.now=()=>now;const tick=()=>(now+=1000);
+ const model='claude-code:fable',reset=now+3600000,later=new Date(reset).toISOString(),full={rate_limits_available:true,rate_limits:{five_hour:{utilization:100,resets_at:later},seven_day:{utilization:82,resets_at:later}}};
+ const refuse=()=>health.claude(model,{type:'rate_limit_event',rate_limit_info:{status:'rejected',rateLimitType:'five_hour',resetsAt:reset/1000}},tick());
+ try{
+  health.claudeUsage(full,tick());
+  assert.equal(blockedFor(health.rows(),model),undefined,'The meter at 100% does not hold a Claude message');
+  // A hold the meter of an older version saved is lifted by the next check.
+  store.put('availability',{id:'claude-code:rate:five_hour:account',provider:'claude-code',key:'rate:five_hour',scope:'account',reason:'limit',blocked:true,observedAt:tick(),resetAt:reset});
+  assert.ok(blockedFor(health.rows(),model));
+  health.claudeUsage(full,tick());assert.equal(blockedFor(health.rows(),model),undefined,'An older version\'s meter hold is lifted');
+  // Claude refuses: the message waits, and a full meter leaves that as it is.
+  refuse();
+  const refused=blockedFor(health.rows(),model);assert.equal(refused?.reason,'limit');assert.equal(refused?.refused,true);assert.equal(refused?.resetAt,reset);
+  health.claudeUsage(full,tick());assert.ok(blockedFor(health.rows(),model),'A full meter does not lift Claude\'s own refusal');
+  // Usage credits switched on lift it: the message goes, and Claude refuses again if they run out.
+  health.claudeUsage({rate_limits_available:true,rate_limits:{...full.rate_limits,spend:{enabled:false,disabled_reason:'out_of_credits'}}},tick());assert.ok(blockedFor(health.rows(),model),'Credits that are off lift nothing');
+  health.claudeUsage({rate_limits_available:true,rate_limits:{...full.rate_limits,spend:{enabled:true}}},tick());assert.equal(blockedFor(health.rows(),model),undefined,'Credits switched on lift the refusal');
+  // A window with room lifts a refusal early, as before.
+  refuse();assert.ok(blockedFor(health.rows(),model));
+  health.claudeUsage({rate_limits_available:true,rate_limits:{five_hour:{utilization:3,resets_at:later}}},tick());assert.equal(blockedFor(health.rows(),model),undefined);
+ }finally{Date.now=real;store.db.close();fs.rmSync(directory,{recursive:true,force:true});}
+});
+
 test('Alibaba free-tier quota and entitlement failures affect only the refused model',()=>{
  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'tris-alibaba-health-')),store=new Store(path.join(directory,'chat.sqlite')),health=new AccountHealth(store);
  const model='api:alibaba:qwen-plus',other='api:alibaba:qwen-turbo';

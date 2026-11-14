@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {modelUsage,resetLabel,windowLabel,claudeUsage,claudeRateUsage,priceLines} from '../app/usage';
+import {modelUsage,resetLabel,windowLabel,claudeUsage,claudeRateUsage,priceLines,claudeCredits,codexCredits,creditsDetail,creditsLink} from '../app/usage';
 import type {Turn} from '../app/types';
 
 test('usage separates models, adds turn deltas, and keeps context distinct from cumulative tokens',()=>{
@@ -28,11 +28,29 @@ test('usage separates models, adds turn deltas, and keeps context distinct from 
 });
 test('Claude control usage preserves percent scale and distinguishes model-specific weekly windows',()=>{
   const result=claudeUsage({subscription_type:'max',private:'not returned',rate_limits_available:true,rate_limits:{five_hour:{utilization:.5,resets_at:'2026-09-29T06:10:00Z'},seven_day:{utilization:16},model_scoped:[{display_name:'Fable',utilization:32}]}});
-  assert.deepEqual(result.windows.map(window=>[window.label,window.usedPercent]),[['5-hour limit',.5],['Weekly · all models',16],['Weekly · Fable',32]]);
+  assert.deepEqual(result.windows.map(window=>[window.label,window.usedPercent]),[['Current session',.5],['Weekly · all models',16],['Weekly · Fable',32]]);
   assert.equal(claudeUsage({rate_limits_available:false,rate_limits:{five_hour:{utilization:90}}}).windows.length,0);
   assert.equal('private' in result,false);
  const streamed=claudeRateUsage({type:'rate_limit_event',rate_limit_info:{rateLimitType:'five_hour',utilization:1,resetsAt:2000000000}},result.windows);
  assert.equal(streamed[0].usedPercent,100);assert.equal(streamed[1].usedPercent,16);assert.equal(streamed.length,result.windows.length);
+});
+// Koan 2026-11-14: the state of paid usage past the plan limit, as each supplier reports it. The Claude answer here is
+// the shape his account returned that day.
+test('usage credits read on or off, why, the money figures and the saved resets',()=>{
+  const off=claudeUsage({rate_limits_available:true,rate_limits:{five_hour:{utilization:100},extra_usage:{is_enabled:false,disabled_reason:'out_of_credits',currency:'AUD'},
+    spend:{used:{amount_minor:0,currency:'AUD',exponent:2},limit:null,enabled:false,disabled_reason:'out_of_credits',balance:null}}}).credits;
+  assert.deepEqual(off,{enabled:false,reason:'Out of credits',used:'A$0.00',limit:undefined,balance:undefined});assert.equal(creditsDetail(off!),'Out of credits');
+  const on=claudeCredits({spend:{enabled:true,used:{amount_minor:320,currency:'USD',exponent:2},limit:{amount_minor:5000,currency:'USD',exponent:2}}})!;
+  assert.equal(on.enabled,true);assert.equal(creditsDetail(on),'$3.20 used of $50.00');
+  // An older answer has the switch alone; no answer at all shows nothing.
+  assert.deepEqual(claudeCredits({extra_usage:{is_enabled:true}}),{enabled:true});assert.equal(claudeCredits({}),undefined);
+  assert.equal(claudeUsage({rate_limits_available:false,rate_limits:{spend:{enabled:true}}}).credits,undefined);
+  const gpt=codexCredits({hasCredits:true,unlimited:false,balance:12,resets:2})!;
+  assert.equal(gpt.enabled,true);assert.equal(creditsDetail(gpt),'$12.00 left · 2 resets saved');
+  assert.equal(codexCredits({hasCredits:true,unlimited:false,balance:0,resets:0})!.enabled,false);
+  assert.equal(creditsDetail(codexCredits({hasCredits:true,unlimited:true,balance:null,resets:1})!),'Unlimited · 1 reset saved');
+  assert.equal(codexCredits(undefined),undefined);
+  assert.equal(creditsLink('claude-code'),'claude-credits');assert.equal(creditsLink('openai-codex'),'codex-credits');assert.equal(creditsLink('deepseek'),null);
 });
 test('window labels follow reported duration and expired limits do not pretend to have reset',()=>{
   assert.equal(windowLabel('Session',604800),'Weekly');assert.equal(windowLabel('Session',18000),'5-hour limit');

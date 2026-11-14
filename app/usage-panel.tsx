@@ -3,7 +3,7 @@ import React,{useEffect,useRef,useState} from 'react';
 import type {Snapshot,Turn,Chat,ClaudeConnection} from './types';
 import {modelLabel,modelEfforts,providerFor} from './models';
 import {modelStatus} from './availability';
-import {modelUsage,usageModels,resetLabel,windowLabel} from './usage';
+import {modelUsage,usageModels,resetLabel,windowLabel,creditsDetail,creditsLink} from './usage';
 import {picker,pickerTokens} from './pickers';
 import {ContextDialog} from './context-dialog';
 
@@ -16,10 +16,14 @@ export function shortReset(value:string|null,now:number){
   if(value&&Date.parse(value)-now>=86400000)return 'Resets '+new Date(value).toLocaleString(undefined,{weekday:'short',hour:'numeric',minute:'2-digit'});
   return resetLabel(value,now);
 }
-function AccountUsage({name,connection,now}:{name:string;connection?:Omit<ClaudeConnection,'models'>;now:number}){
+function AccountUsage({name,provider,connection,now,call}:{name:string;provider:string;connection?:Omit<ClaudeConnection,'models'>;now:number;call:(method:string,args?:any)=>Promise<any>}){
+  const credits=connection?.credits,link=creditsLink(provider),detail=credits?creditsDetail(credits):'';
   return <section className="usage-account" aria-label={name+' account usage'}>
     <div className="usage-account-heading"><h3>{name}</h3><span title={connection?.status}>{connection?.plan||'Subscription'}</span></div>
     {connection?.windows?.length?<UsageWindows name={name} windows={connection.windows} now={now}/>:<p className="usage-unavailable">{connection?.connected?'Windows unavailable':connection?.status||'Not connected'}</p>}
+    {/* Paid usage past the plan limit (Koan 2026-11-14): its state as the supplier reports it, and the supplier's own usage page, the one place credits are bought and a saved limit reset is used. */}
+    {credits&&<div className="usage-window usage-credits"><div><span>{provider==='claude-code'?'Usage credits':'Credits'}</span><strong>{credits.enabled?'On':'Off'}</strong></div>
+      <small>{detail}{detail&&link?' · ':''}{link&&<button className="link-button" onClick={()=>void call('link',{kind:link})}>Resets and credits ↗</button>}</small></div>}
   </section>;
 }
 // One account's limit windows: name, what is left (amber from 80% used, red when spent), a bar and the reset.
@@ -71,8 +75,8 @@ export function UsagePanel({id="usage-panel",state,chat,turns,models,refresh,clo
       </section>)}
       <div className="usage-section-heading"><h3>Account allowances</h3><span>Shared across chats & apps</span></div>
       <div className="usage-accounts">
-        {(state.codex?.connected||all.some(model=>model.startsWith('gpt-')))&&<AccountUsage name="OpenAI" connection={state.codex} now={now}/>}
-        {(state.claude?.connected||all.some(model=>model.startsWith('claude-')))&&<AccountUsage name="Claude Code" connection={state.claude} now={now}/>}
+        {(state.codex?.connected||all.some(model=>model.startsWith('gpt-')))&&<AccountUsage name="OpenAI" provider="openai-codex" connection={state.codex} now={now} call={call}/>}
+        {(state.claude?.connected||all.some(model=>model.startsWith('claude-')))&&<AccountUsage name="Claude Code" provider="claude-code" connection={state.claude} now={now} call={call}/>}
       </div>
       {(state.connected||all.some(model=>model.startsWith('deepseek-')))&&<section className="usage-credit" aria-label="DeepSeek account usage"><h3>DeepSeek <span>Prepaid credit</span></h3><strong>{state.balance||'Unavailable'}</strong></section>}
       {(state.apiProviders||[]).filter(row=>row.connected).map(row=><section className="usage-credit" key={row.provider} aria-label={apiSuppliers[row.provider].name+' account usage'}><h3>{apiSuppliers[row.provider].name} <span>{row.provider==='openrouter-api'?'Key budget remaining'+(row.keyLimitReset?' · resets '+row.keyLimitReset:''):(row.provider==='nous'||row.provider.endsWith('-oauth'))?'Subscription allowance':'API allowance'}</span></h3><strong>{row.keyBudgetRemaining==null?'Unavailable':'$'+row.keyBudgetRemaining.toFixed(2)}</strong></section>)}
