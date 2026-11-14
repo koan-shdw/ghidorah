@@ -200,5 +200,12 @@
     "Deleting a chat is instant: Ghidorah goes straight to that chat's rows instead of reading every chat.",
     "Telegram: a message typed into a chat's topic reaches that chat. Before, it was answered with That message is no longer waiting for a reply.",
     "A newer Claude model takes the place of the one you picked: Fable 5.2 replaces Fable 5.1 in your defaults, favourites and chats, once. Link Fable 5.1 again and it stays."
+  ]},
+  {"version":"0.1.42","date":"2026-11-14","notes":[
+    "A Claude message waits only when Claude itself refuses it. A usage meter at full no longer holds messages on its own, so an account without a 5-hour limit is never held by one.",
+    "Usage credits show in the usage panel for each account: on or off, why they are off, and what is spent. ChatGPT also shows the credits left and the resets you have saved.",
+    "The Resets and credits button opens the account's own usage page, from the usage panel and from a message waiting on a limit. Use a reset or switch on credits there and the waiting message goes by itself.",
+    "A full ChatGPT window no longer holds a message while the account has credits left.",
+    "Claude's 5-hour limit is now named Current session, as on Claude's own usage page."
   ]}
 ]
