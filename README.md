@@ -32,7 +32,8 @@ update. Chats, keys and settings stay where they are across updates.
 - **Ask while it works.** Start a message with ?? and a side model answers from the live work, while the main model
   keeps going.
 - **Long jobs.** Background work, goals and routines that keep running while you do something else. A message that
-  Claude's usage limit stops waits and is sent again by itself when the limit resets.
+  Claude's usage limit stops waits and is sent again by itself when the limit resets. A button on it opens the
+  account's own usage page for limit resets and usage credits, and the message goes once either is used.
 - **Voice and remote.** Dictation and live voice. From your phone over Telegram: each chat has its own topic, a message
   typed there goes to that chat, and approvals are answered there.
 
