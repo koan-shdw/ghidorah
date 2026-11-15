@@ -207,5 +207,14 @@
     "The Resets and credits button opens the account's own usage page, from the usage panel and from a message waiting on a limit. Use a reset or switch on credits there and the waiting message goes by itself.",
     "A full ChatGPT window no longer holds a message while the account has credits left.",
     "Claude's 5-hour limit is now named Current session, as on Claude's own usage page."
+  ]},
+  {"version":"0.1.43","date":"2026-11-15","notes":[
+    "The update window closes again. It says which version is installed and what's new, with one Close button. Before, Close did nothing while wake-word listening was on.",
+    "App updates, Hermes releases and the check for new models are in Settings › Updates. A dot on Settings and on Updates shows while a Hermes release waits for Roll in or Skip.",
+    "Voices: Kokoro reads replies aloud on this PC. Install it once in Settings › Voice, then press Listen under a reply or switch on Speak replies. The Voices window keeps your voices, and an app can have its own.",
+    "Listening: choose what hears your dictation in Settings › Voice or the setup wizard. Whisper on this PC, or Deepgram or ElevenLabs on your own key, which is tried before it is saved.",
+    "Waves while you dictate: bars beside the buttons or a line across the message box. Choose in Settings › Voice.",
+    "Dictation keeps your first and last words, and Done waits for a long recording instead of giving up.",
+    "Side chats: Discard asks first, and Send to main chat puts a summary in the main chat's message box. A branch, a side chat and a handover show the same bar at the top of the chat."
   ]}
 ]
