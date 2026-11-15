@@ -83,6 +83,8 @@
           "telegram-requirements.txt",
           "speech-requirements.txt",
           "speech-gpu-requirements.txt",
+          "voices-requirements.txt",
+          "kokoro-voice.json",
           "whisper-models.json",
           "wake-model.json",
           "feature-wheels.json"

@@ -2,7 +2,7 @@
 import {copyArtifact,readArtifactFile} from '../../artifacts';
 import {saveAttachment} from '../../attachments';
 import type {BackgroundProcess} from '../../background-work';
-import {ContextDraft,contextSource,saveContext} from '../../chat-context';
+import {ContextDraft,contextSource,saveContext,summaryModel} from '../../chat-context';
 import {captureExport,exportDefaults,exportInfo,writeChatExport} from '../../chat-export';
 import {chatFiles,filePreview,findChatFile,readChatFile} from '../../chat-files';
 import {resolveChatLink} from '../../chat-links';
@@ -18,12 +18,15 @@ import {questionResult} from '../../questions';
 import {redactPastedKeys} from '../../redaction';
 import {bindingDigest} from '../../remote-code';
 import {SavedApp,saveApp} from '../../saved-apps';
+import {SIDE_SUMMARY_SOURCE,SIDE_SUMMARY_SYSTEM,sideChatDraft,sideChatNew} from '../../side-chat';
+import {turnsText} from '../../handover';
 import type {Approval,Chat,SideAnswer,ToolCall,Turn} from '../../types';
 import {defaultFolder} from '../apps';
 import {configure} from '../backend';
-import {generateContext,goalHold,sideFirst,sideRow,submitTurn} from '../context';
+import {contextCompletion,generateContext,goalHold,sideFirst,sideModel,sideRow,submitTurn} from '../context';
 import {wake} from '../dispatch';
 import {availableModels,recordRoute,unavailableMessage,videoModel} from '../models';
+import {jevSettings} from '../pickers';
 import {changeProjectMode,projectFor,requireStableFolder,workingDirectory} from '../projects';
 import {remoteBinding} from '../remote';
 import {openPage,pageUrl} from '../sharing';
@@ -34,6 +37,8 @@ import {randomUUID} from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+/** Side chats whose summary for the main chat is being written. */
+const sideSending=new Set<string>();
 // Delete drops a waiting message the way its × does (cancelQueued keeps its own copy: stall-recovery.test runs it alone).
 function dropQueued(turn:Turn){store.transaction(()=>{if(turn.parentTurnId){const parent=store.get<Turn>('turn',turn.parentTurnId);store.update<Turn>('turn',parent.id,{jobs:parent.jobs!.filter(job=>job!==turn.id)});}goals.forget(turn);store.put('turn-removed',{id:turn.id,chatId:turn.chatId,cancelled:true});store.remove('turn',turn.id);});}
 // Delete cancels what the chat still has waiting and stops what runs, then deletes (his ask 10-25: "we should be able
@@ -213,9 +218,30 @@ export const chatsHandlers:Record<string,(args:any)=>any>={
     const opening=configure(projectFor(side)).then(()=>{emit();return id;}).catch(error=>{sidebar.delete(id);store.remove('project',side.projectId);throw error;}).finally(()=>sideChatOpening.delete(chatId));sideChatOpening.set(chatId,opening);return opening;
   },
   sideChatKeep({chatId}){if(managingChats.has(chatId))throw Error('This side chat is closing.');const chat=sidebar.root(chatId);if(!chat.sideSourceId)throw Error('This is not a side chat.');store.update<Chat>('chat',chatId,{sideSourceId:undefined});emit();return chatId;},
+  // Discard stops what runs and removes the side chat (the Delete rule of 10-25). The window asks first, in the
+  // dialog Delete uses in the sidebar, and offers Send to main chat and Keep as chat there (Koan 2026-11-15).
   async sideChatDiscard({chatId}){
     const chat=sidebar.root(chatId);if(!chat.sideSourceId)throw Error('This is not a side chat.');
     await handlers.sidebarChat({action:'delete',chatId});store.remove('project',chat.projectId);
+  },
+  // Send to main chat: a short summary of what the side chat did since it opened goes into the main chat's message
+  // box, after anything he has typed there. Nothing reaches the main model until he sends it. The side chat stays.
+  async sideChatSend({chatId}){
+    const side=sidebar.root(chatId);if(!side.sideSourceId)throw Error('This is not a side chat.');
+    const main=sidebar.root(side.sideSourceId);
+    if(main.archived||managingChats.has(main.id)||managingChats.has(side.id))throw Error('The main chat cannot take a message right now.');
+    if(sideSending.has(side.id))throw Error('The summary is already being written.');
+    const rows=sideChatNew(store.all<Turn>('turn'),side.id);if(!rows.length)throw Error('Nothing has finished in this side chat yet.');
+    const model=summaryModel(true,'',side.pool||[],availableModels(),jevSettings().summaryModel)||sideModel();if(!model)throw Error('Connect a model to write the summary.');
+    sideSending.add(side.id);
+    try{
+      const answer=await contextCompletion(side,model,SIDE_SUMMARY_SYSTEM,redactPastedKeys(backend.scrubber.text(turnsText(store,rows))).slice(-SIDE_SUMMARY_SOURCE),new AbortController().signal);
+      if(!answer.text)throw Error('The summary came back empty. Try again.');
+      const current=store.find<Chat>('chat',main.id);if(!current)throw Error('The main chat is gone.');
+      store.update<Chat>('chat',main.id,{draft:redactPastedKeys(backend.scrubber.text(sideChatDraft(current.draft||'',answer.text))),draftRevision:randomUUID()});emit();
+      const view=chatWindows.get(main.id)||win;view.webContents.send('select-chat',main.id);if(!process.argv.includes('--hidden')){view.show();view.focus();}
+      return {chatId:main.id};
+    }finally{sideSending.delete(side.id);}
   },
   async newChat(){return handlers.addProject({});},
   draft({chatId,text}){if(typeof text!=='string')throw Error('Invalid draft');store.update<Chat>('chat',chatId,{draft:redactPastedKeys(backend.scrubber.text(text))});},

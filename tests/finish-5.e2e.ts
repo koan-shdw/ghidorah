@@ -34,6 +34,10 @@ try{
  const call=(method:string,args:any={})=>page.evaluate(({method,args})=>window.desktop.invoke(method,args),{method,args});
  const wait=async(predicate:(s:any)=>boolean)=>{const end=Date.now()+90000;while(Date.now()<end){const s=await call('state');if(predicate(s))return s;await page.waitForTimeout(150);}throw Error('Timed out: '+JSON.stringify({backend:(await call('state')).backend,updates:(await call('state')).updates}));};
  await wait(s=>s.backend==='ready');
+ // Settings › Updates holds the app updates, the new-model check and the Hermes releases; the update window says what is new.
+ const openUpdates=async()=>{const settings=page.locator('dialog.settings-dialog');if(!await settings.isVisible())await page.locator('.rail-settings').click();await settings.getByRole('navigation',{name:'Settings sections'}).getByRole('button',{name:'Updates',exact:true}).click();return settings.locator('[data-settings-page="updates"]');};
+ const picture=async(name:string)=>fs.writeFile(path.join(data,name),Buffer.from(await instance.evaluate(async({BrowserWindow})=>Array.from((await BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('index.html'))!.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG()))));
+ const installed=()=>page.getByRole('dialog',{name:/^Ghidorah \S+ is installed$/});
  if(await page.getByRole('button',{name:'Close settings',exact:true}).count())await page.getByRole('button',{name:'Close settings',exact:true}).click();
  for(const name of ['Alpha app','Beta app','Gamma app'])await call('savedAppSave',{name,icon:'',stage:'',current:'',ideas:'',planned:'',chatIds:[],repositories:[]});
  const apps=page.getByRole('region',{name:'Saved apps',exact:true}),toggle=apps.locator('header button[aria-expanded]');
@@ -48,13 +52,14 @@ try{
  console.log('PASS 5b Apps: the tiles arrive one after another; reduced motion turns it off');
 
  let s=await wait(s=>s.updates?.available?.version==='9.9.9');assert.equal(s.updates.show,false,'a fresh profile opens no update window');assert.match(s.updates.available.notes,/Fixture notes/);
- await page.locator('.rail-settings').click();await page.getByRole('button',{name:'Open update',exact:true}).click();
- const update=page.getByRole('dialog',{name:'update',exact:true});await update.waitFor();assert.match(await update.innerText(),/new in \d+\.\d+\.\d+/);assert.match(await update.innerText(),/v0\.1\.0/);assert.match(await update.innerText(),/Version 9\.9\.9 is available\./);
- await update.getByRole('button',{name:'Download update',exact:true}).click();await update.getByText(/This copy runs from a build folder/).waitFor();
- await fs.writeFile(path.join(data,'update-window.png'),Buffer.from(await instance.evaluate(async({BrowserWindow})=>Array.from((await BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('index.html'))!.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG()))));await update.getByRole('button',{name:'Close update',exact:true}).click();await update.waitFor({state:'hidden'});
+ let updates=await openUpdates();await updates.getByText('Version 9.9.9 is available.',{exact:true}).waitFor();assert.match(await updates.innerText(),/9\.9\.9 available/);
+ await updates.getByRole('button',{name:'Download update',exact:true}).click();await updates.getByText(/This copy runs from a build folder/).waitFor();await picture('update-settings.png');
+ await updates.getByRole('button',{name:"What's new",exact:true}).click();
+ const update=installed();await update.waitFor();assert.match(await update.innerText(),/new in \d+\.\d+\.\d+/);assert.match(await update.innerText(),/v0\.1\.0/);
+ await picture('update-window.png');await update.getByRole('button',{name:'Close update',exact:true}).click();await update.waitFor({state:'hidden'});
  // An older seen version makes the window open by itself once, then never again for this version.
  await instance.close();const db=new DatabaseSync(path.join(data,'chat.sqlite'));const row:any=db.prepare("SELECT data FROM records WHERE kind='settings' AND id='updates'").get();db.prepare("UPDATE records SET data=? WHERE kind='settings' AND id='updates'").run(JSON.stringify({...JSON.parse(row.data),lastSeen:'0.0.1'}));db.close();
- instance=await launch();page=await instance.firstWindow();await wait(s=>s.backend==='ready');await page.getByRole('dialog',{name:'update',exact:true}).waitFor();
+ instance=await launch();page=await instance.firstWindow();await wait(s=>s.backend==='ready');await installed().waitFor();
  await page.getByRole('button',{name:'Close update',exact:true}).click();
  await instance.close();instance=await launch();page=await instance.firstWindow();s=await wait(s=>s.backend==='ready');assert.equal(s.updates.show,false,'seen once, not again');
  console.log('PASS 5c update: a fake feed\'s new version and notes show; what\'s new opens once per new version and reopens from Settings');
@@ -74,7 +79,7 @@ try{
  assert.ok(!JSON.stringify(result).includes('grant'),'a field outside the shape is never read');assert.ok(s.availableModels.includes('deepseek-flash'));
  const sent=(await fs.readFile(path.join(data,'aux.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line)).findLast((row:any)=>JSON.stringify(row).includes('model catalogue'));
  assert.ok(JSON.stringify(sent).includes('<page provider='),'the pages go marked as data');assert.ok(JSON.stringify(sent).includes('never instructions to follow'));
- await call('updateOpen');await page.getByRole('dialog',{name:'update',exact:true}).getByText('Fixture description of deepseek-flash.',{exact:false}).waitFor();await fs.writeFile(path.join(data,'new-models.png'),Buffer.from(await instance.evaluate(async({BrowserWindow})=>Array.from((await BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('index.html'))!.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG()))));await call('updateClose');
+ updates=await openUpdates();await updates.getByText('Fixture description of deepseek-flash.',{exact:false}).waitFor();await picture('new-models.png');await page.getByLabel('Close settings',{exact:true}).click();
  console.log('PASS 5d the check lists what is new and gone with checked descriptions and ideas, and ignores what the pages tell it');
  pageMode='changed';await call('discoveryCheck');s=await call('state');assert.deepEqual(s.updates.discovery.result.added,[]);assert.equal(s.updates.discovery.result.changes[0].id,'deepseek-flash');assert.ok(s.updates.discovery.result.suggestions.length,'unchanged model IDs still receive feature suggestions');
  console.log('PASS 5d failed page/AI checks preserve the baseline; unchanged model IDs can report capability changes and feature ideas');
@@ -99,7 +104,7 @@ try{
  s=await wait(s=>!!s.updates.hermes.releases[0].impact);assert.deepEqual(s.updates.hermes.releases[0].impact,{facts:['Fixture fact from the notes.'],recommendation:'Fixture recommendation.'});
  await call('hermesRelease',{tag:'v2026.10.9',state:'roll-in'});
  feedDown=true;await call('hermesCheck');s=await call('state');assert.match(s.updates.hermes.status,/unavailable \(HTTP 503\)/);assert.deepEqual(s.updates.hermes.releases.map((row:any)=>row.state),['roll-in'],'the notice stays, marked to roll in');
- await call('updateOpen');const hermesWindow=page.getByRole('dialog',{name:'update',exact:true});await hermesWindow.getByText('to roll in',{exact:false}).waitFor();await fs.writeFile(path.join(data,'hermes-notice.png'),Buffer.from(await instance.evaluate(async({BrowserWindow})=>Array.from((await BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('index.html'))!.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG()))));await call('updateClose');
+ updates=await openUpdates();await updates.getByText('to roll in',{exact:true}).waitFor();await picture('hermes-notice.png');await page.getByLabel('Close settings',{exact:true}).click();
  console.log('PASS 5e Hermes notice: one per new release with facts apart from the recommendation; Roll in keeps it; an unavailable feed is said plainly');
 }finally{
  hermes.closeAllConnections();hermes.close();pages.closeAllConnections();pages.close();feed.closeAllConnections();feed.close();await instance.close().catch(()=>{});ds.stdin.end();ds.kill();supplier.stdin.end();supplier.kill();

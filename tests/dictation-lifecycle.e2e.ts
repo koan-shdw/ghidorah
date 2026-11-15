@@ -33,7 +33,9 @@ try{
  await box.focus();await page.evaluate(()=>(document.querySelector('textarea') as HTMLTextAreaElement).setSelectionRange(8,8));
  await button('Dictate').click();await button('Stop dictation').waitFor();assert.equal(await box.getAttribute('placeholder'),'Listening...');
  await page.evaluate(()=>audit.say('partial','spoken'));await page.waitForFunction(()=>(document.querySelector('textarea') as HTMLTextAreaElement).value==='original spoken draft');
- await button('Finish dictation').click();assert.ok((await methods()).includes('dictationFinish'));assert.equal(await page.evaluate(()=>audit.stops),1,'the microphone closes on Done');
+ // Done keeps the microphone open a moment for the last word (Koan 2026-11-14), then closes it and asks for the text.
+ await button('Finish dictation').click();assert.equal((await methods()).includes('dictationFinish'),false,'not cut at the press');assert.equal(await page.evaluate(()=>audit.stops),0);
+ await page.waitForFunction(()=>audit.calls.some((c:any)=>c[0]==='dictationFinish'));assert.equal(await page.evaluate(()=>audit.stops),1,'the microphone closes on Done');
  await page.evaluate(()=>audit.say('final','spoken words'));await button('Dictate').waitFor();assert.equal(await box.inputValue(),'original spoken words draft');
  // Cancel and Esc put the box back as it was.
  const kept=await box.inputValue();await button('Dictate').click();await button('Stop dictation').waitFor();await page.evaluate(()=>audit.say('partial','discard me'));

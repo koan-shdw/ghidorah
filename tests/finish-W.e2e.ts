@@ -38,16 +38,22 @@ try{
  await wizard.getByRole('button',{name:'Save connection',exact:true}).click();await wait(s=>s.connected&&s.providerStatus==='Connected');
  await wizard.getByRole('button',{name:'Next',exact:true}).click();
  await instance.close();instance=await launch();page=await instance.firstWindow();await wait(s=>s.backend==='ready');wizard=page.getByRole('dialog',{name:'Setup',exact:true});
- for(const step of ['Claude Code','Jev','Start with Windows']){await wizard.locator('.wizard-steps [aria-current]').filter({hasText:step}).waitFor();if(step==='Jev')await wizard.getByLabel('Jev API key',{exact:true}).waitFor({state:'visible'});await wizard.getByRole('button',{name:'Skip',exact:true}).click();}
+ for(const step of ['Claude Code','Jev','Listening','Voice','Start with Windows']){
+  await wizard.locator('.wizard-steps [aria-current]').filter({hasText:step}).waitFor();if(step==='Jev')await wizard.getByLabel('Jev API key',{exact:true}).waitFor({state:'visible'});
+  // Listening is the Voice page's engine list, Voice its reply voice card with the one download; both can be skipped.
+  if(step==='Listening'){await wizard.getByRole('radiogroup',{name:'Listening engine',exact:true}).waitFor();assert.equal(await wizard.locator('.listening-engine').count(),3);assert.equal(await wizard.getByRole('radio',{name:'Use Whisper',exact:true}).isDisabled(),true,'an engine that is not set up cannot be picked');}
+  if(step==='Voice')await wizard.getByRole('button',{name:'Install · 337 MB',exact:true}).waitFor();
+  await wizard.getByRole('button',{name:'Skip',exact:true}).click();
+ }
  // An error on a later step leaves what is done as it was.
  await wizard.locator('.wizard-steps [aria-current]').filter({hasText:'Remote'}).waitFor();
  await wizard.getByRole('switch',{name:'Remote',exact:true}).click();await wizard.getByRole('alert').filter({hasText:'user ID'}).waitFor();
  await wizard.getByRole('button',{name:'Skip',exact:true}).click();
  await wizard.locator('.wizard-steps [aria-current]').filter({hasText:'Share with clients'}).waitFor();await wizard.getByRole('button',{name:'Skip',exact:true}).click();
- await wizard.locator('.wizard-summary li').nth(5).waitFor();
+ await wizard.locator('.wizard-summary li').nth(7).waitFor();
  const rows=await wizard.locator('.wizard-summary li').evaluateAll(items=>items.map(item=>[item.querySelector('strong')!.textContent,item.getAttribute('data-outcome')]));
- assert.deepEqual(rows,[['DeepSeek','connected'],['Claude Code','skipped'],['Jev','skipped'],['Start with Windows','skipped'],['Remote','skipped'],['Share with clients','skipped']]);
- let s=await call('state');assert.deepEqual(s.wizard.steps,{suppliers:'done',claude:'skipped',jev:'skipped','always-on':'skipped',remote:'skipped',sharing:'skipped'});
+ assert.deepEqual(rows,[['DeepSeek','connected'],['Claude Code','skipped'],['Jev','skipped'],['Listening','skipped'],['Voice','skipped'],['Start with Windows','skipped'],['Remote','skipped'],['Share with clients','skipped']]);
+ let s=await call('state');assert.deepEqual(s.wizard.steps,{suppliers:'done',claude:'skipped',jev:'skipped',listening:'skipped',voice:'skipped','always-on':'skipped',remote:'skipped',sharing:'skipped'});
  await page.screenshot({path:path.join(data,'wizard-summary.png')});
  // A step's next action opens its page in Settings.
  await wizard.locator('.wizard-summary li').filter({hasText:'Remote'}).getByRole('button').click();

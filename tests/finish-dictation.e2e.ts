@@ -22,7 +22,7 @@ try{
  const closeSettings=page.getByRole('button',{name:'Close settings',exact:true});if(await closeSettings.isVisible())await closeSettings.click();
  const chatId=await call('newChat');await page.locator('[data-chat-id="'+chatId+'"] .chat-link').click();
  await call('voiceSettings',{sttModel:'tiny'});await page.locator('.rail-settings').click();await page.getByRole('button',{name:'Voice',exact:true}).click();
- await page.getByRole('button',{name:'Install speech',exact:true}).click();await wait(s=>s.voice.installing||s.voice.ready);
+ await page.getByRole('button',{name:'Install · 78 MB',exact:true}).click();await wait(s=>s.voice.installing||s.voice.ready);
  await assert.rejects(call('remoteInstall'),/current install/);
  await assert.rejects(call('voiceSettings',{sttModel:'small'}),/speech install/);
  const installed=await wait(s=>!s.voice.installing,1200000);assert.equal(installed.voice.ready,true,await page.locator('.voice-settings [role=alert]').textContent().catch(()=>'')||'Speech installation failed.');
@@ -31,21 +31,33 @@ try{
  assert.equal(await page.evaluate(async()=>{try{const stream=await navigator.mediaDevices.getUserMedia({video:true});stream.getTracks().forEach(t=>t.stop());return false;}catch{return true;}}),true);
  const box=page.getByLabel('Message',{exact:true}),dictate=page.getByRole('button',{name:'Dictate',exact:true}),stop=page.getByRole('button',{name:'Stop dictation',exact:true});
  const value=()=>box.inputValue(),idle=()=>dictate.waitFor({timeout:120000});
+ // The waves' canvas has ink on it; pictures go where the desktop test logs stay (a passing run's data folder is deleted).
+ const drawn=()=>page.waitForFunction(()=>{const canvas=document.querySelector('.dictation-waves') as HTMLCanvasElement|null;if(!canvas?.width)return false;const pixels=canvas.getContext('2d')!.getImageData(0,0,canvas.width,canvas.height).data;for(let i=3;i<pixels.length;i+=4)if(pixels[i])return true;return false;},null,{timeout:30000});
+ const pictures=path.join(root,'work','desktop-tests','pictures','finish-dictation');await fs.mkdir(pictures,{recursive:true});
+ const picture=async(name:string)=>{await page.waitForTimeout(600);await page.locator('.composer-box:has(.dictation-waves)').screenshot({path:path.join(pictures,name+'.png')});};
+ const theme=(name:string)=>page.evaluate(name=>{document.documentElement.dataset.theme=name;},name);
  const heard=(pattern:RegExp)=>page.waitForFunction(source=>new RegExp(source,'i').test((document.querySelector('textarea[aria-label="Message"]') as HTMLTextAreaElement)?.value||''),pattern.source,{timeout:120000});
  // Tap: the words arrive while the microphone is still listening (live text), then Done keeps them, unsent.
  await box.fill('Keep my typed text.');await box.press('End');
  const started=Date.now();await dictate.click();await stop.waitFor();
  await page.getByRole('button',{name:'Cancel dictation',exact:true}).waitFor();
  await heard(/yellow|light|squalid|nightfall|brothels/);assert.equal(await stop.isVisible(),true,'text appears while still listening');const live=Date.now()-started;
+ // The waves: bars beside the buttons by default, drawn from the microphone; pictures in the dark and light themes.
+ await page.locator('.composer-box.waves-bars .composer-toolbar>.dictation-waves.bars').waitFor();await drawn();
+ await picture('waves-bars-dark');await theme('light');await picture('waves-bars-light');await theme('dark');
  // The fake microphone loops the clip from wherever it is; listen until the whole phrase has been said.
  await heard(/yellow lamps?/);await heard(/light up/);
  assert.equal(await box.getAttribute('readonly'),'','the box is held while dictating');
  await page.getByRole('button',{name:'Finish dictation',exact:true}).click();await idle();
  const typed=await value();assert.ok(typed.startsWith('Keep my typed text. '),typed);assert.match(typed.toLowerCase(),/yellow lamps?/,'Clip: '+clip.text);assert.match(typed.toLowerCase(),/light up/);
  await page.screenshot({path:path.join(data,'dictation.png')});
- // Ctrl+D starts in the box you are typing in; Esc cancels and puts the box back.
+ // Ctrl+D starts in the box you are typing in; Esc cancels and puts the box back. This one shows the line.
+ await call('listeningWaves',{style:'line'});await wait(s=>s.voice?.listening?.waves==='line',10000);
  await box.focus();await page.keyboard.press('Control+d');await stop.waitFor();
  await page.waitForFunction(()=>(document.querySelector('textarea[aria-label="Message"]') as HTMLTextAreaElement).placeholder==='Listening...',null,{timeout:30000});
+ await page.locator('.composer-box.waves-line>.dictation-waves.line').waitFor();assert.equal(await page.locator('.dictation-waves.bars').count(),0,'one style at a time');await drawn();
+ await picture('waves-line-dark');await theme('light');await picture('waves-line-light');await theme('dark');
+ await call('listeningWaves',{style:'bars'});
  await page.waitForFunction(before=>(document.querySelector('textarea[aria-label="Message"]') as HTMLTextAreaElement).value.length>before.length,typed,{timeout:120000});
  await page.keyboard.press('Escape');await idle();assert.equal(await value(),typed,'Esc puts the box back as it was');
  // Enter finishes, never sends.

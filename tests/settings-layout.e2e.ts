@@ -2,7 +2,7 @@
 import {_electron as electron} from 'playwright';
 import fs from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import assert from 'node:assert/strict';import {execFileSync} from 'node:child_process';
 import {apiSuppliers} from '../app/api-catalog';
-import {Backend,PYTHON} from '../app/backend';import {mainWindow,pollState} from './fixtures/poll-state';
+import {Backend,PYTHON} from '../app/backend';import {mainWindow,pollState,wakeWindows} from './fixtures/poll-state';
 const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work','settings-layout-')),namespace='Trismegistus/Test/'+path.basename(data),folder=await fs.mkdtemp(path.join(os.tmpdir(),'tris-settings-'));
 const host=new Backend(root,data,namespace,()=>{});await host.host('initialize');
 const plugin=path.join(data,'fixture-claude-home/plugins/cache/example/version');
@@ -14,7 +14,7 @@ const pages=[['general','General'],['models','Default models'],['connections','C
 const report:any={pages:[],sizes:[],checks:[]};
 const screenshot=async({path:file}:{path:string})=>{const png=await app.evaluate(async({BrowserWindow})=>{const w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('index.html'))!;await w.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true});await new Promise(r=>setTimeout(r,100));return (await w.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG().toString('base64');});await fs.writeFile(file,Buffer.from(png,'base64'));};
 try{
- const page=await mainWindow(app);await app.evaluate(({BrowserWindow})=>{BrowserWindow.prototype.show=function(){};BrowserWindow.prototype.showInactive=function(){};BrowserWindow.prototype.focus=function(){};});page.setDefaultTimeout(20000);const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+ const page=await mainWindow(app);await wakeWindows(app);await app.evaluate(({BrowserWindow})=>{BrowserWindow.prototype.show=function(){};BrowserWindow.prototype.showInactive=function(){};BrowserWindow.prototype.focus=function(){};});page.setDefaultTimeout(20000);const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
  const call=(method:string,args:any={})=>page.evaluate(({method,args})=>window.desktop.invoke(method,args),{method,args});
  await pollState(page,s=>s.backend==='ready'&&!!s.claude?.connected);await call('wizardFinish');await call('workingFolder',{folder});await call('addProject');
  if(await page.getByLabel('Close settings',{exact:true}).isVisible())await page.getByLabel('Close settings',{exact:true}).click();

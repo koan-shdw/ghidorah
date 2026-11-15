@@ -7,11 +7,16 @@ import {ClaudeConnection,AlwaysOnSettings,RemoteSettings} from './settings-pages
 import {apiSuppliers,type ApiProvider} from './api-catalog';
 import {healthOf} from './availability';
 import {ShareSetup} from './share-ui';
+import {ENGINES} from './listening';
+import {ListeningSettings,ReplyVoiceSettings} from './listening-ui';
 
 type Call=(method:string,args?:any)=>Promise<any>;
-export type WizardStep='suppliers'|'claude'|'jev'|'always-on'|'remote'|'sharing';
+// Listening and Voice (Koan 2026-11-15) are the Voice page's first two cards: the engine that hears dictation, and
+// the download of the voice that reads replies aloud.
+export type WizardStep='suppliers'|'claude'|'jev'|'listening'|'voice'|'always-on'|'remote'|'sharing';
 export const STEPS:{id:WizardStep;label:string;page:string}[]=[
  {id:'suppliers',label:'Suppliers',page:'connections'},{id:'claude',label:'Claude Code',page:'connections:anthropic'},{id:'jev',label:'Jev',page:'connections'},
+ {id:'listening',label:'Listening',page:'voice'},{id:'voice',label:'Voice',page:'voice'},
  {id:'always-on',label:'Start with Windows',page:'always-on'},{id:'remote',label:'Remote',page:'remote'},{id:'sharing',label:'Share with clients',page:'sharing'},
 ];
 export type Outcome='connected'|'unverified'|'failed'|'skipped';
@@ -26,6 +31,9 @@ export function wizardSummary(state:Snapshot):SummaryRow[]{
  const claude=state.claude?.status||'Not checked';
  rows.push({name:'Claude Code',outcome:state.claude?.connected?outcomeOf(claude):/not installed|Not checked/i.test(claude)?'skipped':'unverified',detail:claude,page:'connections:anthropic',action:'Open Connections'});
  rows.push({name:'Jev',outcome:state.jev?.connected?outcomeOf(state.jev.status):'skipped',detail:state.jev?.connected?state.jev.status:'Not connected. The other pickers work without it.',page:'connections',action:'Open Connections'});
+ const engine=state.voice?.listening?.engine,voices=state.voices;
+ rows.push({name:'Listening',outcome:engine?'connected':'skipped',detail:engine?ENGINES[engine].name+(ENGINES[engine].model?' '+ENGINES[engine].model:'')+(engine==='whisper'?', on this PC':', online'):'No listening engine set up. Dictation needs one.',page:'voice',action:'Open Voice'});
+ rows.push({name:'Voice',outcome:voices?.installed?'connected':'skipped',detail:voices?.installed?'Kokoro installed · '+(voices.list.find(voice=>voice.id===voices.defaultId)?.name||''):'Not installed. Listen and Speak replies need it.',page:'voice',action:'Open Voice'});
  rows.push({name:'Start with Windows',outcome:state.alwaysOn?.startWithWindows?'connected':'skipped',detail:state.alwaysOn?.startWithWindows?'On':'Off',page:'always-on',action:'Open Always on'});
  const remote=state.remote;
  rows.push({name:'Remote',outcome:!remote?.enabled?'skipped':remote.status==='running'?'connected':remote.status==='failed'?'failed':'unverified',detail:!remote?.enabled?'Off':remote.status==='running'?'Connected to Telegram':remote.message||'Connecting',page:'remote',action:'Open Remote'});
@@ -50,6 +58,8 @@ export function Wizard({state,call,suppliers,jev,openSettings,appError}:{state:S
    {step?.id==='suppliers'&&<>{suppliers}<p className="hint">Connect at least one supplier so chats have a model. You can add more later in Settings.</p></>}
    {step?.id==='claude'&&<section className="connections"><h3>Claude Code</h3><ClaudeConnection state={state} call={call}/></section>}
    {step?.id==='jev'&&jev}
+   {step?.id==='listening'&&<><ListeningSettings state={state} call={call}/><p className="hint">Skip this and dictation stays off until you set it up in Settings › Voice.</p></>}
+   {step?.id==='voice'&&<><ReplyVoiceSettings state={state} call={call}/><p className="hint">Skip this and replies are not read aloud until you install the voice in Settings › Voice.</p></>}
    {step?.id==='always-on'&&<AlwaysOnSettings state={state} call={call}/>}
    {step?.id==='remote'&&<RemoteSettings state={state} call={call}/>}
    {step?.id==='sharing'&&<ShareSetup state={state} call={call}/>}

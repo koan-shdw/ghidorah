@@ -358,9 +358,6 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .job-titlebar .chat-view-control{margin-left:auto}
 .job-parent>.chat-view-control{margin-left:auto}
 .job-parent>button:first-child{min-width:0}
-.side-chat-notice{display:flex;align-items:center;flex-wrap:wrap;gap:5px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:var(--fs-meta);color:var(--muted)}
-.side-chat-notice>span{flex:1 0 100%}
-.side-chat-notice small{flex-basis:100%}
 .side-model-controls{position:relative;flex-shrink:0}
 .side-model-controls>.usage-panel{max-width:calc(100% - 16px);right:8px;bottom:calc(100% + 8px)}
 .side-model-controls>dialog.settings::backdrop{background:var(--overlay-soft)}
@@ -417,7 +414,6 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .picker-list{list-style:none;margin:6px 0 10px;padding:0;display:grid;gap:3px;font-size:var(--fs-meta)}
 .picker-list li{display:flex;align-items:center;gap:6px}
 .picker-list li span:last-child{color:var(--muted);margin-left:auto}
-.update-window section{border-top:1px solid var(--line);padding-top:4px}
 .update-window h3{font-size:var(--fs-list)}
 .update-notes{white-space:pre-wrap;font-size:var(--fs-meta);max-height:160px;overflow:auto;background:var(--surface);padding:8px;border-radius:var(--r-sm)}
 /* His pick U1 (2026-10-22): Video Dancer's header chip at the right end of the title bar, and its news card on top of
@@ -480,8 +476,13 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .model-row>.model-add,.model-row>.model-disclosure{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);flex-shrink:0;min-height:var(--h);border:1px solid var(--line);border-radius:var(--r-pill);color:var(--muted);padding:0 var(--space-5);white-space:nowrap}
 .model-row>.model-add .sidebar-icon,.model-row>.model-disclosure .sidebar-icon{width:var(--icon-sm);height:var(--icon-sm);flex-basis:var(--icon-sm)}
 .model-row>.model-disclosure{width:var(--h);padding:0}
-/* The mic glows with your voice while it listens (Claude's audio level). */
-.composer-tools>.dictation-trigger.recording{border-color:var(--danger);color:var(--danger);background:color-mix(in srgb,var(--danger) 7%,transparent);box-shadow:0 0 0 calc(var(--level) * 5px) color-mix(in srgb,var(--danger) 28%,transparent);transition:box-shadow 80ms linear}
+/* The mic is red while it listens; the waves (dictation-waves.tsx) show your voice: bars in the bottom row beside the
+   buttons, or a line across the box between your words and the buttons. They draw in the box's text colour. */
+.composer-tools>.dictation-trigger.recording{border-color:var(--danger);color:var(--danger);background:color-mix(in srgb,var(--danger) 7%,transparent)}
+.dictation-waves{display:block;color:var(--text);pointer-events:none}
+.composer-box.waves-bars .composer-tools{flex:0 1 auto}
+.composer-toolbar>.dictation-waves.bars{flex:1 1 60px;min-width:40px;height:var(--h-lg);align-self:center}
+.composer-box>.dictation-waves.line{align-self:stretch;width:auto;height:30px;margin:0 var(--space-2)}
 .app-titlebar .app-mark{width:25px;height:25px;display:block;object-fit:contain;flex:none}
 .app-titlebar strong{font-weight:600;pointer-events:none}
 .app-titlebar .dev-tag{padding:0 var(--space-2);border:1px solid var(--accent);border-radius:var(--r-sm);color:var(--accent);font-size:var(--fs-meta);font-weight:600;pointer-events:none}
@@ -490,9 +491,6 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .message-actions button{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:4px 8px;border-radius:var(--r);font-size:var(--fs-meta)}
 .message-actions .sidebar-icon{width:14px;height:14px;flex-basis:14px}
 .message-actions button:hover,.message-actions button:focus-visible{background:var(--raised);color:var(--text)}
-.branch-notice{display:flex;align-items:flex-start;gap:8px;margin:8px 20px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-lg);color:var(--muted);font-size:var(--fs-meta);line-height:1.5}
-.branch-notice strong{color:var(--text)}
-.branch-notice .sidebar-icon{width:16px;height:16px;flex:none;margin-top:1px}
 .checkpoint-counts{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}
 .checkpoint-counts span{border:1px solid var(--line);border-radius:var(--r-pill);padding:5px 10px;font-size:var(--fs-ui)}
 .checkpoint-file{border:1px solid var(--line);border-radius:var(--r-lg);margin:10px 0;overflow:hidden}
@@ -555,19 +553,19 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 /* C13 C14: live and failed status colours; reply actions fade until the reply is hovered or focused */
 .model-label>.turn-activity[data-tone=live]{color:var(--green)}
 .model-label>.turn-activity[data-tone=danger]{color:var(--danger)}
-.turn:hover .message-actions,.message-actions:focus-within{opacity:1}
+.turn:hover .message-actions,.message-actions:focus-within,.message-actions:has([aria-pressed=true]){opacity:1}
+.message-actions button[aria-pressed=true]{background:var(--raised);color:var(--text)}
 /* Setup wizard fields stack their name over a full-width field (the API key field was squeezed inline) */
 .wizard-body :where(label){display:flex;flex-direction:column;gap:var(--space-4);margin:var(--space-6) 0;font-size:var(--fs-ui)}
 .wizard-body :where(input:not([type=checkbox]):not([type=radio]),select){width:100%;min-width:0;padding:var(--space-4) var(--space-5);border:1px solid var(--line);border-radius:var(--r);background:var(--bg);color:var(--text)}
-/* The update window reads like settings: each choice is a row */
-.update-window .connection-field:has(>.choice-menu,>select){display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,50%);align-items:center;column-gap:var(--space-7);margin:var(--space-4) 0}
-/* Handover mode (handover-ui.tsx): the bar reads like the branch notice; START and Send sit under the reply */
-.handover-notice{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:8px 20px;padding:8px 12px;border:1px solid var(--line);border-radius:var(--r-lg);color:var(--muted);font-size:var(--fs-meta);line-height:1.5}
-.handover-notice strong{color:var(--text)}
-.handover-notice>span{flex:1 1 240px}
-.handover-notice .sidebar-icon{width:16px;height:16px;flex:none}
-.handover-notice button,.handover-actions button{padding:3px 9px;border:1px solid var(--line);border-radius:var(--r-pill);color:var(--accent)}
-.handover-notice button:disabled{color:var(--muted)}
+/* The bar that says what kind of chat this is (chat-notice.tsx): a new branch, a side chat, handover mode. One look. */
+.chat-notice{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:8px 20px;padding:8px 12px;border:1px solid var(--line);border-radius:var(--r-lg);color:var(--muted);font-size:var(--fs-meta);line-height:1.5}
+.chat-notice strong{color:var(--text)}
+.chat-notice>span{flex:1 1 240px}
+.chat-notice .sidebar-icon{width:16px;height:16px;flex:none}
+.chat-notice button,.handover-actions button{padding:3px 9px;border:1px solid var(--line);border-radius:var(--r-pill);color:var(--accent)}
+.chat-notice button:disabled{color:var(--muted)}
+/* Handover mode (handover-ui.tsx): START and Send sit under the reply */
 .handover-actions{display:flex;justify-content:flex-start;margin-top:6px;font-size:var(--fs-meta)}
 .handover-start{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-lg);font-size:var(--fs-meta)}
 .handover-start-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px}

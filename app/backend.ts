@@ -12,7 +12,7 @@ import {SecretScrubber} from './redaction';
 export const PYTHON=path.resolve('runtime/python/cpython-3.12.10-windows-x86_64-none/python.exe');
 const execute=promisify(execFile);
 // Helper steps that read their request line and keep stdin open for a cancel.
-const reviewOperations=new Set(['plugin_review','plugin_convert','skills_browse','skill_review','plugin_runtime_prepare','speech_model_install','speech_check','transcribe','voice_speech','voice_helper','wake_model_install','web_research','app_watch','workspace_git_action','document_render','document_preview','image_generate','chat_export']);
+const reviewOperations=new Set(['plugin_review','plugin_convert','skills_browse','skill_review','plugin_runtime_prepare','speech_model_install','speech_check','transcribe','voice_speech','voice_helper','voice_model_install','wake_model_install','web_research','app_watch','workspace_git_action','document_render','document_preview','image_generate','chat_export']);
 export class Backend {
   rpc=new JsonRpcGatewayClient({socketFactory:(url:string)=>new WebSocket(url) as any});
   child:ChildProcessWithoutNullStreams|null=null;
@@ -36,7 +36,7 @@ export class Backend {
   // 30 s kill did not end the wait (TURN-REVIEW part 4).
   hostLimit(operation:string){
     const review=reviewOperations.has(operation);
-    return operation==='plugin_runtime_prepare'?660000:operation==='speech_model_install'?3600000:operation==='transcribe'?300000:operation==='workspace_git_action'?180000:operation==='web_research'?45000:review?360000:operation==='context_summary'?105000:operation==='model_discovery'?190000:operation==='worktree'?120000:operation==='codex_status'?65000:30000;
+    return operation==='plugin_runtime_prepare'?660000:operation==='speech_model_install'||operation==='voice_model_install'?3600000:operation==='transcribe'?300000:operation==='workspace_git_action'?180000:operation==='web_research'?45000:review?360000:operation==='context_summary'?105000:operation==='model_discovery'?190000:operation==='worktree'?120000:operation==='codex_status'?65000:30000;
   }
   stopHelper(pid?:number){if(pid)void execute('taskkill',['/PID',String(pid),'/T','/F'],{windowsHide:true}).catch(()=>{});}
   async host(operation:string,extra:any={},signal?:AbortSignal,limit=this.hostLimit(operation)) {

@@ -4,7 +4,8 @@ import type {Chat,Turn} from './types';
 
 export interface AppTodo {id:string;appId:string;title:string;summary?:string;done:boolean;chatId?:string;created:number;}
 export interface SavedAppGroup {id:string;name:string;collapsed:boolean;}
-export interface SavedApp {groupId?:string|null;unlinkedChatIds?:string[];todos?:AppTodo[];summary?:import('./app-summary').AppSummary;summaryRevision?:string;summaryRunning?:boolean;summaryError?:string;id:string;name:string;icon:string;stage:string;current:string;ideas:string;planned:string;questions?:string;repositories?:string[];chatIds:string[];updated:number;light?:{state:'pushed'|'unpushed';text:string};watch?:import('./app-watch').AppWatch&{running:boolean;step?:string};updates?:import('./app-watch').AppIdea[];watchUnread?:boolean;}
+// voice: the saved voice this app's chats are read aloud in; unset means the default voice.
+export interface SavedApp {voice?:string;groupId?:string|null;unlinkedChatIds?:string[];todos?:AppTodo[];summary?:import('./app-summary').AppSummary;summaryRevision?:string;summaryRunning?:boolean;summaryError?:string;id:string;name:string;icon:string;stage:string;current:string;ideas:string;planned:string;questions?:string;repositories?:string[];chatIds:string[];updated:number;light?:{state:'pushed'|'unpushed';text:string};watch?:import('./app-watch').AppWatch&{running:boolean;step?:string};updates?:import('./app-watch').AppIdea[];watchUnread?:boolean;}
 export const appManagementHint='App management: the saved apps are the user’s projects; check them and their local folders before treating a name as a public website, and use a supplied local path directly. To save an idea or to-do, use add_app_todo with the app ID or name and the user’s wording and links; saving one needs no research. To add an app without starting work, use create_app with register_only:true and leave unknown folders, icon and stage unset. When this chat is about an existing app, link it with link_app_chat; a chat can belong to several apps, and the user’s unlinks stand. Rename an app or change its icon with update_app; edit, complete or remove a task with update_app_todo.';
 export const [appTool,listAppsTool,appTodoTool,appLinkTool,appUpdateTodoTool,appUpdateTool]=appTools;
 export const directAppTools=appTools.map(tool=>tool.name);
@@ -71,7 +72,8 @@ export function saveApp(store:Store,args:any):SavedApp {
  if(!Array.isArray(repositories)||repositories.length>30||repositories.some((value:unknown)=>typeof value!=='string'||value.length>500||/[\0\r\n]/.test(value)))throw Error('Enter one repository path per line.');
  const groupId=args.groupId??null;
  if(groupId!==null){if(typeof groupId!=='string')throw Error('Choose an app folder.');store.get<SavedAppGroup>('saved-app-group',groupId);}
- return store.put('saved-app',{id:args.id||crypto.randomUUID(),name,icon,stage,current,ideas,planned,questions,repositories:[...new Set<string>(repositories)],chatIds,unlinkedChatIds:[...new Set<string>(unlinkedChatIds)].filter(id=>!chatIds.includes(id)),groupId,updated:Date.now()});
+ const voice=args.voice??'';if(typeof voice!=='string'||!/^[A-Za-z0-9-]{0,40}$/.test(voice))throw Error('Choose a voice.');
+ return store.put('saved-app',{id:args.id||crypto.randomUUID(),name,icon,stage,current,ideas,planned,questions,repositories:[...new Set<string>(repositories)],chatIds,unlinkedChatIds:[...new Set<string>(unlinkedChatIds)].filter(id=>!chatIds.includes(id)),groupId,...(voice?{voice}:{}),updated:Date.now()});
 }
 export function changeAppGroup(store:Store,args:any){
  if(!args||!['create','rename','collapse','remove','move'].includes(args.action))throw Error('Choose an app folder action.');

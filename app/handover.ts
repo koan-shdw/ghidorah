@@ -61,13 +61,17 @@ export function unpushed(all:Turn[],chatId:string,marker:string|null|undefined,t
 }
 
 const target=(args:any)=>String(args?.path??args?.file_path??args?.command??args?.pattern??args?.url??args?.query??'').replace(/\s+/g,' ').slice(0,120);
-/** A push: his messages, the replies and a short list of actions. Pushed messages that came from the other chat
- * are left out; the reply to them stays. */
-export function pushText(store:Store,turns:Turn[],title:string,toOld:boolean){
- const tools=store.toolsOf(turns),parts=turns.map(t=>{
+/** Messages as text: his messages, the replies and a short list of actions. Pushed messages that came from another
+ * chat are left out; the reply to them stays. A handover push and a side chat's summary both read this. */
+export function turnsText(store:Store,turns:Turn[]){
+ const tools=store.toolsOf(turns);
+ return turns.map(t=>{
   const actions=tools.filter(tool=>tool.turnId===t.id).map(tool=>'- '+tool.name+(target(tool.args)?' '+target(tool.args):''));
   return [!t.handoff?.push&&!t.automatic&&!t.goal?.automatic&&t.prompt.trim()?'**User:** '+t.prompt.trim():'',actions.length?'**Actions:**\n'+actions.join('\n'):'',t.text.trim()?'**Reply:** '+t.text.trim():t.error?'**Error:** '+t.error:''].filter(Boolean).join('\n\n');
- }).filter(Boolean);
+ }).filter(Boolean).join('\n\n---\n\n');
+}
+/** A push: what is new in one chat, under a line that tells the other chat what to do with it. */
+export function pushText(store:Store,turns:Turn[],title:string,toOld:boolean){
  const head=toOld?`Update from the new chat "${title}", which started from your handover. Check whether it has understood the work: say briefly what is right, what is wrong or missing, and what it should do next. Reply with comments only. Don't write a plan or change files.`:`Comments from the old chat "${title}", which wrote your handover. Weigh them against the handover and the user's rulings; the user's word wins.`;
- return head+'\n\n'+parts.join('\n\n---\n\n');
+ return head+'\n\n'+turnsText(store,turns);
 }

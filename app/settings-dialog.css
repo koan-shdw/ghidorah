@@ -136,3 +136,18 @@ dialog.settings-dialog::backdrop{background:var(--overlay);backdrop-filter:blur(
 .settings-dialog label:has(>select,>input:not([type=checkbox]):not([type=radio]),>.choice-menu)>:is(select,input,.choice-menu),.settings-dialog .connection-field:has(>.choice-menu,>select)>:is(select,.choice-menu){grid-column:2;grid-row:1/span 2}
 .settings-dialog label:has(>select,>input:not([type=checkbox]):not([type=radio]),>.choice-menu)>small,.settings-dialog .connection-field:has(>.choice-menu,>select)>:is(small,p){grid-column:1}
 .settings-dialog .settings-card>h3+label:has(>select,>input:not([type=checkbox]):not([type=radio]),>.choice-menu),.settings-form-grid>label:has(>select,>input:not([type=checkbox]):not([type=radio]),>.choice-menu):first-child,.settings-dialog .settings-card>h3+.connection-field{border-top:0}
+/* Settings › Updates (update-window.tsx): a status row reads like the setting rows; Hermes releases are rows with a tag
+   for their state, Roll in and Skip on the new ones, notes on a click, and the rest folded into one line. */
+.settings-dialog .settings-nav .settings-nav-dot{width:8px;height:8px;margin-left:auto;border-radius:var(--r-round);background:var(--accent);flex:none}
+.settings-dialog .updates-settings .connection-field:has(>.settings-status){margin:0;padding:var(--space-4) 0;border-top:1px solid var(--line)}
+.settings-dialog .updates-settings .settings-card>h3+.connection-field:has(>.settings-status){border-top:0}
+.settings-dialog .updates-settings .connection-field>.settings-status{align-self:center}
+.hermes-releases{display:flex;flex-direction:column;margin:var(--space-4) 0}
+.hermes-release{border-top:1px solid var(--line)}
+.hermes-release-row{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-4);padding:var(--space-4) 0;font-size:var(--fs-ui)}
+.hermes-release-row>strong{font-weight:var(--fw-strong)}
+.hermes-tag{padding:var(--space-1) var(--space-4);border:1px solid var(--line);border-radius:var(--r-pill);color:var(--muted);font-size:var(--fs-meta)}
+.hermes-tag.new{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));color:var(--accent)}
+.hermes-release-actions{display:flex;flex-wrap:wrap;gap:var(--space-3);margin-left:auto}
+.hermes-release-notes{padding:0 0 var(--space-5)}
+.settings-dialog .hermes-fold{align-self:flex-start;margin-top:var(--space-3);color:var(--muted);font-size:var(--fs-ui)}

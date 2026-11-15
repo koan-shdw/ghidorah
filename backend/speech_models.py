@@ -51,29 +51,38 @@ def verified(root, name):
 
 def install(root, name):
     model = _spec(name)
-    folder = directory(root, name)
+    base = 'https://huggingface.co/' + model['repository'] + '/resolve/' + model['revision'] + '/'
+    fetch(directory(root, name), model['files'], lambda file: base + file, lambda: directory(root, name))
+    return str(verified(root, name))
+
+
+def fetch(folder, files, address, current):
+    """Download the pinned files that are missing or changed into folder (the whisper models and the Kokoro voice).
+
+    address(file) is a file's URL. current() resolves the folder again, so a folder swapped for a link while a file
+    downloads is refused. Progress is written beside the folder as progress.json for the page that started it.
+    """
     folder.mkdir(parents=True, exist_ok=True)
     progress = folder.parent / 'progress.json'
     try:
         progress.unlink(missing_ok=True)
     except PermissionError:
         pass  # The UI may hold this advisory progress file open on Windows.
-    total = sum(spec['size'] for spec in model['files'].values())
-    done = sum(spec['size'] for file, spec in model['files'].items() if _valid(folder / file, spec))
-    for file, spec in model['files'].items():
+    total = sum(spec['size'] for spec in files.values())
+    done = sum(spec['size'] for file, spec in files.items() if _valid(folder / file, spec))
+    for file, spec in files.items():
         target = folder / file
         if _valid(target, spec):
             continue
-        url = 'https://huggingface.co/' + model['repository'] + '/resolve/' + model['revision'] + '/' + file
         temporary = None
         try:
-            with urllib.request.urlopen(url, timeout=60) as response, tempfile.NamedTemporaryFile(dir=folder, suffix='.part', delete=False) as output:
+            with urllib.request.urlopen(address(file), timeout=60) as response, tempfile.NamedTemporaryFile(dir=folder, suffix='.part', delete=False) as output:
                 temporary = Path(output.name)
                 received = 0
                 while chunk := response.read(min(1024 * 1024, spec['size'] - received + 1)):
                     received += len(chunk)
                     if received > spec['size']:
-                        raise ValueError('The speech download exceeds its pinned size: ' + file)
+                        raise ValueError('The download exceeds its pinned size: ' + file)
                     output.write(chunk)
                     done += len(chunk)
                     with tempfile.NamedTemporaryFile(dir=progress.parent, mode='w', encoding='utf-8', delete=False) as update:
@@ -86,8 +95,8 @@ def install(root, name):
                         Path(update.name).unlink(missing_ok=True)
             if not _valid(temporary, spec):
                 raise ValueError('A downloaded file did not match its pinned hash: ' + file)
-            if directory(root, name) != folder:
-                raise ValueError('The speech model location changed.')
+            if current() != folder:
+                raise ValueError('The model location changed.')
             temporary.replace(target)
         finally:
             if temporary:
@@ -96,4 +105,3 @@ def install(root, name):
         progress.unlink(missing_ok=True)
     except PermissionError:
         pass
-    return str(verified(root, name))

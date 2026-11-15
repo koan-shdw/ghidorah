@@ -6,6 +6,7 @@ import type {Snapshot,Turn} from './types';
 import {Button,Dialog,Notice,SidebarMenu,SidebarIcon,type MenuItem} from './kit';
 import {pendingTurn} from './sidebar';
 import {CheckpointDialog} from './checkpoint-dialog';
+import {ListenButton,replyAloud} from './speak-ui';
 
 type Call=(method:string,args?:any)=>Promise<any>;
 interface Share {sourceTitle:string;date:string;turn:Turn;text:string;target:string;busy:boolean;error:string}
@@ -36,7 +37,11 @@ export function useShare(state:Snapshot,call:Call,chatId:string){
  const canBranch=(turn:Turn)=>turn.chatId===chatId&&!turn.parentTurnId&&!turn.automatic&&!turn.goal?.automatic&&!turn.contextSnapshot&&state.chats.some(chat=>chat.id===chatId&&!chat.parentChatId&&!chat.sideSourceId);
  const working=state.turns.some(turn=>(turn.chatId===chatId||state.jobChats?.some(chat=>chat.id===turn.chatId&&chat.parentChatId===chatId))&&pendingTurn(turn.status));
  async function branch(turn:Turn){setMenu(null);try{await call('branchMessage',{chatId,turnId:turn.id});}catch{/* The chat displays the error. */}}
- const actions=(turn:Turn)=>canBranch(turn)?<div className="message-actions"><button disabled={working} title={working?'Finish or stop current work first':'Prepare this message in a new chat. The original stays intact.'} onClick={()=>void branch(turn)}><SidebarIcon name="rename"/>Edit / retry</button><button aria-label="Message actions" onClick={event=>{const box=event.currentTarget.getBoundingClientRect();setMenu({x:box.left,y:box.bottom,turn,selection:''});}}><SidebarIcon name="more"/></button></div>:null;
+ // Under a message: Listen for a finished reply (every window that shows replies), then Edit / retry in the main chat.
+ const actions=(turn:Turn)=>{
+  const listen=!!state.voices&&!!replyAloud(turn,state).trim(),branchable=canBranch(turn);
+  return listen||branchable?<div className="message-actions">{listen&&<ListenButton turn={turn} state={state} call={call}/>}{branchable&&<><button disabled={working} title={working?'Finish or stop current work first':'Prepare this message in a new chat. The original stays intact.'} onClick={()=>void branch(turn)}><SidebarIcon name="rename"/>Edit / retry</button><button aria-label="Message actions" onClick={event=>{const box=event.currentTarget.getBoundingClientRect();setMenu({x:box.left,y:box.bottom,turn,selection:''});}}><SidebarIcon name="more"/></button></>}</div>:null;
+ };
  const items:MenuItem[]=menu?[...(canBranch(menu.turn)&&!working?[{label:'Edit or retry in a new chat',icon:'rename' as const,key:'E',action:()=>void branch(menu.turn)},{label:'Restore checkpoint…',icon:'fork' as const,action:()=>{setCheckpoint(menu.turn.id);setMenu(null);}}]:[]),{label:'Share with…',icon:'fork',key:'S',action:()=>{const {turn,selection}=menu;setMenu(null);void start(turn,selection);}}]:[];
  const element=<>{menu&&<SidebarMenu x={menu.x} y={menu.y} label="Message actions" items={items} close={()=>setMenu(null)}/>}{checkpoint&&<CheckpointDialog chatId={chatId} turnId={checkpoint} call={call} close={()=>setCheckpoint(null)}/>}
   {share&&<ShareDialog share={share} projects={otherProjects(state,chatId)} change={patch=>setShare({...share,...patch})} close={close} send={async()=>{const request=++revision.current;setShare({...share,busy:true,error:''});try{await call('shareToProject',{chatId,turnId:share.turn.id,projectId:share.target,text:share.text,sourceTitle:share.sourceTitle,date:share.date});if(request===revision.current)setShare(null);}catch(error){if(request===revision.current)setShare({...share,busy:false,error:String(error).replace(/^Error invoking remote method 'app': (?:Error: )?/,'')});}}}/>}</>;

@@ -30,7 +30,7 @@ try{
  // 2. Claude refuses, with no reset time: the model is held, and a send says why without spending a request.
  const refused=crypto.randomUUID();await call('submit',{id:refused,chatId,text:JSON.stringify({action:'limit'}),models:[model]});
  assert.equal((await finished(refused)).status,'failed');
- const held=await pollState(page,s=>s.availableModels?.length===0);assert.ok(held.claude.connected);
+ const held=await pollState(page,s=>s.availableModels?.length===0);assert.ok(held.claude?.connected);
  const sent=(await requests()).length;await call('draft',{chatId,text});
  for(const models of [[model],[]]){
   await assert.rejects(call('submit',{id:crypto.randomUUID(),chatId,text,models}),error=>{assert.match(String(error),/Usage limit reached/);assert.doesNotMatch(String(error),/Connect an available model/);return true;});

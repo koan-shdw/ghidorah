@@ -2,7 +2,8 @@
 import whisperModels from '../../backend/whisper-models.json';
 import {readChatLayout} from '../chat-layout';
 import {liveVoiceSettings} from '../gemini-voice-settings';
-import {backend,chatWindows,pluginRuntime,closeWakeCapture,jobWindows,namespace,openVoice,store,voiceDesk,voiceFront,voiceListenOnOpen,voiceMainChat,voiceMethods,voiceWindow,wakeArmed,wakeFailure,wakeFault,wakeInstall,wakeStatus,win,workspaceWindows} from '../main';
+import {ENGINES,readListening,type OnlineEngine} from '../listening';
+import {backend,chatWindows,pluginRuntime,closeWakeCapture,jobWindows,listeningKeys,namespace,openVoice,store,voiceDesk,voiceFront,voiceListenOnOpen,voiceMainChat,voiceMethods,voiceWindow,wakeArmed,wakeFailure,wakeFault,wakeInstall,wakeStatus,win,workspaceWindows} from '../main';
 import {providerFor} from '../models';
 import {savedSpeechVoices} from '../speech-voices';
 import type {Chat,Turn} from '../types';
@@ -53,6 +54,16 @@ export function wakeDetected(){
  let id=chat||workspace||(job?.startsWith('agent:')?store.get<Turn>('turn',job.slice(6)).chatId:job)||voiceMainChat||readChatLayout(JSON.stringify(store.all<any>('settings').find(row=>row.id==='chat-layout')||{})).chatId;
  if(!id)id=store.all<Chat>('chat').find(chat=>!chat.archived&&!chat.parentChatId)?.id||'';
  try{const target=store.get<Chat>('chat',id);openVoice(target.parentChatId||id,owner,true);}catch(error){wakeFault(error);}
+}
+/** Which engine hears dictation, whether names go as hints, and which online keys are saved. */
+export function listeningView(){return readListening(voiceRow(),speechReady());}
+// A test copy may point an online engine at a stand-in on this computer; nothing else replaces the real service.
+export function listenEndpoint(engine:OnlineEngine){return voiceTestEndpoint(engine==='deepgram'?'TRISMEGISTUS_TEST_DEEPGRAM_WS':'TRISMEGISTUS_TEST_ELEVENLABS_WS');}
+/** The user's key for an online engine, read from Credential Manager once and held while the app runs. */
+export async function listeningKey(engine:OnlineEngine){
+  const held=listeningKeys.get(engine);if(held)return held;
+  const saved=await backend.host('read_key',{provider:engine});if(!saved.key)throw Error('Add your '+ENGINES[engine].name+' key in Settings › Voice.');
+  backend.scrubber.register(saved.key);listeningKeys.set(engine,saved.key);return saved.key as string;
 }
 export function speechInstalled(){return featureInstalled('speech');}
 export function speechReady(){const voice=voiceSettings();return speechInstalled()&&voice.installed.includes(voice.sttModel);}

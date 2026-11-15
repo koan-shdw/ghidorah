@@ -8,6 +8,11 @@ import {allPaneIds} from '../../pane-tree';
 import {Routine,nextFiring,readRoutine} from '../../routines';
 import {sameApp} from '../../screen-control';
 import {speechVoices} from '../../speech-voices';
+import {dictationHints} from '../../speech-worker';
+import {claude} from '../../main';
+import {modelLabel} from '../../models';
+import type {SavedApp} from '../../saved-apps';
+import {connectedModels} from '../models';
 import type {Chat,Turn} from '../../types';
 import {alwaysOn} from '../accounts';
 import {dockableJobChats} from '../apps';
@@ -16,7 +21,10 @@ import {cronNext} from '../routines';
 import {screenApps,screenSettings} from '../screen';
 import {hasWork} from '../turns';
 import {discoverySettings,updateSettings} from '../updates';
-import {speechKey,speechReady,voiceRow,voiceSettings} from '../voice';
+import {listenEndpoint,listeningKey,listeningView,speechKey,speechReady,voiceRow,voiceSettings} from '../voice';
+import {isEngine,isOnline,isWaveStyle} from '../../listening';
+import {checkKey} from '../../online-dictation';
+import {listeningKeys,onlineDictation} from '../../main';
 import {randomUUID} from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -84,18 +92,56 @@ export const settingsHandlers:Record<string,(args:any)=>any>={
   speechInstallCancel(){speechInstall?.abort();},
   // Dictation (R4), Claude's way: audio streams in while the owner speaks and the text comes back as they go. The
   // worker keeps the model loaded, so only a composer's first focus or press waits for it.
-  async dictationWarm({owner}){if(Number.isInteger(owner)&&speechReady()&&!pluginsChanging&&!installing)await speech.start(speechKey()).catch(()=>{});},
+  // Listening engines (Koan 2026-11-15): the engine that hears dictation is the user's choice. An online engine is
+  // set up by its key: the key is tried on one connection with no sound sent, then saved in Credential Manager, and
+  // that engine becomes the one in use.
+  async listeningKey({engine,key}){
+    if(!isOnline(engine)||typeof key!=='string'||key.trim().length<8||key.trim().length>400||/\s/.test(key.trim()))throw Error('Paste the API key as its page shows it.');
+    const value=key.trim();backend.scrubber.register(value);
+    await checkKey(engine,value,listenEndpoint(engine));
+    await backend.host('save_key',{provider:engine,key:value});listeningKeys.set(engine,value);
+    store.put('settings',{...voiceRow(),[engine+'KeySaved']:true,sttEngine:engine});emit();
+  },
+  async listeningDisconnect({engine}){
+    if(!isOnline(engine))throw Error('Choose an online listening engine.');
+    await backend.host('delete_key',{provider:engine});listeningKeys.delete(engine);
+    store.put('settings',{...voiceRow(),[engine+'KeySaved']:false});emit();
+  },
+  // The round mark: only an engine that is set up can be the one in use.
+  listeningEngine({engine}){
+    if(!isEngine(engine))throw Error('Choose a listening engine from the list.');
+    if(!(engine==='whisper'?speechReady():listeningView().connected[engine]))throw Error('Set this engine up first.');
+    store.put('settings',{...voiceRow(),sttEngine:engine});emit();
+  },
+  // The user's own names (apps, models) go to an online engine as key terms; each service charges for them.
+  listeningHints({on}){if(typeof on!=='boolean')throw Error('Choose on or off.');store.put('settings',{...voiceRow(),sttHints:on});emit();},
+  // What moves in the message box while you dictate: bars or a line.
+  listeningWaves({style}){if(!isWaveStyle(style))throw Error('Choose bars or a line.');store.put('settings',{...voiceRow(),sttWaves:style});emit();},
+  async dictationWarm({owner}){
+    if(!Number.isInteger(owner))return;
+    const engine=listeningView().engine;
+    if(engine==='whisper'){if(!pluginsChanging&&!installing)await speech.start(speechKey()).catch(()=>{});}
+    else if(engine)await listeningKey(engine).catch(()=>{});
+  },
   async dictationStart({id,chatId,language,owner}){
     if(typeof id!=='string'||!/^[-a-f0-9]{36}$/.test(id)||typeof chatId!=='string'||!Number.isInteger(owner))throw Error('Invalid dictation request.');
     if(language!==''&&!(typeof language==='string'&&/^[a-z]{2,3}$/.test(language)))throw Error('Choose a dictation language from the list.');
     if(store.get<Chat>('chat',chatId).archived)throw Error('This chat is archived.');
+    const listening=listeningView();
+    if(!listening.engine)throw Error('Set up listening in Settings › Voice first.');
+    // The owner's own names as hints (Koan 2026-11-14): this chat's app first, then the other apps and the model names.
+    const apps=store.all<SavedApp>('saved-app'),hints=dictationHints(['Ghidorah',...apps.filter(app=>app.chatIds.includes(chatId)).map(app=>app.name),...apps.map(app=>app.name),...connectedModels().map(model=>modelLabel(model,claude.models))]);
+    if(listening.engine!=='whisper'){
+      // An online engine: one connection per dictation, on the user's key. Names go as key terms unless switched off.
+      const key=await listeningKey(listening.engine);
+      speech.release(owner);onlineDictation.open(id,owner,listening.engine,key,language,listening.hints?hints:[],listenEndpoint(listening.engine));return {device:listening.engine};
+    }
     if(pluginsChanging||installing)throw Error('Wait for the current install to finish.');
-    if(!speechReady())throw Error('Install speech on the Voice page first.');
-    await speech.start(speechKey());speech.open(id,owner,chatId,language);return {device:speech.device};
+    onlineDictation.release(owner);await speech.start(speechKey());speech.open(id,owner,chatId,language,hints);return {device:speech.device};
   },
-  dictationAudio({id,bytes,owner}){if(!(bytes instanceof Uint8Array))throw Error('Invalid dictation audio.');speech.audio(String(id),owner,bytes);},
-  dictationFinish({id,owner}){speech.finish(String(id),owner);},
-  dictationCancel({id,owner}){speech.cancel(String(id),owner);},
+  dictationAudio({id,bytes,owner}){if(!(bytes instanceof Uint8Array))throw Error('Invalid dictation audio.');(onlineDictation.has(String(id))?onlineDictation:speech).audio(String(id),owner,bytes);},
+  dictationFinish({id,owner}){(onlineDictation.has(String(id))?onlineDictation:speech).finish(String(id),owner);},
+  dictationCancel({id,owner}){(onlineDictation.has(String(id))?onlineDictation:speech).cancel(String(id),owner);},
   async routineSave(input){
     const routine=readRoutine(input);if(!store.all<Chat>('chat').some(chat=>chat.id===routine.chatId&&!chat.archived&&!chat.parentChatId))throw Error('Choose a chat for the routine.');
     const before=input?.id?store.get<Routine>('routine',input.id):undefined,id=before?.id||randomUUID();

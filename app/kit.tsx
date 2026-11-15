@@ -20,6 +20,7 @@ const paths={
  art:'M4 20c2.5 0 4.5-1.2 4.5-4 0-1.7 1.1-2.8 2.8-2.8L20 4.5 18.5 3l-8.7 8.7C8 11.7 7 12.8 7 14.5 7 17 5.5 18.5 4 20z',
  plug:'M9 2v6m6-6v6M6 8h12v4a6 6 0 0 1-12 0V8zm6 10v4',
  restart:'M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5',
+ play:'M7 4l13 8-13 8V4z',speaker:'M4 9h4l5-4v14l-5-4H4V9zm12 0a4.5 4.5 0 0 1 0 6m2.5-9a8.5 8.5 0 0 1 0 12',copy:'M9 9h11v11H9V9zM5 15H4V4h11v1',
 };
 export type IconName=keyof typeof paths;
 export function Icon({name}:{name:IconName}){return <svg className="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]}/></svg>;}

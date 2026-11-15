@@ -14,6 +14,7 @@ import {modelLabel,modelEfforts} from './models';
 import {modelStatus} from './availability';
 import {picker} from './pickers';
 import {HandoverChip} from './handover-ui';
+import {SpeakReplies} from './speak-ui';
 import type {Chat,Mode,Snapshot,Turn} from './types';
 
 type Call=(method:string,args?:any)=>Promise<any>;
@@ -59,7 +60,8 @@ function ContextRing({percent,title,open,controls,toggle}:{percent:number|null;t
 }
 
 /** C9 to C12: under the message box, one compact line of controls and one line of model pills; every chat uses it. */
-export function ChatDock({state,chat,chatId,turns,call,usageId,details,setDetails,refreshUsage,openConnections,openChatModels,openSideChat}:{state:Snapshot;chat?:Chat;chatId:string;turns:Turn[];call:Call;usageId:string;details:boolean;setDetails:(open:boolean)=>void;refreshUsage:()=>Promise<void>;openConnections:()=>void;openChatModels:()=>void;openSideChat:()=>void}){
+export function ChatDock({state,chat,chatId,turns,call,usageId,details,setDetails,refreshUsage,openConnections,openChatModels,openSideChat,elsewhere=false}:{state:Snapshot;chat?:Chat;chatId:string;turns:Turn[];call:Call;usageId:string;details:boolean;setDetails:(open:boolean)=>void;refreshUsage:()=>Promise<void>;openConnections:()=>void;openChatModels:()=>void;openSideChat:()=>void;
+ /** This chat is being written in another view (its own window or a split pane): that view reads its replies aloud. */elsewhere?:boolean}){
  const project=state.projects.find(p=>p.id===chat?.projectId),picks=chat?.lockedModel?[chat.lockedModel]:chat?.selectedModels?.length?chat.selectedModels:chat?.model?[chat.model]:[];
  return <>
   <div className="composer-controls">
@@ -68,6 +70,7 @@ export function ChatDock({state,chat,chatId,turns,call,usageId,details,setDetail
    <Button className="side-chat-button" disabled={!chat||!!chat.sideSourceId} title="Side chat · Ctrl+;" aria-label="Open side chat" onClick={openSideChat}>Side chat</Button>
    {chat&&<ContextControls chat={chat} turns={turns} call={call}/>}
    <Button className="connections-link" onClick={()=>{setDetails(false);openConnections();}}>Connections</Button>
+   <SpeakReplies state={state} chatId={chatId} turns={turns} call={call} elsewhere={elsewhere}/>
    <HandoverChip state={state} chat={chat} call={call}/>
    <ContextRing percent={contextPercent(turns,picks)} title={contextTooltip(turns,picks,state.claude?.models)} open={details} controls={usageId} toggle={()=>{setDetails(!details);if(!details)void refreshUsage().catch(()=>{});}}/>
   </div>

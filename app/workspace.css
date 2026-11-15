@@ -70,8 +70,8 @@
 .workspace-window{display:flex;flex-direction:column;height:100vh;min-width:0}
 .workspace-window>.titlebar{padding-right:8px}
 .workspace-window-panel{width:100%!important;flex:1;max-width:none;min-width:0;position:relative;inset:auto}
-.workspace-window .window-actions{display:flex;margin-left:auto;-webkit-app-region:no-drag}
-.workspace-window .window-actions button{font-size:var(--fs-meta)}
+.workspace-window .window-actions,.voices-window .window-actions{display:flex;margin-left:auto;-webkit-app-region:no-drag}
+.workspace-window .window-actions button,.voices-window .window-actions button{font-size:var(--fs-meta)}
 .activity-pane{flex:1;overflow:auto;padding:12px 16px;font-size:var(--fs-ui)}
 .activity-pane h3{font-size:var(--fs-ui)}
 .activity-plan+.activity-plan{border-top:1px solid var(--line);margin-top:20px;padding-top:12px}

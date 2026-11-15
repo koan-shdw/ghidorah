@@ -6,6 +6,12 @@ import {createInterface} from 'node:readline';
 
 export type SpeechEvent={id?:string;type:'ready'|'partial'|'final'|'error';text?:string;device?:string;cards?:number;problem?:string};
 export interface DictationSession {owner:number;chatId:string;bytes:number}
+/** The names a dictation is likely to hold, most likely first: each once, short, 40 at most (Koan 2026-11-14). */
+export function dictationHints(names:(string|null|undefined)[]){
+ const seen=new Set<string>(),out:string[]=[];
+ for(const raw of names){const name=(raw||'').replace(/\s+/g,' ').trim().slice(0,60),key=name.toLowerCase();if(name&&!seen.has(key)&&out.length<40){seen.add(key);out.push(name);}}
+ return out;
+}
 const SECOND=16000*2,LIMIT=10*60*SECOND+30*SECOND; // Claude's 10-minute limit, with room for the last chunk
 
 export class SpeechWorker {
@@ -45,10 +51,11 @@ export class SpeechWorker {
  }
  private write(message:object){this.child?.stdin.write(JSON.stringify(message)+'\n');}
  private touch(){clearTimeout(this.idle);this.idle=setTimeout(()=>{if(!this.sessions.size)this.stop();},this.idleMs);this.idle.unref?.();}
- open(id:string,owner:number,chatId:string,language:string){
+ // hints: the owner's own names (apps, models), so the model writes them as the owner does.
+ open(id:string,owner:number,chatId:string,language:string,hints:string[]=[]){
   if(!this.ready)throw Error('Dictation is still starting.');
   for(const [other,session] of this.sessions)if(session.owner===owner)this.cancel(other,owner);
-  this.sessions.set(id,{owner,chatId,bytes:0});this.write({op:'start',id,language});this.touch();
+  this.sessions.set(id,{owner,chatId,bytes:0});this.write({op:'start',id,language,...(hints.length?{hints}:{})});this.touch();
  }
  // 16 kHz mono 16-bit PCM from the owner's window.
  audio(id:string,owner:number,bytes:Uint8Array){

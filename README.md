@@ -16,8 +16,9 @@
 Run the installer and pick a folder. The installer is not signed, so Windows asks once on the first install: More info,
 then Run anyway.
 
-After that Ghidorah updates itself: a chip in its title bar says restart to update, and what's new opens once after each
-update. Chats, keys and settings stay where they are across updates.
+After that Ghidorah updates itself: a chip in its title bar says restart to update, and after each update a window says
+which version is installed and what's new. Settings › Updates holds app updates, Hermes releases and the check for new
+models. Chats, keys and settings stay where they are across updates.
 
 ## What it does
 
@@ -31,11 +32,15 @@ update. Chats, keys and settings stay where they are across updates.
   with clients at a private link; their notes come back to the chat.
 - **Ask while it works.** Start a message with ?? and a side model answers from the live work, while the main model
   keeps going.
+- **Side chats.** Side chat (Ctrl+;) opens a new chat with this one's thread as its context. Send to main chat puts a
+  summary in the main chat's message box, Keep as chat keeps it, and Discard asks first.
 - **Long jobs.** Background work, goals and routines that keep running while you do something else. A message that
   Claude's usage limit stops waits and is sent again by itself when the limit resets. A button on it opens the
   account's own usage page for limit resets and usage credits, and the message goes once either is used.
-- **Voice and remote.** Dictation and live voice. From your phone over Telegram: each chat has its own topic, a message
-  typed there goes to that chat, and approvals are answered there.
+- **Voice and remote.** Dictation and live voice. Dictation is heard by Whisper on this PC, or by Deepgram or
+  ElevenLabs on your own key, and bars or a line move in the message box while you talk. Kokoro reads replies aloud on
+  this PC. From your phone over Telegram: each chat has its own topic, a message typed there goes to that chat, and
+  approvals are answered there.
 
 ## Build from source
 

@@ -194,6 +194,10 @@ def response(body):
     return Text('Scripted reply: '+last,reasoning='Checking the request.',chunk_chars=4,delay_per_chunk=.01)
 
 def auxiliary(body):
+    # Send to main chat (side chat, 2026-11-15): the summary names the questions it was given.
+    if 'Summarize this side chat for the main chat' in json.dumps(body):
+        source = body.get('body', body)['messages'][-1]['content']
+        return Text('Side chat fixture summary. Asked: ' + ', '.join(re.findall(r'\*\*User:\*\* (\S+)', source)))
     # Side answers (FEATURE-SPECS 2): the sorter sends every message to the main model unless it carries SIDE_FIXTURE.
     if 'Koan sent this message while' in json.dumps(body) or 'Koan asked a quick question' in json.dumps(body):
         task = json.loads(body.get('body', body)['messages'][-1]['content'])

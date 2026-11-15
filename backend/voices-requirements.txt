@@ -1,0 +1,14 @@
+# The voice that speaks replies (Kokoro, Koan 2026-11-15): installed on the Voices window's Install click into the
+# runtime folder. Every wheel is pinned by URL and SHA256 in feature-wheels.json and verified by feature_packages.py.
+# numpy, onnxruntime, flatbuffers and protobuf are the speech feature's own versions, so both features share them;
+# attrs, packaging and typing-extensions stay at the runtime's bundled versions, which every package below accepts.
+kokoro-onnx==0.6.1
+phonemizer==3.6.0
+espeakng-loader==0.2.4
+joblib==1.6.0
+cloudpickle==3.1.2
+dlinfo==2.0.0
+flatbuffers==25.12.19
+numpy==2.4.3
+onnxruntime==1.27.0
+protobuf==7.36.2

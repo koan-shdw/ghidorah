@@ -1,0 +1,70 @@
+/* The Voices window: the saved voices down the side, the voice being made on the right, its effects as a rack. */
+.voices-window{display:flex;flex-direction:column;height:100vh;min-width:0;background:var(--bg);color:var(--text)}
+.voices-window>.titlebar{padding-right:var(--space-4);border-bottom:1px solid var(--line);font-weight:var(--fw-strong)}
+.voices-opening{margin:var(--space-9);color:var(--muted)}
+.voices-mixer{display:grid;grid-template-columns:236px minmax(0,1fr);flex:1;min-height:0}
+.voices-list{display:flex;flex-direction:column;gap:var(--space-5);min-width:0;min-height:0;padding:var(--space-6) var(--space-4);border-right:1px solid var(--line);background:color-mix(in srgb,var(--surface) 30%,var(--bg));overflow-y:auto;scrollbar-width:thin}
+.voices-list ul{display:flex;flex-direction:column;gap:var(--space-1);margin:0;padding:0;list-style:none}
+.voices-list>.kit-button{align-self:flex-start;margin-left:var(--space-3)}
+.voices-item{display:flex;align-items:center;gap:var(--space-1);min-width:0;border-radius:var(--r)}
+.voices-item.is-current{background:var(--current)}
+.voices-play{display:grid;place-items:center;flex:none;width:30px;height:36px;padding:0;border:0;border-radius:var(--r);background:none;color:var(--muted)}
+.voices-play:hover:not(:disabled),.voices-play[aria-pressed=true]{color:var(--text)}
+.voices-play .sidebar-icon{width:var(--icon-sm);height:var(--icon-sm)}
+.voices-pick{display:flex;flex-direction:column;align-items:stretch;flex:1;min-width:0;padding:5px var(--space-4) 5px var(--space-1);border:0;border-radius:var(--r);background:none;text-align:left}
+.voices-name{display:flex;align-items:center;gap:var(--space-3);min-width:0;font-size:var(--fs-list)}
+.voices-name>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.voices-default{flex:none;color:var(--accent);font-size:var(--fs-meta)}
+.voices-pick small{overflow:hidden;color:var(--muted);font-size:var(--fs-meta);text-overflow:ellipsis;white-space:nowrap}
+.voices-main{display:flex;flex-direction:column;gap:var(--space-7);min-width:0;min-height:0;padding:18px 22px 22px;overflow-y:auto;scrollbar-width:thin}
+.voices-install{flex-direction:column;align-items:stretch}
+.voices-install p{margin:var(--space-2) 0 var(--space-5);color:var(--muted);font-size:var(--fs-ui);line-height:1.6}
+.voices-install .actions{display:flex;align-items:center;gap:var(--space-5);font-size:var(--fs-ui)}
+.voices-head{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-4)}
+.voices-head input{flex:1 1 220px;min-width:0;padding:1px 7px;border:1px solid transparent;border-radius:var(--r);background:transparent;color:var(--text);font:inherit;font-size:var(--fs-page);font-weight:620;letter-spacing:-.5px;line-height:1.4}
+.voices-head input:hover,.voices-head input:focus{border-color:var(--line);background:var(--surface)}
+.voices-listen{display:flex;align-items:center;gap:var(--space-6);min-width:0}
+.voices-round{display:grid;place-items:center;flex:none;width:48px;height:48px;padding:0;border:0;border-radius:var(--r-round);background:var(--text);color:var(--bg)}
+.voices-round:hover:not(:disabled){background:var(--accent)}
+.voices-round .sidebar-icon{width:20px;height:20px}
+.voices-wave{position:relative;flex:1;min-width:0;height:84px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);color:var(--accent);overflow:hidden}
+.voices-wave canvas{display:block;width:100%;height:100%}
+.voices-wave-head{position:absolute;top:0;bottom:0;left:0;width:2px;background:var(--text);opacity:0}
+.voices-wave.is-live .voices-wave-head{opacity:.9}
+.voices-wave-hint{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:var(--fs-ui)}
+.voices-blend{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) minmax(0,1fr);gap:14px;align-items:end}
+.voices-blend label{display:flex;flex-direction:column;gap:var(--space-3);min-width:0;color:var(--muted);font-size:var(--fs-meta)}
+.voices-window select{width:100%;min-width:0;min-height:36px;box-sizing:border-box;padding:var(--space-4) 11px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);color:var(--text);font:inherit;font-size:var(--fs-ui);line-height:1.5}
+.voices-window input[type=range]{width:100%;min-width:0;height:20px;margin:0;accent-color:var(--accent);background:transparent}
+.voices-window :is(select,input):disabled{opacity:.5}
+.voices-fader{display:flex;flex-direction:column;gap:var(--space-3);min-width:0;padding-bottom:var(--space-1);text-align:center}
+.voices-fader output,.voices-slide output{color:var(--text);font-size:var(--fs-meta);font-variant-numeric:tabular-nums;white-space:nowrap}
+.voices-slide{display:grid;grid-template-columns:54px minmax(0,1fr) 96px;align-items:center;gap:var(--space-5);color:var(--muted);font-size:var(--fs-meta)}
+.voices-slide output{text-align:right}
+.voices-speed{max-width:420px}
+.voices-rack{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:var(--space-6)}
+.voices-module{display:flex;flex-direction:column;gap:var(--space-4);min-width:0;padding:var(--space-6) 14px;border:1px solid var(--line);border-radius:var(--r-lg);background:color-mix(in srgb,var(--surface) 55%,var(--bg))}
+.voices-module.is-on{border-color:color-mix(in srgb,var(--accent) 55%,var(--line));background:color-mix(in srgb,var(--accent) 7%,var(--bg))}
+.voices-module header{display:flex;align-items:center;justify-content:space-between;gap:var(--space-4)}
+.voices-module h4{margin:0;font-size:var(--fs-list);font-weight:var(--fw-strong)}
+.voices-module-dot{flex:none;width:7px;height:7px;border-radius:var(--r-round);background:var(--line)}
+.voices-module.is-on .voices-module-dot{background:var(--accent)}
+.voices-module p{margin:0 0 var(--space-1);color:var(--muted);font-size:var(--fs-meta);line-height:1.5}
+@media(max-width:700px){.voices-mixer{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}.voices-list{max-height:190px;border-right:0;border-bottom:1px solid var(--line)}.voices-main{padding:14px}.voices-blend{grid-template-columns:minmax(0,1fr)}.voices-slide{grid-template-columns:50px minmax(0,1fr) 86px}}
+
+/* Settings › Voice and the setup wizard: the listening engines as supplier rows with a round mark for the one in use,
+   and the meter of a download. */
+.listening-engine.is-active{border-color:color-mix(in srgb,var(--accent) 60%,var(--line))}
+.listening-engine>summary>.engine-use{flex:none;width:16px;height:16px;min-width:0;margin:0;padding:0;accent-color:var(--accent);cursor:pointer}
+.listening-engine>summary>.engine-use:disabled{cursor:default;opacity:.45}
+.listening-engine>summary>.engine-in-use{border-color:color-mix(in srgb,var(--green) 45%,var(--line));color:var(--green)}
+.listening-engine .supplier-settings>p:first-child{margin-top:var(--space-6)}
+.install-meter{height:6px;margin:0 0 var(--space-6);border-radius:var(--r-pill);background:var(--line);overflow:hidden}
+.install-meter>i{display:block;height:100%;border-radius:var(--r-pill);background:var(--accent)}
+
+/* The small places a voice turns up: on the app page, and beside Listen when the voice could not speak. */
+.app-voice{display:flex;align-items:center;gap:var(--space-4);min-width:0;color:var(--muted);font-size:var(--fs-ui)}
+.app-voice .choice-menu{min-width:150px;border:1px solid var(--line);border-radius:var(--r)}
+.app-voice .choice-menu>summary{justify-content:space-between}
+.app-voice .choice-options{top:calc(100% + 5px);bottom:auto;left:0;right:auto;max-height:300px;overflow:auto}
+.speak-problem{color:var(--danger);font-size:var(--fs-meta)}

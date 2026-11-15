@@ -1,7 +1,7 @@
 // Handover mode in the chat (notes/HANDOVER-MODE-PLAN.md): START HANDOVER on the latest handover reply, Send to new
 // chat on the old chat's replies, and the bar both chats show while it runs. Every chat view builds from these.
 import React,{useEffect,useState} from 'react';
-import {SidebarIcon} from './kit';
+import {ChatNotice} from './chat-notice';
 import {modelLabel} from './models';
 import {unpushed} from './handover';
 import type {Chat,Snapshot,Turn} from './types';
@@ -42,11 +42,10 @@ export function HandoverReply({state,t,call}:{state:Snapshot;t:Turn;call:Call}){
 export function HandoverNotice({state,chat,call,closed}:{state:Snapshot;chat?:Chat;call:Call;closed?:()=>void}){
  const old=chat&&liveOld(state,chat);if(!chat||!old)return null;
  const isOld=old.id===chat.id,other=state.chats.find(c=>c.id===(isOld?old.handover!.newChatId:old.id)),waiting=isOld?0:unpushed(state.turns,chat.id,old.handover!.pushedToOld).length;
- return <div className="handover-notice" role="status"><SidebarIcon name="fork"/>
-  <span><strong>Handover mode</strong> · {isOld?<>This chat wrote the handover for “{other?.title||'the new chat'}”. It reads files but does not change them.</>:<>Started from the handover of “{other?.title||'the old chat'}”, open beside you.</>}</span>
+ return <ChatNotice className="handover-notice" role="status" title="Handover mode" actions={<>
   {!isOld&&<button disabled={!waiting} title="Send this chat's new messages to the old chat for its comments" onClick={()=>void call('handoverPush',{chatId:chat.id}).catch(()=>{})}>Show old chat{waiting?' ('+waiting+' new)':''}</button>}
   <button onClick={()=>void call('handoverClose',{chatId:chat.id}).then(()=>closed?.()).catch(()=>{})}>Close handover</button>
- </div>;
+ </>}>{isOld?<>This chat wrote the handover for “{other?.title||'the new chat'}”. It reads files but does not change them.</>:<>Started from the handover of “{other?.title||'the old chat'}”, open beside you.</>}</ChatNotice>;
 }
 
 /** Hand off: the caret menu, the chip and /handoff all send the same command. */
