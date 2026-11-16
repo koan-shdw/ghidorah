@@ -13,11 +13,14 @@ test('a fresh profile reads as skipped everywhere, each row with its next action
 
 // Koan 2026-11-15: the wizard sets up what hears dictation and downloads the voice that reads replies.
 test('listening and the reply voice say what is set up',()=>{
- const voices={installed:true,defaultId:'ring',list:[{id:'heart',name:'Heart'},{id:'ring',name:'Ring machine'}]};
+ const voices={installed:true,ready:true,engine:'kokoro',zonos:{connected:false,voice:'Savannah'},defaultId:'ring',list:[{id:'heart',name:'Heart'},{id:'ring',name:'Ring machine'}]};
  const rows=wizardSummary({...fresh,voice:{listening:{engine:'whisper',hints:true,connected:{deepgram:false,elevenlabs:false}}},voices});
  assert.deepEqual(rows.filter(row=>['Listening','Voice'].includes(row.name)).map(row=>[row.outcome,row.detail,row.action]),[['connected','Whisper, on this PC','Open Voice'],['connected','Kokoro installed · Ring machine','Open Voice']]);
  assert.equal(wizardSummary({...fresh,voice:{listening:{engine:'deepgram',hints:true,connected:{deepgram:true,elevenlabs:false}}}}).find(row=>row.name==='Listening')!.detail,'Deepgram Nova-3, online');
- assert.equal(wizardSummary({...fresh,voices:{...voices,installed:false}}).find(row=>row.name==='Voice')!.detail,'Not installed. Listen and Speak replies need it.');
+ assert.equal(wizardSummary({...fresh,voices:{...voices,installed:false,ready:false,engine:''}}).find(row=>row.name==='Voice')!.detail,'Not installed. Listen and Speak replies need it.');
+ // Zonos 3 Mini in use (Koan 2026-11-16): the row says so, with its voice, and Kokoro need not be installed.
+ const zonos=wizardSummary({...fresh,voices:{...voices,installed:false,engine:'zonos',zonos:{connected:true,voice:'Rupert'}}}).find(row=>row.name==='Voice')!;
+ assert.deepEqual([zonos.outcome,zonos.detail],['connected','Zonos 3 Mini, online · Rupert']);
 });
 
 test('connected, not verified yet and failed come from the live statuses, one row per supplier',()=>{

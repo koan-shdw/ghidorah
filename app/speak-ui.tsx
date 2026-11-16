@@ -26,13 +26,13 @@ export function ListenButton({turn,state,call}:{turn:Turn;state:Snapshot;call:Ca
  const key='turn:'+turn.id,phase=useSpeaking(key),problem=useSyncExternalStore(speaker.subscribe,()=>speaker.problem(key)),voices=state.voices,text=replyAloud(turn,state);
  if(!voices||!text.trim())return null;
  const voice=voiceForChat(voices,chatOf(state,turn.chatId));
- return <><button aria-pressed={!!phase} aria-label={phase?'Stop reading':'Listen to this reply'} title={phase?'Stop reading':voices.installed?'Read this reply aloud · '+voice.name:'Install the voice to hear replies'} onClick={()=>{if(phase)speaker.stop();else if(!voices.installed)void call('voicesOpen').catch(()=>{});else void speaker.say(key,text,voice);}}><Icon name={phase?'stop':'speaker'}/>{phase==='loading'?'Starting…':phase?'Stop':'Listen'}</button>{problem&&<span className="speak-problem" role="alert">{problem}</span>}</>;
+ return <><button aria-pressed={!!phase} aria-label={phase?'Stop reading':'Listen to this reply'} title={phase?'Stop reading':voices.ready?'Read this reply aloud · '+voice.name:'Install the voice to hear replies'} onClick={()=>{if(phase)speaker.stop();else if(!voices.ready)void call('voicesOpen').catch(()=>{});else void speaker.say(key,text,voice);}}><Icon name={phase?'stop':'speaker'}/>{phase==='loading'?'Starting…':phase?'Stop':'Listen'}</button>{problem&&<span className="speak-problem" role="alert">{problem}</span>}</>;
 }
 
 /** In the chat bar: once on, a reply that finishes while its chat is on screen is read aloud. One switch for every chat.
  * A chat open in its own window or a split pane is read there: `elsewhere` keeps the main view's copy quiet. */
 export function SpeakReplies({state,chatId,turns,call,elsewhere=false}:{state:Snapshot;chatId:string;turns:Turn[];call:Call;elsewhere?:boolean}){
- const voices=state.voices,on=!!voices?.speakReplies&&!!voices.installed,seen=useRef<Map<string,string>|null>(null);
+ const voices=state.voices,on=!!voices?.speakReplies&&!!voices.ready,seen=useRef<Map<string,string>|null>(null);
  useEffect(()=>{
   const before=seen.current,now=new Map(turns.map(turn=>[turn.id,turn.status]));seen.current=now;
   if(!before||!on||!voices||elsewhere)return;
@@ -43,9 +43,9 @@ export function SpeakReplies({state,chatId,turns,call,elsewhere=false}:{state:Sn
   }
  },[turns,on]);
  if(!voices)return null;
- return <Switch className="speak-replies" checked={!!voices.speakReplies} ariaLabel="Speak replies" title={voices.installed?'Reads each reply aloud when it is finished':'Install the voice to hear replies'} label="Speak replies" onChange={next=>{
+ return <Switch className="speak-replies" checked={!!voices.speakReplies} ariaLabel="Speak replies" title={voices.ready?'Reads each reply aloud when it is finished':'Install the voice to hear replies'} label="Speak replies" onChange={next=>{
   if(!next)speaker.stop();
-  if(next&&!voices.installed){void call('voicesOpen').catch(()=>{});return;}
+  if(next&&!voices.ready){void call('voicesOpen').catch(()=>{});return;}
   void call('voicesSpeakReplies',{on:next}).catch(()=>{});
  }}/>;
 }
@@ -57,7 +57,7 @@ export function AppVoice({app,state,call}:{app:SavedApp;state:Snapshot;call:Call
  const own=voices.list.some(voice=>voice.id===app.voice)?app.voice!:'',standard=voices.list.find(voice=>voice.id===voices.defaultId)||voices.list[0],voice=voices.list.find(row=>row.id===own)||standard;
  return <div className="app-voice"><span>Voice</span>
   <ChoiceMenu label="This app's voice" value={own} options={{'':'Default · '+standard.name,...Object.fromEntries(voices.list.map(row=>[row.id,row.name]))}} onChange={id=>void call('savedAppSave',{id:app.id,voice:id}).catch(()=>{})}/>
-  <Button variant="outline" iconOnly icon={phase?'stop':'play'} aria-pressed={!!phase} aria-label={phase?'Stop':'Play this app\'s voice'} title={voices.installed?(phase?'Stop':'Play this app\'s voice'):'Install the voice to hear it'} onClick={()=>{if(phase)speaker.stop();else if(!voices.installed)void call('voicesOpen').catch(()=>{});else void speaker.say(key,SAMPLE,voice);}}/>
+  <Button variant="outline" iconOnly icon={phase?'stop':'play'} aria-pressed={!!phase} aria-label={phase?'Stop':'Play this app\'s voice'} title={voices.ready?(phase?'Stop':'Play this app\'s voice'):'Install the voice to hear it'} onClick={()=>{if(phase)speaker.stop();else if(!voices.ready)void call('voicesOpen').catch(()=>{});else void speaker.say(key,SAMPLE,voice);}}/>
   <Button variant="outline" title="Make and change voices" onClick={()=>void call('voicesOpen').catch(()=>{})}>Voices…</Button>
  </div>;
 }

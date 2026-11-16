@@ -30,6 +30,7 @@ import {changeAppGroup,saveApp,removeApp,appTool,appFolderName,appTodo,listAppsT
 import {app,BrowserWindow,ipcMain,dialog,Tray,Menu,Notification,nativeImage,shell,powerMonitor,powerSaveBlocker,protocol,screen,globalShortcut,webContents} from 'electron';
 import {SpeechWorker} from './speech-worker';
 import {VoiceWorker} from './voice-worker';
+import {ZonosSpeaker} from './zonos-speaker';
 import {OnlineDictation} from './online-dictation';
 import type {OnlineEngine} from './listening';
 import fs from 'node:fs/promises';
@@ -133,7 +134,7 @@ import {connectionsHandlers} from './main/handlers/connections';
 import {pluginsHandlers} from './main/handlers/plugins';
 import {settingsHandlers} from './main/handlers/settings';
 import {voicesHandlers} from './main/handlers/voices';
-import {voicesRow,voicesView} from './main/voices';
+import {voicesRow,voicesView,zyphraEndpoint,zyphraKey} from './main/voices';
 import {sharingHandlers} from './main/handlers/sharing';
 import {windowsHandlers} from './main/handlers/windows';
 import {workspaceHandlers} from './main/handlers/workspace';
@@ -512,6 +513,10 @@ export const speaker=new VoiceWorker(key=>{
   const {runtime}=JSON.parse(key),child=spawn(backend.python,[path.join(root,'backend','host.py')],{windowsHide:true,stdio:'pipe',env:backend.environment()});
   child.stdin.write(JSON.stringify({operation:'voice_stream',credential_namespace:namespace,runtime})+'\n');return child;
 },(owner,event)=>{const target=webContents.fromId(owner);if(target&&!target.isDestroyed())target.send('speech',event);});
+// Zonos 3 Mini (Koan 2026-11-16): the reply voice's online engine on the user's Zyphra key, held once read.
+let zyphraHeld='';
+export const heldZyphraKey=()=>zyphraHeld,holdZyphraKey=(key:string)=>{zyphraHeld=key;};
+export const zonosSpeaker=new ZonosSpeaker(()=>zyphraKey(),(owner,event)=>{const target=webContents.fromId(owner);if(target&&!target.isDestroyed())target.send('speech',event);},()=>zyphraEndpoint());
 export const autoSpoken=new Set<string>();
 const speakOwners=new Set<number>();
 export const voicesMethods=new Set(['voicesState','voicesSave','voicesRemove','voicesDefault','voicesInstall','voicesInstallCancel','speakStart','speakStop','window']);
@@ -1639,7 +1644,7 @@ app.whenReady().then(async()=>{
     if(voiceWindow&&event.sender===voiceWindow.webContents){if(event.senderFrame!==event.sender.mainFrame||event.senderFrame?.url!==pathToFileURL(path.join(__dirname,'index.html')).href+'#voice')throw Error('Request refused');return voiceRequest(method,args||{});}
     // Speech belongs to the window that asked for it; a window that closes or navigates takes its speech along.
     const speakFor=(owner:Electron.WebContents)=>{
-      if(!speakOwners.has(owner.id)){speakOwners.add(owner.id);const id=owner.id;owner.once('destroyed',()=>{speakOwners.delete(id);speaker.release(id);});owner.on('did-start-navigation',()=>speaker.release(id));}
+      if(!speakOwners.has(owner.id)){speakOwners.add(owner.id);const id=owner.id;owner.once('destroyed',()=>{speakOwners.delete(id);speaker.release(id);zonosSpeaker.release(id);});owner.on('did-start-navigation',()=>{speaker.release(id);zonosSpeaker.release(id);});}
       return handlers[method]({...args,owner:owner.id});
     };
     if(voicesWindow&&event.sender===voicesWindow.webContents){

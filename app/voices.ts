@@ -21,9 +21,11 @@ export const EFFECTS:Effect[]=[
 ];
 
 export interface SavedVoice {id:string;name:string;a:string;b:string;balance:number;speed:number;fx:Record<EffectId,EffectSetting>}
-/** What the windows see: the saved voices, the chats whose app has its own voice, and whether the voice is installed. */
-export interface VoicesView {list:SavedVoice[];defaultId:string;speakReplies:boolean;byChat:Record<string,string>;installed:boolean;installing:boolean;progress:number|null}
-export type VoicesRow={id:'voices';voices?:unknown;defaultId?:unknown;speakReplies?:unknown;installed?:unknown};
+/** What the windows see: the saved voices, the chats whose app has its own voice, whether Kokoro is installed, and the
+ * reply engine in use (Kokoro or Zonos 3 Mini, '' when neither is set up; ready when it can speak). */
+export interface VoicesView {list:SavedVoice[];defaultId:string;speakReplies:boolean;byChat:Record<string,string>;installed:boolean;installing:boolean;progress:number|null;
+ engine:import('./reply-engines').ReplyEngine|'';ready:boolean;zonos:{connected:boolean;voice:string}}
+export type VoicesRow={id:'voices';voices?:unknown;defaultId?:unknown;speakReplies?:unknown;installed?:unknown}&import('./reply-engines').ReplyEngineRow;
 
 function starter(id:string,name:string,a:string,effects:Partial<Record<EffectId,[number,number]>>={}):SavedVoice{
  const fx={} as Record<EffectId,EffectSetting>;

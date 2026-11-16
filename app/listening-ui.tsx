@@ -1,10 +1,12 @@
 // Settings › Voice: the Listening card and the Reply voice card (Koan 2026-11-15, his pick: version 2 of the
-// listening setup, the list). The setup wizard shows the same two cards as its Listening and Voice steps.
+// listening setup, the list; 11-16: the Reply voice card lists Kokoro and Zonos 3 Mini the same way). The setup
+// wizard shows the same two cards as its Listening and Voice steps.
 // Listening: one row per engine, drawn as Connections draws a supplier. The round mark picks the engine in use among
 // those that are set up; a row opens to what the engine needs, a download for Whisper or a key for an online engine.
 import React,{useState} from 'react';
 import {ChoiceMenu,Switch} from './kit';
 import {ENGINES,ENGINE_IDS,HINT_COST,WAVE_STYLES,type EngineId,type OnlineEngine} from './listening';
+import {REPLY_ENGINES,REPLY_ENGINE_IDS,ZONOS_VOICES,zonosVoiceLabel,type ReplyEngine} from './reply-engines';
 import {SettingsCard} from './settings-dialog';
 import type {Snapshot} from './types';
 import {VOICE_SIZE} from './voices';
@@ -65,18 +67,50 @@ export function ListeningSettings({state,call}:{state:Snapshot;call:Call}){
  </SettingsCard>;
 }
 
-/** The voice that reads replies aloud: its one download, then the default voice and the Voices window. */
-export function ReplyVoiceSettings({state,call}:{state:Snapshot;call:Call}){
- const voices=state.voices;
- if(!voices)return null;
- return <SettingsCard title="Reply voice" className="reply-voice-settings">{voices.installed?<>
+/** Kokoro on this PC: its one download, then the default voice and the Voices window. */
+function KokoroSetup({state,call}:{state:Snapshot;call:Call}){
+ const voices=state.voices!;
+ return voices.installed?<>
    <div className="connection-field"><span>Default voice</span><ChoiceMenu label="Default voice" value={voices.defaultId} options={Object.fromEntries(voices.list.map(voice=>[voice.id,voice.name]))} onChange={id=>void call('voicesDefault',{id}).catch(fail)}/><small>An app can be given its own on its page.</small></div>
    <div className="connection-field"><span>Status</span><span className="settings-status" role="status">Installed</span></div>
    <div className="actions"><button onClick={()=>void call('voicesOpen').catch(fail)}>Open Voices</button></div>
   </>:<>
-   <p className="hint">Kokoro reads replies aloud on this computer, with no service. It is a one-time {VOICE_SIZE} download and nothing is fetched until you press Install.</p>
+   <p className="hint">{REPLY_ENGINES.kokoro.facts}</p>
    {voices.installing&&<><div className="connection-field"><span>Status</span><span className="settings-status" role="status">Installing…{percent(voices.progress)}</span></div><Meter progress={voices.progress}/></>}
    <div className="actions">{voices.installing?<button onClick={()=>void call('voicesInstallCancel').catch(fail)}>Cancel</button>:<button className="primary" onClick={()=>void call('voicesInstall').catch(fail)}>Install · {VOICE_SIZE}</button>}</div>
-  </>}
+  </>;
+}
+/** Zonos 3 Mini on Zyphra Cloud: what it costs, its key, and the Zonos voice replies are read in. */
+function ZonosSetup({state,call}:{state:Snapshot;call:Call}){
+ const engine=REPLY_ENGINES.zonos,zonos=state.voices!.zonos,[key,setKey]=useState(''),[busy,setBusy]=useState(false);
+ const save=()=>{setBusy(true);void call('voicesZonosKey',{key}).then(()=>setKey(''),fail).finally(()=>setBusy(false));};
+ return <>
+  <p>{engine.facts}</p>
+  <div className="connection-field"><span>Zyphra Cloud</span><span className="settings-status" role="status">{zonos.connected?'Connected':'Not connected'}</span></div>
+  <p className="hint">{engine.price}. A reply goes as its first sentence, then the rest in one piece.</p>
+  <label>API key<input aria-label="Zyphra API key" type="password" autoComplete="off" value={key} onChange={event=>setKey(event.target.value)} placeholder={zonos.connected?'Enter a replacement key':'Paste API key'}/></label>
+  <div className="actions"><button className="primary" disabled={busy||!key.trim()} onClick={save}>{busy?'Checking…':'Save Zyphra connection'}</button>{zonos.connected&&<button disabled={busy} onClick={()=>void call('voicesZonosDisconnect').catch(fail)}>Disconnect</button>}<button onClick={()=>void call('link',{url:engine.keys}).catch(fail)}>Get API key ↗</button></div>
+  <div className="connection-field"><span>Zonos voice</span><ChoiceMenu label="Zonos voice" value={zonos.voice} options={Object.fromEntries(ZONOS_VOICES.map(voice=>[voice.id,zonosVoiceLabel(voice.id)]))} onChange={voice=>void call('voicesZonosVoice',{voice}).catch(fail)}/><small>Replies are read in this voice, with the effects of the saved voice. Blend and speed are Kokoro's.</small></div>
+  <p className="hint">Encrypted in Windows Credential Manager.</p>
+ </>;
+}
+/** The voice that reads replies aloud (Koan 2026-11-16): Kokoro on this PC and Zonos 3 Mini online, listed the way the
+ * Listening card lists its engines. The round mark picks the one in use among those that are set up. */
+export function ReplyVoiceSettings({state,call}:{state:Snapshot;call:Call}){
+ const voices=state.voices,[open,setOpen]=useState<Partial<Record<ReplyEngine,boolean>>>(()=>({[voices?.engine||'kokoro']:true}));
+ if(!voices)return null;
+ const ready=(id:ReplyEngine)=>id==='kokoro'?voices.installed:voices.zonos.connected;
+ const status=(id:ReplyEngine)=>voices.engine===id?'In use':ready(id)?'Ready':id==='kokoro'?(voices.installing?'Installing…'+percent(voices.progress):'Not installed'):'Not connected';
+ return <SettingsCard title="Reply voice" className="reply-voice-settings">
+  <div role="radiogroup" aria-label="Reply voice engine">{REPLY_ENGINE_IDS.map(id=>{
+   const engine=REPLY_ENGINES[id],active=voices.engine===id;
+   return <details key={id} className={'supplier-pill listening-engine'+(active?' is-active':'')} data-reply-engine={id} open={!!open[id]} onToggle={event=>{const shown=event.currentTarget.open;setOpen(held=>held[id]===shown?held:{...held,[id]:shown});}}>
+    <summary>
+     <input type="radio" name="reply-engine" className="engine-use" aria-label={'Use '+engine.name} checked={active} disabled={!ready(id)} title={ready(id)?'Use this voice':'Set it up first'} onClick={event=>event.stopPropagation()} onChange={()=>void call('voicesEngine',{engine:id}).catch(fail)}/>
+     <strong>{engine.name}</strong><span>{engine.where} · {engine.price}</span><span className={active?'engine-in-use':undefined} role="status">{status(id)}</span><span className="supplier-chevron">⌄</span>
+    </summary>
+    <div className="supplier-settings">{id==='kokoro'?<KokoroSetup state={state} call={call}/>:<ZonosSetup state={state} call={call}/>}</div>
+   </details>;
+  })}</div>
  </SettingsCard>;
 }

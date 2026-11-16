@@ -33,7 +33,7 @@ export function wizardSummary(state:Snapshot):SummaryRow[]{
  rows.push({name:'Jev',outcome:state.jev?.connected?outcomeOf(state.jev.status):'skipped',detail:state.jev?.connected?state.jev.status:'Not connected. The other pickers work without it.',page:'connections',action:'Open Connections'});
  const engine=state.voice?.listening?.engine,voices=state.voices;
  rows.push({name:'Listening',outcome:engine?'connected':'skipped',detail:engine?ENGINES[engine].name+(ENGINES[engine].model?' '+ENGINES[engine].model:'')+(engine==='whisper'?', on this PC':', online'):'No listening engine set up. Dictation needs one.',page:'voice',action:'Open Voice'});
- rows.push({name:'Voice',outcome:voices?.installed?'connected':'skipped',detail:voices?.installed?'Kokoro installed · '+(voices.list.find(voice=>voice.id===voices.defaultId)?.name||''):'Not installed. Listen and Speak replies need it.',page:'voice',action:'Open Voice'});
+ rows.push({name:'Voice',outcome:voices?.ready?'connected':'skipped',detail:voices?.engine==='zonos'?'Zonos 3 Mini, online · '+voices.zonos.voice:voices?.ready?'Kokoro installed · '+(voices.list.find(voice=>voice.id===voices.defaultId)?.name||''):'Not installed. Listen and Speak replies need it.',page:'voice',action:'Open Voice'});
  rows.push({name:'Start with Windows',outcome:state.alwaysOn?.startWithWindows?'connected':'skipped',detail:state.alwaysOn?.startWithWindows?'On':'Off',page:'always-on',action:'Open Always on'});
  const remote=state.remote;
  rows.push({name:'Remote',outcome:!remote?.enabled?'skipped':remote.status==='running'?'connected':remote.status==='failed'?'failed':'unverified',detail:!remote?.enabled?'Off':remote.status==='running'?'Connected to Telegram':remote.message||'Connecting',page:'remote',action:'Open Remote'});
@@ -59,7 +59,7 @@ export function Wizard({state,call,suppliers,jev,openSettings,appError}:{state:S
    {step?.id==='claude'&&<section className="connections"><h3>Claude Code</h3><ClaudeConnection state={state} call={call}/></section>}
    {step?.id==='jev'&&jev}
    {step?.id==='listening'&&<><ListeningSettings state={state} call={call}/><p className="hint">Skip this and dictation stays off until you set it up in Settings › Voice.</p></>}
-   {step?.id==='voice'&&<><ReplyVoiceSettings state={state} call={call}/><p className="hint">Skip this and replies are not read aloud until you install the voice in Settings › Voice.</p></>}
+   {step?.id==='voice'&&<><ReplyVoiceSettings state={state} call={call}/><p className="hint">Skip this and replies are not read aloud until you set up a reply voice in Settings › Voice.</p></>}
    {step?.id==='always-on'&&<AlwaysOnSettings state={state} call={call}/>}
    {step?.id==='remote'&&<RemoteSettings state={state} call={call}/>}
    {step?.id==='sharing'&&<ShareSetup state={state} call={call}/>}

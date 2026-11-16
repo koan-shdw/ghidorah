@@ -12,7 +12,8 @@ import './voices.css';
 const api=window.desktop;
 const failure=(error:unknown)=>String(error).replace(/^Error: /,'').replace(/^Error invoking remote method 'app': (?:Error: )?/,'');
 // What the engine is asked for: the voice without its effects. Two voices with the same key share one plain take.
-const plainKey=(voice:SavedVoice)=>[voice.a,blended(voice)?voice.b:'',blended(voice)?voice.balance:0,voice.speed].join('|');
+// Zonos 3 Mini reads in its own chosen voice, so every saved voice shares its one take (Koan 2026-11-16).
+const plainKey=(voice:SavedVoice,view:VoicesView|null)=>view?.engine==='zonos'?'zonos|'+view.zonos.voice:[voice.a,blended(voice)?voice.b:'',blended(voice)?voice.balance:0,voice.speed].join('|');
 
 function wavUrl(samples:Float32Array){
  const bytes=new Uint8Array(44+samples.length*2),view=new DataView(bytes.buffer);
@@ -86,11 +87,12 @@ export function VoicesWindow(){
  function show(samples:Float32Array|null){shaped.current=samples;paint(canvas.current,samples);setDrawn(!!samples);}
  // The voice's sound with its effects: the plain take from the engine (asked for only when ask is set), then the effects here.
  async function sound(voice:SavedVoice,ask:boolean){
-  if(plain.current?.key!==plainKey(voice)){
+  const key=plainKey(voice,view);
+  if(plain.current?.key!==key){
    if(!ask)return null;
    setLoading(true);const samples=await speaker.plain('editor',SAMPLE,voice).finally(()=>setLoading(false));
    if(!samples)return null;
-   plain.current={key:plainKey(voice),samples};
+   plain.current={key,samples};
   }
   return render(plain.current.samples,voice.fx);
  }
@@ -120,9 +122,9 @@ export function VoicesWindow(){
     const audio=player.current!,at=audio.currentTime;setSource(out);
     audio.addEventListener('loadedmetadata',()=>{if(mine!==turn.current)return;audio.currentTime=Math.min(at,Math.max(0,audio.duration-0.05));void audio.play().catch(()=>{});},{once:true});
    }).catch(()=>{});
-  },plain.current?.key===plainKey(draft)?90:250);
+  },plain.current?.key===plainKey(draft,view)?90:250);
   return()=>clearTimeout(timer);
- },[draft]);
+ },[draft,view?.engine,view?.zonos.voice]);
  useEffect(()=>{
   if(!playing)return;
   let frame=0;const tick=()=>{const audio=player.current;if(audio?.duration&&head.current)head.current.style.left=(audio.currentTime/audio.duration*100)+'%';frame=requestAnimationFrame(tick);};
@@ -132,7 +134,7 @@ export function VoicesWindow(){
  useEffect(()=>{const element=canvas.current;if(!element)return;const watch=new ResizeObserver(()=>paint(element,shaped.current));watch.observe(element);return()=>watch.disconnect();},[open]);
 
  if(!view||!draft)return <p className="voices-opening" role={error?'alert':'status'}>{error||'Opening Voices…'}</p>;
- const rows=view.list.map(voice=>voice.id===draft.id?draft:voice),ready=view.installed;
+ const rows=view.list.map(voice=>voice.id===draft.id?draft:voice),ready=view.ready;
  function pick(id:string){if(id===currentId)return;flush();halt();setCurrentId(id);setDraft(view!.list.find(voice=>voice.id===id)!);}
  function playRow(voice:SavedVoice){
   const key='row:'+voice.id;

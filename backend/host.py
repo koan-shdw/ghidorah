@@ -13,7 +13,7 @@ sys.path.insert(0, str(FORK))
 
 
 # Names stored as Trismegistus/<name> in Credential Manager. Every value is also registered with the scrubber.
-KEY_NAMES = ('deepseek', 'typesafe', 'alibaba', 'openrouter-api', 'minimax', 'minimax-cn', 'mistral', 'openai-api', 'gemini', 'gemini-voice-free', 'deepgram', 'elevenlabs', 'xai', 'kimi-coding', 'zai', 'fastino', 'notdiamond', 'telegram', 'remote-code')
+KEY_NAMES = ('deepseek', 'typesafe', 'alibaba', 'openrouter-api', 'minimax', 'minimax-cn', 'mistral', 'openai-api', 'gemini', 'gemini-voice-free', 'deepgram', 'elevenlabs', 'zyphra', 'xai', 'kimi-coding', 'zai', 'fastino', 'notdiamond', 'telegram', 'remote-code')
 
 def main():
     request = json.loads(sys.stdin.buffer.readline())
