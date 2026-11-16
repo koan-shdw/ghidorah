@@ -37,9 +37,10 @@ test('draft acceptance and engine cursors retain precisely the owning attachment
  store.db.close();
 });
 
-test('videos need a Gemini model: other models get the connect-Gemini message',()=>{
+test('videos need a Gemini model: other models are asked to choose Gemini, or to connect it',()=>{
  const video={id:'00000000-0000-4000-8000-000000000001',chatId:'c',name:'clip.mp4',size:4096,kind:'video' as const,sha256:'',contentHash:''};
  assert.equal(attachmentMismatch([video],true,'api:gemini:gemini-3.8-flash'),null);
- for(const model of ['deepseek-flash','gpt-6-astra','claude-code:opus','api:gemini:gemma-3-27b-it','api:vertex:gemini-3.8-flash'])assert.match(attachmentMismatch([video],true,model)!,/Videos go to Gemini/);
+ for(const model of ['deepseek-flash','gpt-6-astra','claude-code:opus','api:gemini:gemma-3-27b-it','api:vertex:gemini-3.8-flash'])assert.match(attachmentMismatch([video],true,model)!,/Videos go to Gemini: connect Gemini in Connections/);
+ assert.match(attachmentMismatch([video],true,'deepseek-flash',true)!,/Videos go to Gemini: choose Gemini for this message/);
  assert.equal(readsVideo('api:gemini:gemini-3.6-flash'),true);assert.equal(readsVideo('api:openrouter-api:google/gemini-3.6-flash'),false);
 });

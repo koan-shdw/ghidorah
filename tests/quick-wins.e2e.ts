@@ -58,11 +58,17 @@ try{
  await page.screenshot({path:path.join(data,'video-attached.png')});
  await call('modelSelection',{chatId:videoChat,model:'deepseek-flash',selected:true});
  const videoTurn=crypto.randomUUID();await call('submit',{id:videoTurn,chatId:videoChat,text:'Describe this clip.'});
+ // With another model picked the message stops and asks for Gemini (Koan's call, 2026-11-16); choosing it sends.
  s=await wait(s=>s.turns.some((t:any)=>t.id===videoTurn&&['completed','failed','needs-model'].includes(t.status)));
- const turn=s.turns.find((t:any)=>t.id===videoTurn);assert.equal(turn.status,'completed',turn.error);assert.equal(turn.model,gemini);assert.equal(turn.routeNotice,'Videos go to Gemini.');
+ let turn=s.turns.find((t:any)=>t.id===videoTurn);assert.equal(turn.status,'needs-model');assert.equal(turn.error,'This conversation has a video. Videos go to Gemini: choose Gemini for this message.');
+ await page.getByText('Videos go to Gemini: choose Gemini for this message.',{exact:false}).first().waitFor();await page.getByRole('combobox',{name:'Replace DeepSeek',exact:false}).first().waitFor();
+ await page.screenshot({path:path.join(data,'video-choose-gemini.png')});
+ await call('chooseTurnModel',{id:videoTurn,replace:'deepseek-flash',model:gemini});
+ s=await wait(s=>s.turns.some((t:any)=>t.id===videoTurn&&['completed','failed','needs-model'].includes(t.status)));
+ turn=s.turns.find((t:any)=>t.id===videoTurn);assert.equal(turn.status,'completed',turn.error);assert.equal(turn.model,gemini);
  const sent=(await fs.readFile(path.join(data,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line)).findLast((row:any)=>row.provider==='gemini');
  assert.match(JSON.stringify(sent.body),/"inlineData":\{"mimeType":"video\/mp4","data":"BwcH/);
- console.log('PASS 2d dropped video went to Gemini as inline video with DeepSeek picked');
+ console.log('PASS 2d with DeepSeek picked a video stops and asks for Gemini; chosen, it goes to Gemini as inline video');
  await call('apiDisconnect',{provider:'gemini'});
  const noGemini=await call('addProject');await open(noGemini);await drop('clip.mp4');
  await page.getByText(/Videos go to Gemini\. Connect Gemini in Connections to send this video\./).first().waitFor();

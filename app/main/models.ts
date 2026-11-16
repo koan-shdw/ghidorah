@@ -13,7 +13,7 @@ export function connectedModels(){return [...(connected?deepseekModels():[]),...
 export function availableModels(){return connectedModels().filter(model=>!blockedFor(health.rows(),model)&&(providerFor(model)!=='claude-code'||claudeExecutable));}
 export function unavailableMessage(model:string){const blocked=blockedFor(health.rows(),model);return modelLabel(model,claude.models)+': '+(blocked?availabilityMessage(blocked):'Not connected or available')+'. Choose another model or check account usage.';}
 export function recordRoute(turnId:string,decision:{reason:string;[key:string]:unknown}){store.put('route',{...decision,id:randomUUID(),turnId,created:Date.now()});}
-export function inputMismatch(turn:Turn){return attachmentMismatch(conversationAttachments(store.where<Turn>('turn','chatId',turn.chatId),turn),visionModels[turn.model]===true,turn.model);}
+export function inputMismatch(turn:Turn){return attachmentMismatch(conversationAttachments(store.where<Turn>('turn','chatId',turn.chatId),turn),visionModels[turn.model]===true,turn.model,availableModels().some(readsVideo));}
 // The Gemini model a video goes to: the one picked or already in the chat, else the newest connected.
 export function videoModel(chat:Chat,turn?:Turn){
   const gemini=availableModels().filter(readsVideo),created=new Map((apiProviders?.rows()||[]).flatMap(row=>row.models.map(model=>[model.id,model.created||null] as const)));

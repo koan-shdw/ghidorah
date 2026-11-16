@@ -45,7 +45,8 @@ export function conversationAttachments(turns:Turn[],current:Turn){
 }
 // Videos go to Google's Gemini models only: Hermes's Gemini adapter is the transport that sends them.
 export const readsVideo=(model:string)=>/^api:gemini:gemini-/.test(model);
-export function attachmentMismatch(attachments:Attachment[],vision:boolean,model=''){
- if(attachments.some(item=>item.kind==='video')&&!readsVideo(model))return 'This conversation has a video. Videos go to Gemini: connect Gemini in Connections.';
+// A video with another model picked stops and asks (Koan 2026-11-16): choose Gemini when it is connected, else connect it.
+export function attachmentMismatch(attachments:Attachment[],vision:boolean,model='',geminiReady=false){
+ if(attachments.some(item=>item.kind==='video')&&!readsVideo(model))return geminiReady?'This conversation has a video. Videos go to Gemini: choose Gemini for this message.':'This conversation has a video. Videos go to Gemini: connect Gemini in Connections.';
  return attachments.some(item=>item.kind==='image'||item.kind==='pdf')&&!vision?'This conversation has images or PDF pages. Choose a model with image input.':null;
 }
