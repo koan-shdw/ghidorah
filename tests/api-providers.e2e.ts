@@ -13,9 +13,10 @@ import {mainWindow} from './fixtures/poll-state';
 const root=path.resolve('.'),data=await fs.mkdtemp(path.join(root,'work','api-providers-')),folder=await fs.mkdtemp(path.join(root,'work','api-provider-files-'));await fs.writeFile(path.join(data,'health.json'),'{}');
 const namespace='Trismegistus/Test/'+path.basename(data),host=new Backend(root,data,namespace,()=>{});await host.host('initialize');
 const server=spawn(PYTHON,['tests/fake_api_providers.py',data],{windowsHide:true,stdio:'pipe'}),lines=createInterface({input:server.stdout});server.stderr.on('data',b=>process.stderr.write(b));const [line]=await once(lines,'line');
+let routingCalls=0;
 const routing=createServer(async(req,res)=>{
  res.setHeader('Content-Type','application/json');if(req.url==='/v1/models'){res.end(JSON.stringify({models:[{name:'jev-latest'}]}));return;}
- let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);
+ routingCalls++;let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);
  const answers=Object.fromEntries(Object.entries(body.questions).map(([name,q]:[string,any])=>{const choices=Object.keys(q.criteria),choice=name==='primary'||name==='lead'?choices.find(c=>c.startsWith('api:gemini:'))||'ask':name==='execution'?'single':name==='collaboration'?'ownership':name.startsWith('include_')?'omit':'ask';return [name,{type:'choice',choice,confidence:0.95}];}));
  res.end(JSON.stringify({answers,usage:{input_tokens:15,output_tokens:10}}));
 });await new Promise<void>(resolve=>routing.listen(0,'127.0.0.1',resolve));
@@ -70,7 +71,12 @@ try{
   const before=await fs.readFile(path.join(data,'requests.jsonl'),'utf8');await assert.rejects(()=>send(isolated,model,'Refuse before provider IO.'));assert.equal(await fs.readFile(path.join(data,'requests.jsonl'),'utf8'),before);
   await call('apiRetry',{provider:row.provider});await done(await send(isolated,model,'Account retry recovered.'));console.log(row.provider+' exhaustion/retry passed');
  }
- for(const row of connected.apiProviders){await call('jevSave',{key:'synthetic-typesafe-api-regression-key',summaryModel:row.models[0].id,confidence:0.7,timeoutMs:3000});const summarized=await done(await send(chat,gemini,'Exercise supplier routing summary.'));assert.equal(summarized.routingUsage?.summaryModel,row.models[0].id);assert.equal(summarized.routingUsage?.summaryTokens,120);console.log(row.provider+' routing summary passed');}
+ // A picked model gets the message straight, with no routing call (Koan 2026-11-16: keep today's way).
+ await call('jevSave',{key:'synthetic-typesafe-api-regression-key',summaryModel:gemini,confidence:0.7,timeoutMs:3000});
+ const callsBefore=routingCalls,straight=await done(await send(chat,gemini,'Picked model goes straight.'));
+ assert.equal(straight.model,gemini);assert.ok(!straight.routingUsage,'A picked model must not be routed');assert.equal(routingCalls,callsBefore,'A picked model must not call the router');console.log('picked model skips routing passed');
+ // With no model picked the message is routed, and each supplier model can write the routing summary.
+ for(const row of connected.apiProviders){await call('jevSave',{key:'synthetic-typesafe-api-regression-key',summaryModel:row.models[0].id,confidence:0.7,timeoutMs:3000});const id=crypto.randomUUID();await call('submit',{id,chatId:chat,text:'Exercise supplier routing summary.',models:[]});const summarized=await done(id);assert.equal(summarized.routingUsage?.summaryModel,row.models[0].id);assert.equal(summarized.routingUsage?.summaryTokens,120);assert.equal(summarized.model,gemini);console.log(row.provider+' routing summary passed');}
  await call('jevDisconnect');
  const imageChat=await call('addProject');await call('addModel',{chatId:imageChat,model:gemini});
  await call('attachmentAdd',{chatId:imageChat,name:'pixel.png',bytes:Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8zwACTGCSAQANHQEDgslx/wAAAABJRU5ErkJggg==','base64'))});
@@ -82,7 +88,7 @@ try{
  assert.ok((await call('state')).turns.some((t:any)=>t.chatId===chat&&t.text.includes('copperfinch')));
  await call('apiDisconnect',{provider:'gemini'});await wait(s=>s.backend==='ready'&&!s.apiProviders.find((r:any)=>r.provider==='gemini').connected);assert.ok(!(await call('state')).availableModels.includes(gemini));
  assert.equal(await instance.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().some(w=>w.isVisible())),false);
- await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({chat,providers:connected.apiProviders.map((r:any)=>r.provider),requests:requests.length,checks:['setup-no-prompt','metadata-filter','per-chat-models','model-pool-clicks','favourites','actual-ui-send','streaming','supplier-approved-writes','supplier-routing-summaries','gemini-image-transport','native-gemini','openai-and-xai-responses','cancellation-recovery','denied-write','supplier-exhaustion-blocks','explicit-retry','metadata-outage','restart','disconnect']},null,2));console.log('PASS',data);
+ await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({chat,providers:connected.apiProviders.map((r:any)=>r.provider),requests:requests.length,checks:['setup-no-prompt','metadata-filter','per-chat-models','model-pool-clicks','favourites','actual-ui-send','streaming','supplier-approved-writes','picked-model-skips-routing','supplier-routing-summaries','gemini-image-transport','native-gemini','openai-and-xai-responses','cancellation-recovery','denied-write','supplier-exhaustion-blocks','explicit-retry','metadata-outage','restart','disconnect']},null,2));console.log('PASS',data);
 }finally{
  await instance.evaluate(({app})=>app.quit()).catch(()=>{});await instance.close().catch(()=>{});server.stdin.end();lines.close();routing.closeAllConnections();routing.close();
  for(const provider of [...Object.keys(urls),'typesafe'])await host.host('delete_key',{provider});
