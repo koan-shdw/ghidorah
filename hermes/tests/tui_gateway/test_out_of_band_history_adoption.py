@@ -46,6 +46,27 @@ def test_next_turn_adopts_rows_another_writer_appended(tmp_path, monkeypatch):
     assert len(session["history"]) == 4 and session["history_version"] == 1
 
 
+def test_the_gateways_own_switch_marker_is_not_adopted(tmp_path, monkeypatch):
+    """Ghidorah 2026-11-16: ``_append_model_switch_marker`` puts the marker in memory (no row id) and writes
+    its DB row separately. That row is not a foreign turn: adopting it put the marker in the history twice and
+    the next request sent it twice. A real foreign turn after the switch still comes in."""
+    db, session = _seed(tmp_path)
+    _bind_db(monkeypatch, db)
+    monkeypatch.setattr(server, "_ensure_session_db_row", lambda session: True)  # the session row exists
+    server._append_model_switch_marker(session, model="gpt-6-astra", provider="openai-codex")
+    db.append_message("s1", "user", "My second codeword is KIWI.", timestamp=3.0)
+    db.append_message("s1", "assistant", "OK", timestamp=4.0)
+    own = db.append_message("s1", "user", "Which model are you?", timestamp=5.0)
+    session["_submit_user_row"] = {"role": "user", "content": "Which model are you?", "_row_id": own}
+
+    server._adopt_out_of_band_turns(session)
+
+    contents = [m["content"] for m in session["history"]]
+    assert sum(c.startswith(server._MODEL_SWITCH_MARKER_PREFIX) for c in contents) == 1, contents
+    assert contents[:2] == ["My codeword is MANGO.", "OK"] and contents[3:] == ["My second codeword is KIWI.", "OK"]
+    assert session["history"][2].get("display_kind") == "model_switch"
+
+
 def test_compaction_epochs(tmp_path, monkeypatch):
     """A local compaction re-stamps the in-memory dicts with the re-inserted rows' ids, so nothing sits above
     the boundary. A compaction by ANOTHER surface rewrites the transcript under us: the summary shows up as a

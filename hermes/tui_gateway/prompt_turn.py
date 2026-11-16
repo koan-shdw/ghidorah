@@ -531,13 +531,23 @@ def _adopt_out_of_band_turns(session: dict) -> None:
         except Exception:
             logger.debug("out-of-band history probe failed; turn runs on the in-memory history", exc_info=True)
             return
-    newer = [row for row in newer if _foreign(row.get("id"))]
+    # Ghidorah 2026-11-16: a switch marker this gateway wrote is not a foreign turn. _append_model_switch_marker
+    # puts it in memory (no row id) and in the DB separately; adopting its row put it in the history twice, and
+    # the next request sent the marker twice. Unrecognised rows still count, so `seen` stays the agent's own.
+    own = {(m.get("display_kind"), m.get("content")) for m in history
+           if _is_pivot_marker(m) and _message_row_id(m) is None}
+
+    def _own_pivot(row) -> bool:
+        return (row.get("display_kind"), row.get("content")) in own
+    newer = [row for row in newer if _foreign(row.get("id")) and not _own_pivot(row)]
     if not newer:
         return
     rewritten = any(row.get("_compressed_summary") for row in newer)
     rows = _load_durable_truncation_history(session, repair_alternation=rewritten) or []
     keep = _below_ceiling if rewritten else _foreign
-    tail = canonicalize_replay_history([m for m in rows if keep(_message_row_id(m))])
+    # A rewritten transcript replaces memory from the root, so there the DB row is the only copy and stays.
+    tail = canonicalize_replay_history(
+        [m for m in rows if keep(_message_row_id(m)) and (rewritten or not _own_pivot(m))])
     if not tail:
         return
     with session["history_lock"]:
