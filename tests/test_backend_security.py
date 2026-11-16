@@ -276,7 +276,8 @@ def test_permission_decisions_include_fixed_secret_rule(tmp_path):
             assert module.decide(tool,{},policy) is None
         for name,args in [('terminal',{'command':'cat ~/.claude/auth.json'}),('write_file',{'path':str(tmp_path/'private'/'hermes'/'cache'/'scratch'/'verify.py')})]:
             decision=module.decide(name,args,policy)
-            assert decision is None if mode=='bypass' else decision['action']=='approve'
+            # Private app data and credentials ask in every mode, Bypass included (Koan 2026-11-16).
+            assert decision['action']=='approve'
     policy['mode']='bypass'
     assert module.decide('write_file',{'path':str(tmp_path/'task'/'verify.py')},policy) is None
     for mode in ('bypass','accept-edits'):

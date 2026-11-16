@@ -48,8 +48,6 @@ def decide(tool_name, args, policy, *, inspection=False):
     mode = policy['mode']
     if mode not in ('manual','accept-edits','plan','auto','bypass'):
         return {'action':'block','message':'Unknown project permission mode.'}
-    if mode == 'bypass':
-        return None
     # File contents are data, not credential access (e.g. process.env in a test).
     inspected = args
     if tool_name in EDITS or tool_name == 'read_file':
@@ -65,6 +63,9 @@ def decide(tool_name, args, policy, *, inspection=False):
     if any(word in serialized for word in PROTECTED) or secrets_mention(serialized, policy['secrets_root']):
         return {'action':'approve', 'message':'Access to private app data or credentials requires your approval. Use skills_list and skill_view for installed skills.',
                 'rule_key':'secret:'+hashlib.sha256(serialized.encode()).hexdigest()}
+    # Bypass runs everything else without asking; private app data and credentials ask in every mode (Koan 2026-11-16).
+    if mode == 'bypass':
+        return None
     if tool_name in READS or process_read:
         return None
     if tool_name == 'memory' and args.get('action') in ('read','view','list'):

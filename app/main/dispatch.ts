@@ -485,7 +485,9 @@ export function request(request:any){
   if(!['running','waiting'].includes(store.get<Turn>('turn',turnId).status)){request.respond(request.method.startsWith('clarify')?{}:{choice:'deny'});return true;}
   // Read this chat's current mode at the final approval boundary, including
   // requests from lower-level file guards. Clarifications still need an answer.
-  if(request.method.startsWith('approval')&&projectFor(chat).mode==='bypass'){request.respond({choice:'once'});return true;}
+  // Bypass answers every ask by itself except the permission plugin's fixed rule for private app data and credentials,
+  // which asks in every mode (Koan 2026-11-16).
+  if(request.method.startsWith('approval')&&projectFor(chat).mode==='bypass'&&!String(request.params?.description||'').includes('Access to private app data or credentials requires your approval.')){request.respond({choice:'once'});return true;}
   const id=backend.generation+':'+request.id;
   requests.set(id,request);
   askApproval({id,chatId:chat.id,turnId,method:request.method.split('.')[0],params:backend.scrubber.value(request.params),status:'pending'});
