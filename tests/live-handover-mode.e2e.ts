@@ -44,6 +44,8 @@ try{
   console.log('  old chat comment: '+excerpt(comment.text));
   console.log('  new chat after the comment: '+excerpt(reply.text));
  };
- await run('Opus 5.5',opus.id);
- if(astra)await run('Astra',astra);else console.log('SKIP Astra: Ghidorah Dev has no ChatGPT connection. Connect it in Dev, Settings, Connections, then run again.');
+ // TRISMEGISTUS_LIVE_ENGINES=astra (or opus) runs one engine; both by default.
+ const engines=(process.env.TRISMEGISTUS_LIVE_ENGINES||'opus,astra').split(',');
+ if(engines.includes('opus'))await run('Opus 5.5',opus.id);
+ if(engines.includes('astra')){if(astra)await run('Astra',astra);else console.log('SKIP Astra: Ghidorah Dev has no ChatGPT connection. Connect it in Dev, Settings, Connections, then run again.');}
 }finally{await instance.evaluate(({app})=>app.quit()).catch(()=>{});await instance.close().catch(()=>{});}

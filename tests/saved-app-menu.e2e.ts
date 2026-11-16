@@ -38,7 +38,7 @@ try{
  await screenshot('app-menu.png');
  await page.locator('.app-overview-header').click({position:{x:250,y:70}});assert.equal(await page.getByRole('menu').count(),0,'Outside click closes the menu');
  // Chat context menu links are independent of sidebar folders and can target multiple apps.
- await page.getByRole('button',{name:'Show all chats'}).click();
+ await page.getByRole('button',{name:'Chats',exact:true}).click();
  const extra=await call('savedAppSave',{name:'Sprite Dancer'});
  const row=()=>page.locator('[data-chat-id="'+chatId+'"]');
  const menuLink=async(label:string)=>{await row().click({button:'right'});await page.getByRole('menuitem',{name:'Apps',exact:true}).click();await page.getByRole('menuitem',{name:label,exact:true}).click();};
@@ -57,7 +57,7 @@ try{
  await app.evaluate(({app})=>app.quit());await app.close();app=await launch();page=await mainWindow(app);await pollState(page,s=>s.backend==='ready');
  state=await call('state');assert.equal(state.savedApps.length,1);assert.equal(state.savedApps[0].name,'Video Dancer Studio');assert.equal(state.savedApps[0].todos.length,1);assert.ok(state.savedApps[0].chatIds.includes(chatId));assert.equal(state.chats.find((c:any)=>c.id===chatId).draft,'Keep my draft');
  await page.getByLabel('Show chats for Video Dancer Studio',{exact:true}).click();await page.getByLabel('Actions for app Video Dancer Studio',{exact:true}).click();await page.getByRole('menuitem',{name:'Remove app…',exact:true}).click();confirmation=page.getByRole('dialog',{name:'Remove Video Dancer Studio?',exact:true});await confirmation.getByRole('button',{name:'Remove app',exact:true}).click();
- state=await pollState(page,s=>s.savedApps?.length===0);assert.ok(state.chats.some((c:any)=>c.id===chatId));assert.equal(state.chats.find((c:any)=>c.id===chatId).draft,'Keep my draft');await page.locator('.app-overview').waitFor({state:'hidden'});await page.getByRole('button',{name:'Show all chats'}).waitFor({state:'hidden'});assert.equal(await fs.readFile(path.join(folder,'keep.txt'),'utf8'),'Project files stay here.');
+ state=await pollState(page,s=>s.savedApps?.length===0);assert.ok(state.chats.some((c:any)=>c.id===chatId));assert.equal(state.chats.find((c:any)=>c.id===chatId).draft,'Keep my draft');await page.locator('.app-overview').waitFor({state:'hidden'});assert.equal(await fs.readFile(path.join(folder,'keep.txt'),'utf8'),'Project files stay here.');
  assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().some(w=>w.isVisible())),false);assert.deepEqual(errors,[]);
  await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({rightClick:true,threeDots:true,noNavigationOnMenu:true,inlineRename:true,keyboard:true,cancel:true,removal:true,restart:true,chatsAndDraftsPreserved:true,filesPreserved:true,noVisibleWindows:true,chatMenuLinks:true,largerIcons:true,wrappedRows:true,scrollAfterThreeRows:true},null,2));console.log('PASS saved app menus, inline rename, removal, keyboard, restart and preserved chats/files. '+data);
 }finally{await app.evaluate(({app})=>app.quit()).catch(()=>{});await app.close().catch(()=>{});execFileSync(PYTHON,['-c',"import sys;sys.path.insert(0,'backend');import windows_credentials as v;v.delete(sys.argv[1])",namespace+'/encryption'],{windowsHide:true,stdio:'ignore'});}

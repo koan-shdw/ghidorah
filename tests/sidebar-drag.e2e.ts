@@ -53,7 +53,7 @@ try{
  assert.equal((await linked(first.id)).length,2,'Adding another app must preserve existing links');
  await page.getByRole('button',{name:'Show chats for Video Dancer',exact:true}).click();
  await row(0).waitFor();await row(1).waitFor();await row(2).waitFor({state:'detached'});
- await page.getByRole('button',{name:/Show all chats/}).click();
+ await page.getByRole('button',{name:'Chats',exact:true}).click();
  await row(0).locator('.chat-link').click();await row(1).locator('.chat-link').click({modifiers:['Control']});
  await row(0).dragTo(page.locator('[data-group-id="'+folder.id+'"] .sidebar-group-heading'));
  await until(async()=>{const state=await call('state');return ids.slice(0,2).every(id=>state.chats.some((chat:any)=>chat.id===id&&chat.groupId===folder.id&&!chat.pinned));});

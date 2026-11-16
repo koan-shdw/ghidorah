@@ -26,7 +26,7 @@ try{
  await toggle().click();await tile(extra.id).waitFor();await tile(other.id).dragTo(page.locator('.saved-app-ungrouped'));await pollState(page,s=>s.savedApps?.find(a=>a.id===other.id)?.groupId===null);
  await tile(main.id).click({button:'right'});await page.getByRole('menuitem',{name:'Move to folder',exact:true}).click();await page.getByRole('menuitem',{name:'No folder · keep at top',exact:true}).click();await pollState(page,s=>s.savedApps?.find(a=>a.id===main.id)?.groupId===null);
  // Chat drag-to-app still links the chat; it does not move the app's folder.
- if(await page.getByRole('button',{name:'Show all chats',exact:true}).isVisible())await page.getByRole('button',{name:'Show all chats',exact:true}).click();
+ await page.getByRole('button',{name:'Chats',exact:true}).click();
  await page.locator('[data-chat-id="'+chat+'"]').dragTo(tile(extra.id));await pollState(page,s=>s.savedApps?.find(a=>a.id===extra.id)?.chatIds.includes(chat)===true);assert.equal((await call('state')).savedApps.find((a:any)=>a.id===extra.id).groupId,group.id);
  await page.getByRole('button',{name:'Actions for app folder Experiments',exact:true}).click();await page.getByRole('menuitem',{name:'Rename folder',exact:true}).click();dialog=page.getByRole('dialog',{name:'Rename app folder',exact:true});await dialog.getByLabel('Folder name').fill('Later');await dialog.getByRole('button',{name:'Save',exact:true}).click();
  const later=()=>page.getByRole('button',{name:'App folder Later',exact:true});await later().waitFor();await capture('folder-expanded');await later().click();await pollState(page,s=>s.savedAppGroups?.[0].collapsed===true);
