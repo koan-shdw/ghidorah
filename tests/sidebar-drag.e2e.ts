@@ -2,6 +2,7 @@ import {_electron as electron,type ElectronApplication,type Page} from 'playwrig
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import {wakeWindows} from './fixtures/poll-state';
 
 const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/sidebar-drag-'));
 let app!:ElectronApplication,page!:Page;
@@ -14,6 +15,8 @@ async function launch(){
   BrowserWindow.prototype.show=function(){};BrowserWindow.prototype.showInactive=function(){};BrowserWindow.prototype.focus=function(){};
  });
  page=await app.firstWindow();page.setDefaultTimeout(10000);page.on('pageerror',error=>errors.push(error.message));
+ // A hidden window draws about one frame a second and a click waits for its element to hold still (as in settings-layout).
+ await wakeWindows(app);
  await page.emulateMedia({reducedMotion:'reduce'});
  await until(async()=>(await call('state')).backend==='ready',900);
 }
@@ -61,9 +64,12 @@ try{
  await call('sidebarSettings',{sort:'updated'});
  await row(2).dragTo(row(0));await until(async()=>(await pinState(2)).groupId===folder.id);
  assert.equal((await call('state')).sidebar.preferences.sort,'updated','Dropping on a folder chat must preserve last-activity order');
- const recentIds=await page.locator('[data-group-id="'+folder.id+'"] [data-chat-id]').evaluateAll(rows=>rows.map(row=>row.getAttribute('data-chat-id')));
+ // The state answers before the window has drawn the move: wait for the folder to show all three chats.
+ const folderRows=page.locator('[data-group-id="'+folder.id+'"] [data-chat-id]');await until(async()=>await folderRows.count()===3);
+ const recentIds=await folderRows.evaluateAll(rows=>rows.map(row=>row.getAttribute('data-chat-id')));
  assert.deepEqual(recentIds,[...ids].reverse(),'Latest chats appear first within the folder');
- await row(2).dragTo(pinned);await until(async()=>(await pinState(2)).pinned===true);
+ // Wait for the window to draw the pin too: it moves the folder rows, and the drag below presses where row 0 is drawn.
+ await row(2).dragTo(pinned);await until(async()=>(await pinState(2)).pinned===true);await pinned.locator('[data-chat-id="'+ids[2]+'"]').waitFor();
  // Files and malformed payloads are not chat drops.
  const transfer=await page.evaluateHandle(()=>{const data=new DataTransfer();data.setData('text/plain','Alpha');return data;});
  await pinned.dispatchEvent('drop',{dataTransfer:transfer});await transfer.dispose();

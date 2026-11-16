@@ -12,8 +12,9 @@ sys.path.insert(0, str(APP / 'backend'))
 
 def test_pinned_records_and_checks(tmp_path, monkeypatch):
     import speech_models
-    assert set(speech_models.MODELS) == {'tiny', 'small', 'large-v3'}
+    assert set(speech_models.MODELS) == {'tiny', 'small', 'large-v3-turbo', 'large-v3'}
     assert speech_models.MODELS['large-v3']['revision'] == 'edaa852ec7e145841d8ffdb056a99866b5f0a478'
+    assert speech_models.MODELS['large-v3-turbo']['revision'] == '0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf'
     for model in speech_models.MODELS.values():
         assert all(('sha256' in spec) != ('git' in spec) for spec in model['files'].values())
     content = b'{"fixture": true}'

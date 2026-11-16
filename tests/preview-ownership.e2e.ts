@@ -34,13 +34,15 @@ try{
  assert.doesNotMatch(await tool(chat,'create_app',{name:'Vid Drop',description:'Video frame picker for Illustrator.'}),/Background work owns|error/i);assert.ok((await fs.stat(path.join(folder,'Vid-Drop'))).isDirectory());
  await call('savedAppSave',{name:'Preview app'});assert.doesNotMatch(await tool(chat,'create_app',{name:'Preview app',icon_path:path.join(folder,'icon.png'),register_only:true}),/Background work owns|error/i);
  assert.match((await call('state')).savedApps.find((a:any)=>a.name==='Preview app').icon,/^data:image\/png;base64,/);
- // Force a fresh model runtime while the earlier session retains the server.
- const before=(await call('state')).chats.find((c:any)=>c.id===chat).runtimeId;await pollState(page,s=>s.claude?.connected===true);await call('addModel',{chatId:chat,model:'claude-code:haiku'});
+ // Another engine in the same chat sees the server the earlier Hermes turn started.
+ await pollState(page,s=>s.claude?.connected===true);await call('addModel',{chatId:chat,model:'claude-code:haiku'});
  assert.match(await send(chat,JSON.stringify({action:'mcp',server:'ghidorah',tool:'background_process',arguments:{action:'list'}}),['claude-code:haiku']),new RegExp(job.processId));
  const interrupted=crypto.randomUUID();await call('submit',{id:interrupted,chatId:chat,text:'SLOW_FIXTURE',models:['deepseek-flash']});await pollState(page,s=>s.turns.some(t=>t.id===interrupted&&t.text.length>0));await call('stop',{chatId:chat});await pollState(page,s=>s.turns.some(t=>t.id===interrupted&&t.status==='stopped'));
- assert.match(await tool(chat,'background_process',{action:'list'}),new RegExp(job.processId));assert.notEqual((await call('state')).chats.find((c:any)=>c.id===chat).runtimeId,before);
+ // A chat keeps its Hermes session through Stop (history.ts canResume), and its server still belongs to it after
+ // the stopped reply: the chat lists it and stops it, another chat cannot.
+ assert.match(await tool(chat,'background_process',{action:'list'}),new RegExp(job.processId));
  assert.match(await tool(foreign,'background_process',{action:'stop',id:job.id}),/unavailable in this chat/);assert.equal((await call('state')).background.find((r:any)=>r.id===job.id).status,'running');
  assert.match(await tool(chat,'background_process',{action:'stop',id:job.id}),/stopped/);state=await call('state');assert.equal(state.workReview.length,0,'Stopping an inspected read-only preview creates no global hold');await assert.rejects(fetch('http://127.0.0.1:'+port));
  assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().some(w=>w.isVisible())),false);
- await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({multiFilePatch:true,previewLiveEdits:true,iconUpdateWhileServing:true,sessionChanged:true,foreignStopDenied:true,stopOldSession:true,noFalseHold:true,noVisibleWindows:true},null,2));console.log('PASS preview edits, app-icon update, retained-session Stop and chat isolation. '+data);
+ await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({multiFilePatch:true,previewLiveEdits:true,iconUpdateWhileServing:true,stoppedReplyKeepsServer:true,foreignStopDenied:true,stopOldSession:true,noFalseHold:true,noVisibleWindows:true},null,2));console.log('PASS preview edits, app-icon update, the server kept through a stopped reply, and chat isolation. '+data);
 }finally{await app.evaluate(({app})=>app.quit()).catch(()=>{});await app.close().catch(()=>{});provider.stdin.end('\n');lines.close();await host.host('delete_key');}

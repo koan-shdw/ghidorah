@@ -1,4 +1,4 @@
-import {mainWindow} from './fixtures/poll-state';
+import {mainWindow,wakeWindows} from './fixtures/poll-state';
 import {_electron as electron,type Page} from 'playwright';
 import {spawn,execFileSync} from 'node:child_process';
 import {once} from 'node:events';
@@ -15,7 +15,8 @@ const fake=spawn(PYTHON,['tests/fake_provider.py'],{env:{...process.env,FIXTURE_
 const env={...process.env,TRISMEGISTUS_TEST_DATA:data,TRISMEGISTUS_TEST_PROVIDER_URL:JSON.parse(line).url,TRISMEGISTUS_TEST_CLAUDE:path.join(root,'tests/fixtures/claude-cli.mjs'),TRISMEGISTUS_TEST_CLAUDE_NODE:process.execPath};
 const launch=()=>electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,args:process.env.TRISMEGISTUS_EXE?[]:[root],env,timeout:30000});let app=await launch(),page:Page;
 const call=(method:string,args:any={})=>page.evaluate(({method,args})=>window.desktop.invoke(method,args),{method,args});
-const jobWindow=async(turnId:string,chatId:string)=>{await call('openJob',{id:turnId});for(const until=Date.now()+30000;Date.now()<until;await page.waitForTimeout(100)){const found=app.windows().find(w=>w.url().endsWith('#job='+chatId));if(found){await found.waitForFunction(()=>!!window.desktop);return found;}}throw Error('The job window did not open.');};
+// A parallel job's window opens at #job=<chat>, an agent's at #agent=<turn> (modelWindowHash, app/main/windows.ts).
+const jobWindow=async(turnId:string,chatId:string)=>{await call('openJob',{id:turnId});for(const until=Date.now()+30000;Date.now()<until;await page.waitForTimeout(100)){const found=app.windows().find(w=>w.url().endsWith('#job='+chatId)||w.url().endsWith('#agent='+turnId));if(found){await found.waitForFunction(()=>!!window.desktop);return found;}}throw Error('The job window did not open.');};
 const wait=async(check:(state:any)=>boolean,approve=true)=>{const until=Date.now()+65000;while(Date.now()<until){const state=await call('state');if(check(state))return state;if(approve)for(const a of state.approvals.filter((a:any)=>a.status==='pending'))await call('approve',{id:a.id,choice:'once'});await page.waitForTimeout(70);}throw Error('Timed out '+JSON.stringify((await call('state')).turns));};
 const send=async(chatId:string,spec:any,models=['claude-code:haiku'])=>{const id=crypto.randomUUID();await call('submit',{id,chatId,text:typeof spec==='string'?spec:JSON.stringify(spec),models});const state=await wait(s=>s.turns.some((t:any)=>t.id===id&&['completed','failed','interrupted'].includes(t.status)));assert.equal(state.turns.find((t:any)=>t.id===id).status,'completed');return id;};
 const port=async()=>{const server=net.createServer();server.listen(0,'127.0.0.1');await once(server,'listening');const value=(server.address() as net.AddressInfo).port;await new Promise<void>(r=>server.close(()=>r()));return value;};
@@ -23,7 +24,7 @@ const requests=async()=>(await fs.readFile(path.join(data,'claude-requests.jsonl
 const alive=async(port:number)=>{const until=Date.now()+5000;while(true){try{assert.equal(await (await fetch('http://127.0.0.1:'+port)).text(),'native-fixture');return;}catch(error){if(Date.now()>until)throw error;await page.waitForTimeout(50);}}};
 const add=async()=>{const id=await call('addProject');await call('addModel',{chatId:id,model:'claude-code:haiku'});return id;};
 try{
- await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().forEach(w=>w.hide()));page=await mainWindow(app);await wait(s=>s.backend==='ready'&&s.claude?.models?.some((m:any)=>m.id==='claude-code:haiku'));await call('workingFolder',{folder});
+ await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().forEach(w=>w.hide()));page=await mainWindow(app);await wakeWindows(app);await wait(s=>s.backend==='ready'&&s.claude?.models?.some((m:any)=>m.id==='claude-code:haiku'));await call('workingFolder',{folder});
  const a=await add(),alphaPort=await port(),alpha=await send(a,{action:'background',port:alphaPort,inspect:true,command:'alpha server'});let state=await wait(s=>s.background.some((r:any)=>r.turnId===alpha&&r.status==='running'));const alphaRow=state.background.find((r:any)=>r.turnId===alpha);await alive(alphaPort);
  const first=(await requests()).at(-1);await send(a,{action:'reply'});const second=(await requests()).at(-1);assert.equal(first.pid,second.pid);assert.equal(first.sessionId,second.sessionId);
  await send(a,'Inspect the native server result without restarting it.',['deepseek-flash']);await send(a,{action:'reply'});assert.equal((await requests()).at(-1).pid,first.pid);assert.match((await requests()).at(-1).prompt,/Inspect the native server result/);await alive(alphaPort);
@@ -56,9 +57,13 @@ try{
   state=await wait(s=>s.turns.some((t:any)=>t.parentTurnId===agentGroup&&t.automatic?.kind==='agent'&&t.status==='waiting'),false);
   const child=state.turns.find((t:any)=>t.parentTurnId===agentGroup&&t.automatic?.kind==='agent'),origin=state.turns.find((t:any)=>t.id===child.automatic.originTurnId);
   assert.equal(origin.status,'completed');assert.equal(state.turns.find((t:any)=>t.id===agentGroup).status,'running');
-  const childView=await jobWindow(child.id,child.chatId);await childView.getByText('Agent · Side agent',{exact:true}).waitFor();
-  await assert.rejects(childView.evaluate(id=>window.desktop.invoke('backgroundStop',{id}),betaRow.id),/another job/);
-  if(correction){const correctionId=crypto.randomUUID();await childView.evaluate(({chatId,id})=>window.desktop.invoke('correctJob',{chatId,id,text:'Correction: reply without writing a file.'}),{chatId:child.chatId,id:correctionId});await wait(s=>s.turns.find((t:any)=>t.id===correctionId)?.status==='completed');}
+  // The agent's window is titled with its description, beside Stop agent and Open parent chat.
+  const childView=await jobWindow(child.id,child.chatId);await childView.getByText('Side agent',{exact:true}).first().waitFor();await childView.getByRole('button',{name:'Stop agent'}).first().waitFor();
+  // The agent's window refuses another chat's process with the agent window's own message (app/main/windows.ts).
+  await assert.rejects(childView.evaluate(id=>window.desktop.invoke('backgroundStop',{id}),betaRow.id),/belongs to another agent/);
+  // The agent's window has no message box and refuses corrections (agentWindowRequest, since 10-22); a correction goes
+  // in from the job's chat, as its message box sends it (correctJob).
+  if(correction){const correctionId=crypto.randomUUID();await call('correctJob',{chatId:child.chatId,id:correctionId,text:'Correction: reply without writing a file.'});await wait(s=>s.turns.find((t:any)=>t.id===correctionId)?.status==='completed');}
   else await call('stop',{chatId:agentParent,turnId:agentGroup});
   state=await wait(s=>s.turns.find((t:any)=>t.id===child.id)?.status==='stopped');assert.ok(!state.approvals.some((p:any)=>p.turnId===child.id&&p.status==='pending'));await assert.rejects(fs.access(path.join(folder,filename)));await alive(betaPort);
  }
@@ -66,6 +71,8 @@ try{
  const before=(await requests()).length,crashPid=app.process().pid!;
  try{execFileSync('taskkill',['/PID',String(crashPid),'/T','/F'],{windowsHide:true,stdio:'pipe'});}catch(error){let gone=false;try{process.kill(crashPid,0);}catch(check){gone=(check as NodeJS.ErrnoException).code==='ESRCH';}if(!gone)throw error;}
  await app.close().catch(()=>{});app=await launch();page=await mainWindow(app);await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().forEach(w=>w.hide()));state=await wait(s=>s.backend==='ready');
- assert.equal((await requests()).length,before);assert.equal(state.background.find((r:any)=>r.id===betaRow.id).status,'lost');assert.ok(state.workReview.some((r:any)=>r.id===betaRow.actionId));await assert.rejects(fetch('http://127.0.0.1:'+betaPort));
+ // No Work review since 10-06 (its list is always empty): the lost process's uncertain outcome settles by itself
+ // before that chat's next work.
+ assert.equal((await requests()).length,before);assert.equal(state.background.find((r:any)=>r.id===betaRow.id).status,'lost');await assert.rejects(fetch('http://127.0.0.1:'+betaPort));
  await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({sameNativeWorker:true,crossEngine:true,configPreservesTasks:true,automaticSaved:true,uiStop:true,sideScope:true,agentGroupStop:true,agentSideCorrection:true,crashNoReplay:true,group},null,2));console.log('PASS native app crash retains receipts and uncertainty without process/model replay. Evidence: '+data);
 }finally{await app.evaluate(({app})=>app.quit()).catch(()=>{});await app.close().catch(()=>{});fake.stdin.end('\n');lines.close();await host.host('delete_key');}

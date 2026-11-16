@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import {Backend,PYTHON} from '../app/backend';
 
 // Plan quick wins in the desktop: tooltip prices (2b), pill health dots (2c), videos to Gemini (2d), app Git lights (5a).
-const root=path.resolve('.'),data=await fs.mkdtemp(path.join(root,'work','quick-wins-')),folder=path.join(data,'workspace'),healthFile=path.join(data,'health.json');await fs.mkdir(folder);
+const root=path.resolve('.'),data=await fs.mkdtemp(path.join(root,'work','quick-wins-')),folder=await fs.mkdtemp(path.join(root,'work','quick-wins-files-')),healthFile=path.join(data,'health.json');
 await fs.writeFile(healthFile,JSON.stringify({deepseek:'ready'}));
 const namespace='Trismegistus/Test/'+path.basename(data),host=new Backend(root,data,namespace,()=>{});await host.host('initialize');await host.host('save_key',{key:'synthetic-deepseek-regression-credential'});
 const ds=spawn(PYTHON,['tests/fake_provider.py'],{env:{...process.env,FIXTURE_RECORDS:path.join(data,'deepseek.jsonl'),FIXTURE_HEALTH_FILE:healthFile},windowsHide:true,stdio:'pipe'}),[dline]=await once(createInterface({input:ds.stdout}),'line');

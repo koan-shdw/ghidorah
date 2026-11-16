@@ -8,7 +8,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import {Backend,PYTHON} from '../app/backend';
 
-const root=path.resolve('.'),data=await fs.mkdtemp(path.join(root,'work','process-ownership-')),folder=path.join(data,'workspace');await fs.mkdir(folder);
+const root=path.resolve('.'),data=await fs.mkdtemp(path.join(root,'work','process-ownership-')),folder=await fs.mkdtemp(path.join(root,'work','process-ownership-files-'));
 const host=new Backend(root,data,'Trismegistus/Test/'+path.basename(data),()=>{});
 await host.host('initialize');await host.host('save_key',{key:'synthetic-deepseek-regression-credential'});
 const record=path.join(data,'requests.jsonl');

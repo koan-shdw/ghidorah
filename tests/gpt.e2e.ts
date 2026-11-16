@@ -27,7 +27,7 @@ try{
   const submit=async(text:string,model:string)=>{await call('modelSelection',{chatId,model,selected:true});const id=crypto.randomUUID();await call('submit',{id,chatId,text});return id;};
   const first=await submit('Remember copperfinch.','deepseek-flash');await wait(s=>s.turns.find((t:any)=>t.id===first)?.status==='completed');
   await page.getByRole('button',{name:'Add model',exact:true}).click();
-  const settings=page.locator('.settings[role=dialog]');
+  const settings=page.locator('dialog.settings');
   const full=settings.getByRole('region',{name:'All available models',exact:true});
   const favourites=settings.getByRole('region',{name:'Favourite models',exact:true});
   assert.equal(await settings.locator('input[type=password]').count(),0);
@@ -66,8 +66,10 @@ try{
   const second=await submit('What word did I ask you to remember?','gpt-6-astra');
   let state=await wait(s=>s.turns.find((t:any)=>t.id===second)?.status==='completed');
   assert.match(state.turns.find((t:any)=>t.id===second).text,/copperfinch/);
-  await page.getByRole('button',{name:'Usage for all models',exact:true}).click();
-  const usage=page.getByRole('dialog',{name:'Usage for all models',exact:true});await usage.waitFor();
+  // Usage for every model in the chat and the accounts is the chat's "Context window and usage" panel (the
+  // separate all-models panel was folded into it).
+  const ring=page.getByRole('button',{name:'Context window and usage',exact:true}).first();await ring.click();
+  const usage=page.getByRole('dialog',{name:'Context window and usage',exact:true});await usage.waitFor();
   assert.ok(await usage.getByRole('region',{name:'DeepSeek usage',exact:true}).isVisible());
   const gptUsage=usage.getByRole('region',{name:'GPT-6 Astra usage',exact:true});
   assert.equal(await gptUsage.locator('.usage-tokens').getAttribute('title'),'120 tokens in this chat');
@@ -76,7 +78,7 @@ try{
   assert.equal(await usage.getByRole('region',{name:'OpenAI account usage',exact:true}).count(),1);
   await page.screenshot({path:path.join(root,'work','all-model-usage.png')});
   await page.keyboard.press('Escape');assert.equal(await usage.count(),0);
-  assert.ok(await page.getByRole('button',{name:'Usage for all models',exact:true}).evaluate(element=>element===document.activeElement));
+  assert.ok(await ring.evaluate(element=>element===document.activeElement));
   const requests=(await fs.readFile(path.join(data,'gpt-requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
   assert.equal(requests[0].model,'gpt-6-astra');assert.match(JSON.stringify(requests[0].input),/copperfinch/);
   console.log('PASS catalog fixture, separate model pool/connections, favourites, chat isolation, unchanged defaults and DeepSeek → GPT context');

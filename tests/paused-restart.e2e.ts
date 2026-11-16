@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import {Store} from '../app/store';
 import type {Chat} from '../app/types';
 import {Backend,PYTHON} from '../app/backend';
-import {mainWindow} from './fixtures/poll-state';
+import {mainWindow,wakeWindows} from './fixtures/poll-state';
 
 // After a restart, a message that was still queued waits paused, on screen, until one click on Send (Koan, 2026-10-08, 6dea2e8).
 const root=path.resolve('.'),data=await fs.mkdtemp(path.join(root,'work','paused-restart-')),namespace='Trismegistus/Test/'+path.basename(data),host=new Backend(root,data,namespace,()=>{});
@@ -20,7 +20,7 @@ const fake=spawn(PYTHON,['tests/fake_provider.py'],{windowsHide:true,stdio:['pip
 const env={...process.env,TRISMEGISTUS_TEST_DATA:data,TRISMEGISTUS_TEST_PROVIDER_URL:JSON.parse(line).url};
 const app=await electron.launch({args:[root,'--hidden'],env,timeout:30000});
 try{
- const page=await mainWindow(app);page.setDefaultTimeout(30000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ const page=await mainWindow(app);await wakeWindows(app);page.setDefaultTimeout(30000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  const call=(method:string,args:any={})=>page.evaluate(({method,args})=>window.desktop.invoke(method,args),{method,args});
  const wait=async(check:(s:any)=>boolean)=>{const until=Date.now()+90000;while(Date.now()<until){const s=await call('state');if(check(s))return s;await page.waitForTimeout(100);}throw Error('Timed out: '+JSON.stringify((await call('state')).turns));};
  const capture=async(name:string)=>fs.writeFile(path.join(data,name),Buffer.from(await app.evaluate(async({BrowserWindow})=>Array.from((await BrowserWindow.getAllWindows().find(w=>/index\.html$/.test(w.webContents.getURL()))!.webContents.capturePage()).toPNG()))));

@@ -50,8 +50,10 @@ try{
   await instance.evaluate(({app})=>app.quit());await instance.close();
   instance=await electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,args:process.env.TRISMEGISTUS_EXE?[]:[root],env,timeout:30000});await instance.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().forEach(window=>window.hide()));page=await instance.firstWindow();await wait(state=>state.backend==='ready'&&state.claude?.models?.length);
   const f=await send('Inspect after the stopped reply.','claude-code:haiku');await done(f);
-  const after=(await nativeRequests()).at(-1);assert.equal(after.args.includes('--resume'),false);assert.match(after.prompt,/Remember copperfinch/);assert.match(after.prompt,/Interrupted or uncertain actions/);
-  console.log('PASS native cancellation preserves partial output; app restart reseeds uncertain context without native replay');
+  // A stopped reply keeps its Claude session (store.finishEngine counts completed, stopped and failed as certain): after a
+  // restart the next message resumes that session and repeats no history. A crash still reseeds (below).
+  const after=(await nativeRequests()).at(-1);assert.equal(after.args.includes('--resume'),true);assert.doesNotMatch(after.prompt,/Remember copperfinch/);
+  console.log('PASS native cancellation preserves partial output; after a restart the stopped reply\'s session is resumed');
   const crash=await send('SLOW_CLAUDE crash-check','claude-code:haiku');await wait(state=>state.turns.find((turn:any)=>turn.id===crash)?.text.length>15);
   const beforeCrash=(await nativeRequests()).length;
   execFileSync('taskkill',['/PID',String(instance.process().pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});await instance.close().catch(()=>{});
