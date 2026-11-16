@@ -26,7 +26,9 @@ try{
  let capture=app.windows().find(page=>page.url().endsWith('#wake'))!;assert.ok(capture);assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().filter(window=>window.webContents.getURL().endsWith('#wake')).every(window=>!window.isVisible())),true);
  await assert.rejects(capture.evaluate(()=>window.desktop.invoke('submit',{chatId:'bad',text:'forged'})),/unavailable in wake-word/);await assert.rejects(call('wakeFeed',{bytes:new Uint8Array(2560)}),/refused/);
  const popup=async()=>{const end=Date.now()+45000;while(Date.now()<end){const voice=app.windows().find(page=>page.url().endsWith('#voice'));if(voice){await voice.getByLabel('Voice destination').waitFor();return voice;}await page.waitForTimeout(100);}throw Error('Wake did not open voice: '+JSON.stringify((await call('state')).voice.wake));};
- let voice:Page=await popup();assert.equal(await voice.getByLabel('Voice destination').inputValue(),b);await voice.getByText('Listening…',{exact:true}).waitFor();await voice.getByRole('button',{name:'Stop speaking and listening'}).click();
+ let voice:Page=await popup();assert.equal(await voice.getByLabel('Voice destination').inputValue(),b);
+ // The voice window is Google's free-tier voice (since 10-22); with no Google key saved it asks for one instead of listening.
+ await voice.getByText('Add a Google Free tier key in Settings → Voice.',{exact:true}).waitFor();await voice.getByRole('button',{name:'Stop speaking and listening'}).click();
  await pollState(page,state=>state.voice?.wake.status==='Paused while voice is open');assert.equal(capture.isClosed(),true);await page.waitForTimeout(1500);assert.equal(app.windows().filter(page=>page.url().endsWith('#voice')).length,1);
  const firstClose=voice.waitForEvent('close');await voice.getByRole('button',{name:'Close voice'}).click();await firstClose;
  await pollState(page,state=>state.voice?.wake.status==='Listening');
@@ -39,7 +41,7 @@ try{
  await assert.rejects(call('wakeSave',{enabled:true}),/missing or changed/);assert.equal((await call('state')).voice.wake.enabled,false);await fs.writeFile(tokens,original);
  await call('wakeSave',{enabled:true});await pollState(page,state=>state.voice?.wake.status==='Listening');await call('restart');await pollState(page,state=>state.voice?.wake.status==='Listening');
  await call('wakeSave',{enabled:false});
- await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({hiddenCapture:true,realDetector:true,frontMainChat:true,popoutChat:true,pause:true,resume:true,autoListen:true,noImplicitSend:true,modelRechecked:true,backendRestart:true}));
- console.log('PASS wake: pinned install, real recorded-audio detector, hidden PCM capture, front main/popout destination, automatic listening, pause/resume, off, scoped IPC, changed-model refusal and backend restart. Profile: '+data);
+ await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({hiddenCapture:true,realDetector:true,frontMainChat:true,popoutChat:true,pause:true,resume:true,keyPrompt:true,noImplicitSend:true,modelRechecked:true,backendRestart:true}));
+ console.log('PASS wake: pinned install, real recorded-audio detector, hidden PCM capture, front main/popout destination, key prompt, pause/resume, off, scoped IPC, changed-model refusal and backend restart. Profile: '+data);
 }catch(error){console.error('Profile: '+data);throw error;}
 finally{await app.close().catch(()=>{});const cleanup=spawn(PYTHON,['-c',"import sys;sys.path.insert(0,'backend');import windows_credentials as v;v.delete(sys.argv[1])",namespace+'/encryption'],{windowsHide:true,stdio:'ignore'});await once(cleanup,'close');}

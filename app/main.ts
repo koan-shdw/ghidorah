@@ -1426,7 +1426,9 @@ export const handlers:Record<string,(args:any)=>any>={
     const version=++wakeSaveVersion;
     if(!enabled){store.put('settings',{...voiceRow(),wakeEnabled:false,wakePhrase:phrase});wakeFailure=false;await syncWake();await configure();emit();return;}
     pluginsChanging=true;
-    try{await backend.host('wake_model_check');if(version!==wakeSaveVersion)return;store.put('settings',{...voiceRow(),wakeEnabled:true,wakePhrase:phrase});wakeFailure=false;await handlers.restart({});}
+    // The restart is this change itself: a plain restart counts the pluginsChanging set above as active work and refused,
+    // so turning listening on always failed (finish-wake, 2026-11-16). Active work was checked above.
+    try{await backend.host('wake_model_check');if(version!==wakeSaveVersion)return;store.put('settings',{...voiceRow(),wakeEnabled:true,wakePhrase:phrase});wakeFailure=false;await restartBackend(true);}
     finally{pluginsChanging=false;emit();}
   },
   async wakeInstall(){
