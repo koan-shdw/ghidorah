@@ -124,6 +124,8 @@
 .app-idea-sources{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
 .app-idea-sources button{font-size:var(--fs-meta);color:var(--accent);padding:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .app-ideas-start{display:flex;align-items:center;gap:6px;margin-top:6px}
+.app-ideas-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.app-ideas-actions .app-ideas-start{margin-top:0}
 .app-ideas-started{list-style:none;padding:0}
 .app-ideas-started button{font-size:var(--fs-ui);padding:4px 0;text-align:left}
 .app-watch-spinner{display:inline-block;width:9px;height:9px;margin-right:6px;vertical-align:-1px;border:2px solid color-mix(in srgb,var(--info) 33%,transparent);border-top-color:var(--info);border-radius:var(--r-round);animation:app-watch-spin .8s linear infinite}

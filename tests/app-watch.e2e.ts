@@ -9,21 +9,24 @@ import assert from 'node:assert/strict';
 import {Store} from '../app/store';
 import {saveApp} from '../app/saved-apps';
 import {Backend,PYTHON} from '../app/backend';
-import {mainWindow} from './fixtures/poll-state';
-// Update watch: suggest a watch list, check in the background, mark the icon, then start a chat from a ticked update.
+import {mainWindow,wakeWindows} from './fixtures/poll-state';
+// Update watch: suggest a watch list, check in the background, mark the icon, start a chat from a ticked update, add another to the to-dos.
 const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/app-watch-')),namespace='Trismegistus/Test/'+path.basename(data),host=new Backend(root,data,namespace,()=>{}),searches:string[]=[];
 const server=createServer(async(req,res)=>{let raw='';for await(const chunk of req)raw+=chunk;await new Promise(done=>setTimeout(done,1500));const value=JSON.parse(raw),{arguments:args}=value.params;searches.push(args.query);res.setHeader('Content-Type','application/json');res.end(JSON.stringify({jsonrpc:'2.0',id:value.id,result:{isError:false,content:[{type:'text',text:'Title: Fixture video model\nURL: https://93.184.216.34/model\nHighlights:\nOpen weights released.'}]}}));});
 server.listen(0,'127.0.0.1');await once(server,'listening');
 await host.host('initialize');await host.host('save_key',{key:'synthetic-deepseek-regression-credential'});
 const folder=await fs.mkdtemp(path.join(root,'work/app-watch-files-')),db=new Store(path.join(data,'chat.sqlite')),project=db.project(folder),chat=db.chat(project.id);
 const useClaude=process.argv.includes('--claude'),model=useClaude?'claude-code:haiku':'deepseek-flash';
-const saved=saveApp(db,{name:'Studio',current:'Video timeline editor.',chatIds:[chat.id]});db.put('app-watch',{id:saved.id,topics:'',sources:'',frequency:'off',model:'gpt-disconnected',nextRun:null,seen:0});db.db.close();
+const saved=saveApp(db,{name:'Studio',current:'Video timeline editor.',chatIds:[chat.id]});db.put('app-watch',{id:saved.id,topics:'',sources:'',frequency:'off',model:'gpt-disconnected',nextRun:null,seen:0});
+// An earlier update, still new, for the to-do step (found 0, so it neither marks the icon nor sorts first).
+db.put('app-idea',{id:'seeded-upscaler',appId:saved.id,title:'Try Seeded upscaler',summary:'A new open upscaler.',why:'Sharper exports.',change:'Add it as an export step.',effort:'medium',sources:[{url:'https://93.184.216.35/upscaler',title:'Seeded upscaler'}],found:0,status:'new'});db.db.close();
 const fake=spawn(PYTHON,['tests/fake_provider.py'],{windowsHide:true,stdio:['pipe','pipe','inherit']}),lines=createInterface({input:fake.stdout}),[line]=await once(lines,'line');
 const env={...process.env,TRISMEGISTUS_TEST_DATA:data,TRISMEGISTUS_TEST_PROVIDER_URL:JSON.parse(line).url,TRISMEGISTUS_TEST_WEB_URL:'http://127.0.0.1:'+(server.address() as any).port,TRISMEGISTUS_TEST_CLAUDE:path.join(root,'tests/fixtures/claude-cli.mjs'),TRISMEGISTUS_TEST_CLAUDE_NODE:process.execPath};
 const app=await electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,args:process.env.TRISMEGISTUS_EXE?['--hidden']:[root,'--hidden'],env,timeout:30000});
 await app.evaluate(({BrowserWindow})=>{BrowserWindow.prototype.show=function(){};BrowserWindow.prototype.focus=function(){};});
 try{
- const page=await mainWindow(app);page.setDefaultTimeout(30000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ // A hidden test window draws about a frame a second, so the first click can wait for a still frame for good.
+ const page=await mainWindow(app);await wakeWindows(app);page.setDefaultTimeout(30000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  const call=(method:string,args:any={})=>page.evaluate(({method,args})=>window.desktop.invoke(method,args),{method,args});
  const wait=async(check:(s:any)=>boolean)=>{const until=Date.now()+120000;while(Date.now()<until){const s=await call('state');if(check(s))return s;await page.waitForTimeout(100);}throw Error('Watch check timed out: '+JSON.stringify((await call('state')).savedApps));};
  const entry=(s:any)=>s.savedApps.find((item:any)=>item.id===saved.id);
@@ -58,7 +61,19 @@ try{
  assert.match(turn.prompt,/^Review these updates for Studio/);assert.match(turn.prompt,/Wait for my GO/);assert.match(turn.prompt,/1\. Try Fixture video model \(small effort\)[\s\S]*Suggested update: Add it as a render backend\.[\s\S]*https:\/\/93\.184\.216\.34\/model/);
  assert.ok(entry(state).chatIds.includes(started.chatId),'The new chat is linked to the app');
  // An already reported source does not come back as a new idea.
- await page.getByLabel('Show chats for Studio').click();const again=call('savedAppWatchRun',{id:saved.id});await page.locator('.app-updates .app-watch-spinner').waitFor();await fs.writeFile(path.join(data,'checking.png'),await page.screenshot());assert.equal(await again,0);await page.locator('.app-watch-spinner').waitFor({state:'detached'});assert.equal(entry(await call('state')).updates.length,1);
+ await page.getByLabel('Show chats for Studio').click();const again=call('savedAppWatchRun',{id:saved.id});await page.locator('.app-updates .app-watch-spinner').waitFor();await fs.writeFile(path.join(data,'checking.png'),await page.screenshot());assert.equal(await again,0);await page.locator('.app-watch-spinner').waitFor({state:'detached'});assert.equal(entry(await call('state')).updates.length,2);
+ // A ticked update can go to the app's to-dos instead: one to-do holding the whole update, and it leaves the news list.
+ await page.getByLabel('Select update Try Seeded upscaler',{exact:true}).check();
+ await fs.writeFile(path.join(data,'add-to-todos.png'),await page.locator('.app-updates').screenshot());
+ await page.getByRole('button',{name:'Add 1 to to-dos',exact:true}).click();
+ state=await wait(s=>entry(s).updates.find((u:any)=>u.id==='seeded-upscaler')?.status==='todo');
+ const moved=entry(state).updates.find((u:any)=>u.id==='seeded-upscaler'),todo=entry(state).todos.find((t:any)=>t.id===moved.todoId);
+ assert.equal(todo.summary,'Try Seeded upscaler');assert.equal(todo.done,false);assert.equal(todo.chatId,undefined,'Nothing starts until Open chat');
+ assert.match(todo.title,/^Try Seeded upscaler \(medium effort\)\nWhat’s new: A new open upscaler\.\nWhy it helps: Sharper exports\.\nSuggested update: Add it as an export step\.\nSources: https:\/\/93\.184\.216\.35\/upscaler$/);
+ await page.getByLabel('Select update Try Seeded upscaler',{exact:true}).waitFor({state:'detached'});
+ await page.locator('.app-todos li',{hasText:'Try Seeded upscaler'}).waitFor();
+ await fs.writeFile(path.join(data,'todo-added.png'),await page.locator('.app-board').screenshot());
+ await assert.rejects(call('savedAppIdeasTodo',{app:saved.id,ids:['seeded-upscaler']}),/These updates changed/);
  if(useClaude){
   const requests=(await fs.readFile(path.join(data,'context-requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
   assert.equal(requests.length,4,'Sources, queries, ideas and repeat queries use Claude');

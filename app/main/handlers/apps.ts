@@ -1,7 +1,7 @@
 // apps handlers: moved out of app/main.ts unchanged (SPLIT-PLAN step 7); main.ts spreads them into handlers.
 import {existingAppPath} from '../../app-repositories';
 import {AppSummary,SummaryItem,appSummaryError,appSummarySources,applyTodoTitles,summaryBatches,summaryRevision,validateSummary} from '../../app-summary';
-import {AppIdea,AppWatch,ideasPrompt,readWatch} from '../../app-watch';
+import {AppIdea,AppWatch,ideaTodo,ideasPrompt,readWatch} from '../../app-watch';
 import {apiChanging,apiProviders,appSummaryErrors,appSummaryJobs,appWatchJobs,backend,data,emit,goals,handlers,installing,pluginChanges,pluginsChanging,refreshAppLights,repoMaps,startingAppTasks,store} from '../../main';
 import {redactPastedKeys} from '../../redaction';
 import {AppTodo,SavedApp,appTodo,changeAppGroup,linkAppChat,removeApp,saveApp} from '../../saved-apps';
@@ -105,6 +105,18 @@ export const appsHandlers:Record<string,(args:any)=>any>={
     if(!models.length)return {chatId,warning:'Choose an available model to start this chat. The updates are ready in the message box.'};
     try{await submitTurn({id:randomUUID(),chatId,text:prompt,selected:false,models:models.length===1?models:[],goalRun:undefined});return {chatId};}
     catch(error){return {chatId,warning:backend.scrubber.text(String(error))};}
+  },
+  // Ticked updates become this app's to-dos, one each, to work on later; they leave the news list and are not suggested again.
+  savedAppIdeasTodo({app:appId,ids}){
+    store.get<SavedApp>('saved-app',appId);
+    if(!Array.isArray(ids)||!ids.length||ids.length>20)throw Error('Choose up to 20 updates.');
+    const ideas=ids.map((id:unknown)=>store.get<AppIdea>('app-idea',String(id)));
+    if(ideas.some((idea:AppIdea)=>idea.appId!==appId||idea.status!=='new'))throw Error('These updates changed. Review them again.');
+    const todos=store.transaction(()=>ideas.map((idea:AppIdea)=>{
+      const {title,summary}=ideaTodo(idea),todo=appTodo(store,{app:appId,title:redactPastedKeys(backend.scrubber.text(title))})!;
+      store.update<AppTodo>('app-todo',todo.id,{summary:redactPastedKeys(backend.scrubber.text(summary))});store.update<AppIdea>('app-idea',idea.id,{status:'todo',todoId:todo.id});return todo.id;
+    }));
+    emit();return {todos};
   },
   async savedAppRepositories({id}){
     const entry=store.get<SavedApp>('saved-app',id);

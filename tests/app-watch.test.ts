@@ -2,7 +2,8 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {Store} from '../app/store';
 import {saveApp,removeApp} from '../app/saved-apps';
-import {defaultWatch,readWatch,readIdeas,ideasPrompt,nextWatchRun,updateModel,type AppIdea} from '../app/app-watch';
+import {defaultWatch,readWatch,readIdeas,ideasPrompt,ideaTodo,nextWatchRun,updateModel,type AppIdea} from '../app/app-watch';
+import {appTodo} from '../app/saved-apps';
 
 test('update models use connected defaults and never silently replace a saved model',()=>{
  const models=['claude-code:opus','deepseek-flash'];
@@ -44,4 +45,14 @@ test('the opening message lists each selected update with a brief, and app remov
  const store=new Store(':memory:'),app=saveApp(store,{name:'Video Dancer'}),other=saveApp(store,{name:'Other'});
  store.put('app-watch',defaultWatch(app.id));store.put('app-idea',{...idea,id:'i1',appId:app.id});store.put('app-idea',{...idea,id:'i2',appId:other.id});
  removeApp(store,app.id);assert.equal(store.all('app-watch').length,0);assert.deepEqual(store.all<any>('app-idea').map(row=>row.id),['i2']);store.db.close();
+});
+test('an update made a to-do holds the whole update as its text and its title on the row',()=>{
+ const idea={title:'Use Model X',effort:'small',summary:'New model.',why:'Faster.',change:'Add a backend.',sources:[{url:'https://a.example/1',title:''},{url:'https://b.example/2',title:''}]} as AppIdea;
+ const todo=ideaTodo(idea);
+ assert.equal(todo.summary,'Use Model X');
+ assert.equal(todo.title,'Use Model X (small effort)\nWhat’s new: New model.\nWhy it helps: Faster.\nSuggested update: Add a backend.\nSources: https://a.example/1, https://b.example/2');
+ assert.ok(ideasPrompt({name:'App'},[idea]).endsWith('1. '+todo.title),'The chat and the to-do carry the same words');
+ const long=ideaTodo({...idea,why:'w'.repeat(1000),change:'c'.repeat(1000)});assert.equal(long.title.length,2000);assert.ok(long.title.endsWith('…'));
+ const store=new Store(':memory:'),app=saveApp(store,{name:'App'});
+ const saved=appTodo(store,{app:app.id,title:long.title})!;assert.equal(saved.title,long.title,'A to-do accepts the capped text as it is');store.db.close();
 });

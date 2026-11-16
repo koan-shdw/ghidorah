@@ -6,7 +6,7 @@ import type {SavedApp} from './saved-apps';
 export type WatchFrequency='off'|'daily'|'weekly';
 export interface AppWatch {id:string;topics:string;sources:string;frequency:WatchFrequency;model:string;nextRun:number|null;lastRun?:number;seen:number;error?:string;unchecked?:string[];checked?:{line:string;feed:string;new:number;captions?:number}[];read?:string[];}
 export interface WatchItem {id:string;url:string;title:string;excerpt:string;published?:number;source:string;}
-export interface AppIdea {id:string;appId:string;title:string;summary:string;why:string;change:string;effort:'small'|'medium'|'large';sources:{url:string;title:string;published?:number}[];found:number;status:'new'|'dismissed'|'started';chatId?:string;}
+export interface AppIdea {id:string;appId:string;title:string;summary:string;why:string;change:string;effort:'small'|'medium'|'large';sources:{url:string;title:string;published?:number}[];found:number;status:'new'|'dismissed'|'started'|'todo';chatId?:string;todoId?:string;}
 
 export function updateModel(saved:string,models:string[],preferred=''){return saved?(models.includes(saved)?saved:''):models.includes(preferred)?preferred:models[0]||'';}
 export const defaultWatch=(id:string):AppWatch=>({id,topics:'',sources:'',frequency:'off',model:'',nextRun:null,seen:0});
@@ -37,9 +37,13 @@ export function readIdeas(raw:unknown,rawItems:unknown,existing:AppIdea[],appId:
  }
  return out;
 }
+// One update as text: the same words in a chat's opening message and in a to-do made from it.
+const ideaText=(idea:AppIdea)=>`${idea.title} (${idea.effort} effort)\nWhat’s new: ${idea.summary}\n${idea.why?'Why it helps: '+idea.why+'\n':''}Suggested update: ${idea.change}\nSources: ${idea.sources.map(source=>source.url).join(', ')}`;
 export function ideasPrompt(app:Pick<SavedApp,'name'|'repositories'>,ideas:AppIdea[]){
  return 'Review these updates for '+app.name+' and plan how to use them.\n\n'+
   'Brief: check each update against the app’s code and notes. Say whether it is worth doing, why, and where it would fit. Then propose an implementation plan ordered by value and effort, with any licensing, hardware or compatibility caveats. Wait for my GO before changing code.'+
   (app.repositories?.length?'\n\nRepository folders: '+app.repositories.join(', '):'')+'\n\n'+
-  ideas.map((idea,index)=>`${index+1}. ${idea.title} (${idea.effort} effort)\nWhat’s new: ${idea.summary}\n${idea.why?'Why it helps: '+idea.why+'\n':''}Suggested update: ${idea.change}\nSources: ${idea.sources.map(source=>source.url).join(', ')}`).join('\n\n');
+  ideas.map((idea,index)=>`${index+1}. ${ideaText(idea)}`).join('\n\n');
 }
+// A to-do made from an update: the whole update as its text (a to-do holds up to 2,000 characters), its title on the row.
+export function ideaTodo(idea:AppIdea){const text=ideaText(idea);return {title:text.length>2000?text.slice(0,1999)+'…':text,summary:idea.title};}
