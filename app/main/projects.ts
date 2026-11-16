@@ -132,7 +132,15 @@ export async function createAppRecord(chat:Chat,args:any,expectedMode:Mode,start
 }
 export async function writePolicy(project?:Project){
   const home=project?path.join(data,'hermes','profiles',project.profile):path.join(data,'hermes'),file=path.join(home,'trismegistus-policy.json'),temporary=file+'.'+randomUUID()+'.tmp';
-  try{await fs.writeFile(temporary,JSON.stringify({folder:project?.folder?workingDirectory(project):null,profile:project?.profile||'default',mode:project?.mode||'manual',secrets_root:data}));await fs.rename(temporary,file);}finally{await fs.rm(temporary,{force:true});}
+  try{
+    await fs.writeFile(temporary,JSON.stringify({folder:project?.folder?workingDirectory(project):null,profile:project?.profile||'default',mode:project?.mode||'manual',secrets_root:data}));
+    // Windows refuses a rename over a file another process has open, and the permissions plugin reads this one on
+    // every tool check: a refused rename is tried again for up to a second.
+    for(let attempt=0;;attempt++){
+      try{await fs.rename(temporary,file);break;}
+      catch(error:any){if(attempt>=20||!['EPERM','EACCES','EBUSY'].includes(error?.code))throw error;await new Promise(done=>setTimeout(done,50));}
+    }
+  }finally{await fs.rm(temporary,{force:true});}
 }
 export async function changeProjectMode(projectId:string,requested:Mode,current?:()=>boolean){
   if(!['manual','accept-edits','plan','auto','bypass'].includes(requested))throw Error('Invalid mode');
