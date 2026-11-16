@@ -6,7 +6,7 @@ import {saveApp,type SavedApp} from '../../saved-apps';
 import type {Chat,Turn} from '../../types';
 import {data,emit,goals,managingChats,sidebar,store,win} from '../../main';
 import {configure} from '../backend';
-import {goalHold,submitTurn} from '../context';
+import {goalHold,settleHold,submitTurn} from '../context';
 import {changeProjectMode,projectFor,requireStableFolder,workingDirectory} from '../projects';
 import {randomUUID} from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -34,7 +34,7 @@ export const handoverHandlers:Record<string,(args:any)=>any>={
     if(turn.chatId!==old.id||turn.id!==last?.id||turn.status!=='completed'||!turn.text.trim())throw Error('Start from the latest finished handover reply.');
     const pick=typeof model==='string'&&model?model:turn.model;if(!(old.pool||[]).includes(pick))throw Error('Add this model to the chat first.');
     if(managingChats.has(old.id))throw Error('This chat is already changing.');
-    const hold=goalHold(old.id);if(hold)throw Error(hold);
+    await settleHold(old.id);const hold=goalHold(old.id);if(hold)throw Error(hold);
     managingChats.add(old.id);
     try{
       goals.pause(old.id,'Moved to the next chat by handover');

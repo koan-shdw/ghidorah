@@ -488,6 +488,9 @@ export class WorkCoordination {
   return action;
  }
  pending(){return this.store.where<Action>('work-action','status','uncertain').filter(action=>action.access!=='read');}
+ // These chats' uncertain actions settle from recorded facts, as they do before new work (autoResolve, Koan
+ // 2026-10-06). Work review is gone, so a hold that waited for someone to inspect them would never clear.
+ async settle(chatIds:string[]){if(!this.autoResolve)return;for(const action of this.pending())if(chatIds.includes(this.readKey(action.job)))await this.settleQuietly(action);}
  inspect(id:string,note:string){
   if(typeof note!=='string'||note.trim().length<5||note.length>4000)throw Error('Describe the outcome you checked.');
   const action=this.store.get<Action>('work-action',id);if(action.status!=='uncertain')throw Error('This action is no longer awaiting inspection.');

@@ -23,7 +23,7 @@ import {turnsText} from '../../handover';
 import type {Approval,Chat,SideAnswer,ToolCall,Turn} from '../../types';
 import {defaultFolder} from '../apps';
 import {configure} from '../backend';
-import {contextCompletion,generateContext,goalHold,sideFirst,sideModel,sideRow,submitTurn} from '../context';
+import {contextCompletion,generateContext,goalHold,settleHold,sideFirst,sideModel,sideRow,submitTurn} from '../context';
 import {wake} from '../dispatch';
 import {availableModels,recordRoute,unavailableMessage,videoModel} from '../models';
 import {jevSettings} from '../pickers';
@@ -44,7 +44,7 @@ function dropQueued(turn:Turn){store.transaction(()=>{if(turn.parentTurnId){cons
 // Delete cancels what the chat still has waiting and stops what runs, then deletes (his ask 10-25: "we should be able
 // to cancel by deleting"). Only an action with an uncertain outcome holds it, since its effects need a look first.
 async function settleForDelete(chatId:string){
-  const ids=new Set(sidebar.owned(chatId).map(c=>c.id));
+  const ids=new Set(sidebar.owned(chatId).map(c=>c.id));await coordination.settle([...ids]);
   if(coordination.pending().some(action=>ids.has(store.get<Turn>('turn',action.job).chatId)))throw Error('An action in this chat has an uncertain outcome. Inspect it in Work review, then delete.');
   goals.pause(chatId,'Chat deleted');
   const drop=()=>{for(const turn of store.all<Turn>('turn'))if(ids.has(turn.chatId)&&['queued','needs-model'].includes(turn.status)&&preparing.get(turn.chatId)?.turnId!==turn.id)dropQueued(turn);};
@@ -65,20 +65,20 @@ export const chatsHandlers:Record<string,(args:any)=>any>={
     return {current:chat.context||null,revision:source.revision,throughTurnId:source.throughTurnId,sourceCharacters:source.sourceCharacters,batches:source.batches.length,instructions:source.instructions,goal:source.goal,draft:store.all<ContextDraft>('context-draft').find(d=>d.id===chatId)||null,progress:job?{done:job.done,total:job.total}:null};
   },
   async contextGenerate({chatId,model}){
-    requireStableFolder();const chat=sidebar.root(chatId),hold=goalHold(chatId);if(hold)throw Error(hold);
+    requireStableFolder();const chat=sidebar.root(chatId);await settleHold(chatId);const hold=goalHold(chatId);if(hold)throw Error(hold);
     if(managingChats.has(chatId)||chat.archived||goals.get(chatId)?.status==='active')throw Error('Pause the goal and finish chat changes before compacting.');
     if(!availableModels().includes(model))throw Error('Choose an available model for the summary.');
     return generateContext(chatId,model);
   },
   contextCancel({chatId}){sidebar.root(chatId);contextJobs.get(chatId)?.controller.abort();},
   async contextApply({chatId,revision,summary,instructions}){
-    requireStableFolder();sidebar.root(chatId);const hold=goalHold(chatId);if(hold)throw Error(hold);
+    requireStableFolder();sidebar.root(chatId);await settleHold(chatId);const hold=goalHold(chatId);if(hold)throw Error(hold);
     if(typeof summary!=='string'||typeof instructions!=='string')throw Error('Enter a summary and standing instructions as text.');
     if(managingChats.has(chatId)||goals.get(chatId)?.status==='active')throw Error('Pause the goal and finish chat changes before compacting.');
     managingChats.add(chatId);try{for(const owner of sidebar.owned(chatId))await native.closeChat(owner.id);return saveContext(store,chatId,revision,redactPastedKeys(backend.scrubber.text(summary)),redactPastedKeys(backend.scrubber.text(instructions)));}finally{managingChats.delete(chatId);emit();}
   },
   async contextReset({chatId}){
-    requireStableFolder();sidebar.root(chatId);const hold=goalHold(chatId);if(hold)throw Error(hold);
+    requireStableFolder();sidebar.root(chatId);await settleHold(chatId);const hold=goalHold(chatId);if(hold)throw Error(hold);
     if(managingChats.has(chatId)||goals.get(chatId)?.status==='active')throw Error('Pause the goal and finish chat changes before restoring full context.');
     managingChats.add(chatId);try{
       for(const owner of sidebar.owned(chatId))await native.closeChat(owner.id);
@@ -102,7 +102,7 @@ export const chatsHandlers:Record<string,(args:any)=>any>={
     if(action==='delete'&&store.all<Chat>('chat').some(row=>row.sideSourceId===chat.id&&!row.parentChatId))throw Error('Keep or discard this thread’s side chat before deleting the thread.');
     if(['delete','fork','archive'].includes(action)&&!(action==='archive'&&args.archived===false)){
       if(managingChats.has(chat.id))throw Error('This chat is already changing.');
-      const hold=action==='delete'?null:goalHold(chat.id);if(hold)throw Error(hold);
+      if(action!=='delete')await settleHold(chat.id);const hold=action==='delete'?null:goalHold(chat.id);if(hold)throw Error(hold);
       if(action!=='delete'&&goals.get(chat.id)?.status==='active')throw Error('Pause this chat’s goal first.');
       if(sidebar.owned(chat.id).some(c=>uploading.has(c.id)||terminals.has(c.id)))throw Error('Finish attaching files and close this chat’s terminals first.');
       if(action==='delete'&&workspaceDrafts.has(win.webContents.id))throw Error('Save or discard workspace edits before deleting chats.');

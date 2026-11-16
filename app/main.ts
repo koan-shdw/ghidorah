@@ -123,7 +123,7 @@ import {configure,configureInBackground,configureSoon,session} from './main/back
 import {addAppTask,changeProjectMode,createApp,linkCurrentApp,listAppTasks,projectFor,requireIdleFolder,requireStableFolder,updateApp,updateAppTask,workingDirectory} from './main/projects';
 import {askApproval,mainSnapshot,sendMainState,sendState,snapshot} from './main/snapshot';
 import {agentSnapshot,agentWindowRequest,chatSnapshot,jobSnapshot,modelWindowHash,openChatWindow,openJob,openWorkspaceWindow,saveChatWindows,saveJobWindows,saveWorkspaceWindows,workspaceWindowRequest,workspaceWindowState} from './main/windows';
-import {changePlugin,generateContext,goalHold,pluginChangeWait,queryHistory,sideFirst,sideRow,submitTurn} from './main/context';
+import {changePlugin,generateContext,goalHold,pluginChangeWait,queryHistory,settleHold,sideFirst,sideRow,submitTurn} from './main/context';
 import {automaticClaude,automaticHermes,continueNative,coordinateChat,providerUrls,request,requestProjectReview,stateProviderInChat,waitingFor,wake} from './main/dispatch';
 import {anyChatBusy,hasWork,nextWatermark,reconcileReplies,releaseHermesSession,replyRow,stopDeadline,waitForMode} from './main/turns';
 import {appsHandlers} from './main/handlers/apps';
@@ -1625,7 +1625,9 @@ app.whenReady().then(async()=>{
   coordination=new WorkCoordination(store,emit,true);coordination.interrupt();
   native=new NativeSessions(store,coordination,emit,{idle:chatId=>wake(chatId),warning:(chatId,message)=>{try{store.update<Chat>('chat',chatId,{engineNotice:message});emit();}catch{}},automatic:automaticClaude});await native.recover();
   background=new BackgroundWork(store,backend,coordination,emit,pluginOwners);await background.lost('The app restarted. Saved process IDs are not replayed; inspect effects before continuing.');await background.recoverReceipts();await coordination.reconcileObservers();
-  goals=new Goals(store,emit,goalHold,chatId=>projectFor(store.get<Chat>('chat',chatId)).mode,async(chatId,runId,text)=>{await handlers.submit({id:randomUUID(),chatId,text,goalRun:runId,models:goals.get(chatId)?.models||[]});});goals.recover();
+  // A goal waits while its chat's uncertain actions settle by themselves (settleHold), instead of pausing on them.
+  const goalWait=(chatId:string)=>{const hold=goalHold(chatId);if(!hold?.startsWith('Inspect uncertain'))return hold;void settleHold(chatId).then(()=>{emit();goals.schedule();},()=>{});return 'Wait for current work to finish.';};
+  goals=new Goals(store,emit,goalWait,chatId=>projectFor(store.get<Chat>('chat',chatId)).mode,async(chatId,runId,text)=>{await handlers.submit({id:randomUUID(),chatId,text,goalRun:runId,models:goals.get(chatId)?.models||[]});});goals.recover();
   backgroundTimer=setInterval(()=>void background.refresh(),2000);backgroundTimer.unref();
   backend.rpc.onAny(event=>{try{receive(event);}catch(error){const message=backend.scrubber.text(String(error));store.put('connection-check',{id:randomUUID(),sessionId:event.session_id,at:Date.now(),error:message});backend.rpc.invalidate('Could not save reply event: '+message);}});backend.rpc.onRequest(request);
   replyTimer=setInterval(()=>void reconcileReplies(),5000);replyTimer.unref();setInterval(()=>void shareCheck().catch(()=>{}),60000).unref();wakeWaiting();

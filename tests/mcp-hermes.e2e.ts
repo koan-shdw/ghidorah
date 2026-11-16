@@ -47,13 +47,13 @@ try{
  const slowB=await send(b,'gpt-6-astra','call_connected_tool',{connection:local,tool:'slow',arguments:{marker:'slow-b'}});await wait(s=>s.turns.some((t:any)=>t.id===slowB&&t.status==='running'));
  await call('stop',{chatId:b});await wait(state=>state.turns.some((t:any)=>t.id===slowB&&t.status==='stopped'));state=await call('state');assert.equal(state.turns.find((t:any)=>t.id===slowA).status,'running');
  await call('stop',{chatId:a});await wait(state=>state.turns.some((t:any)=>t.id===slowA&&t.status==='stopped'));
- // Stop cannot prove an arbitrary MCP effect did not happen. This fixture only
- // records the call name, waits and echoes; inspect its actual durable effects
- // before using the same connection again through the app's Work review.
+ // Stop cannot prove an MCP effect did not happen; the stopped call's outcome settles by itself from what was
+ // recorded (since 10-06, no Work review), before the next call and before a context reset.
  assert.equal((await fs.readFile(callRecord,'utf8')).split('\n').filter(line=>line.trim()==='slow').length,1);
- state=await call('state');
- for(const row of state.workReview.filter((row:any)=>[slowA,slowB].includes(row.job)))await call('inspectWork',{id:row.id,note:'Checked mcp_stdio.py and mcp-calls.txt: one slow call was recorded; this fixture only waits and echoes, with no further mutation.'});
  const afterStop=await send(b,'gpt-6-astra','call_connected_tool',{connection:local,tool:'echo',arguments:{marker:'after-stop'}});await approve(afterStop);state=await done(afterStop);assert.match(state.turns.find((t:any)=>t.id===afterStop).text,/after-stop/);
+ // Hermes's session_search hides the session it runs in, and a chat keeps its Hermes session through Stop: a fresh
+ // session per chat (contextReset, "restore full context") leaves the earlier results in a past session to be found.
+ for(const chatId of [a,b])await call('contextReset',{chatId});
  for(const [chatId,own,other] of [[a,'alpha-project','beta-project'],[b,'beta-project','alpha-project']]){
   const search=await send(chatId,'deepseek-flash','session_search',{query:'"alpha-project" OR "beta-project"',detail:'full',role_filter:'tool',limit:20});state=await done(search);
   const text=JSON.stringify(JSON.parse(state.turns.find((t:any)=>t.id===search).text).results);assert.match(text,new RegExp(own));assert.doesNotMatch(text,new RegExp(other));
@@ -73,7 +73,8 @@ try{
  const foreign=await send(a,'deepseek-flash','session_search',{query:'BETA_PROJECT_MEMORY_ONLY',profile:projectB.profile});state=await done(foreign);assert.match(state.turns.find((t:any)=>t.id===foreign).text,/limited to this project/);await call('mode',{projectId:projectA.id,mode:'manual'});
  // The existing Hermes session receives Claude's new memory as appended context.
  const gptMemory=await send(a,'gpt-6-astra','memory',{action:'add',content:'GPT_SEES_CLAUDE_MEMORY'});await approve(gptMemory);await done(gptMemory);
- const gptBodies=(await fs.readFile(path.join(data,'codex-requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));const latestUser=gptBodies.at(-1).input.findLast((item:any)=>item.role==='user');const userText=typeof latestUser.content==='string'?latestUser.content:latestUser.content.map((block:any)=>block.text||'').join('');assert.match(userText.split('\n\nCurrent user message:')[0],/CLAUDE_PROJECT_USER_FACT/);
+ const gptBodies=(await fs.readFile(path.join(data,'codex-requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));// The refreshed memory comes as its own context item before the message; a model change notice can be the last one.
+ const userTexts=gptBodies.at(-1).input.filter((item:any)=>item.role==='user').map((item:any)=>typeof item.content==='string'?item.content:item.content.map((block:any)=>block.text||'').join(''));assert.ok(userTexts.some((text:string)=>text.split('\n\nCurrent user message:')[0].includes('CLAUDE_PROJECT_USER_FACT')),'Claude\'s new memory reaches the Hermes session before the message');
  const nativeBodies=(await fs.readFile(path.join(data,'claude-requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));assert.ok(nativeBodies.some((body,index)=>((body.args.includes('--resume'))||nativeBodies.slice(0,index).some(earlier=>earlier.pid===body.pid&&earlier.sessionId===body.sessionId))&&body.content?.[1]?.text?.includes('CLAUDE_PROJECT_USER_FACT')),'retained or resumed native sessions receive fresh memory without replacing their history');
  assert.doesNotMatch(await fs.readFile(path.join(data,'hermes/profiles',projectA.profile,'memories/MEMORY.md'),'utf8'),/MEMORY_MUST_NOT_SAVE|MEMORY_CANCELLED|MEMORY_PLAN_BLOCKED/);
  console.log('PASS Claude shares Hermes project memory: cross-engine read/write, fresh resumed context, one approval, denial, cancellation, Plan, and foreign-profile refusal in Bypass');

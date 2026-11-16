@@ -103,6 +103,8 @@ export async function changePlugin(item:NativePluginInstall,runtime?:unknown){
   }
   emit();return true;
 }
+// The chat's uncertain actions settle first, so goalHold below only waits on work that is still going on.
+export async function settleHold(chatId:string){await coordination.settle([chatId,...store.all<Chat>('chat').filter(row=>row.parentChatId===chatId).map(row=>row.id)]);}
 export function goalHold(chatId:string){
   if(pluginChanges.pending||pluginsChanging)return 'Waiting for queued plugin changes.';
   if(gitOperation)return 'Wait for the Git operation to finish.';

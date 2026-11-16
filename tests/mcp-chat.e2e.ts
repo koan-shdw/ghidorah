@@ -22,7 +22,7 @@ try{
  }
  const denied=await submit(a,'denied-marker');await approve(denied,'deny');state=await done(denied);assert.equal(state.turns.find((turn:any)=>turn.id===denied).text,'denied');
  const slow=await submit(b,'cancel-marker','slow');await approve(slow);await wait(state=>state.turns.some((turn:any)=>turn.id===slow&&turn.status==='running'));await call('stop',{chatId:b});await wait(state=>state.turns.some((turn:any)=>turn.id===slow&&turn.status==='stopped'));
- const uncertain=(await wait(state=>state.workReview?.some((row:any)=>row.args?.marker==='cancel-marker'))).workReview.find((row:any)=>row.args?.marker==='cancel-marker');await call('inspectWork',{id:uncertain.id,note:'Checked the echo fixture: the stopped call changed nothing.'});
+ // An uncertain outcome settles by itself since 10-06 (the Work review list is always empty): the next call goes on.
  const next=await submit(b,'after-cancel');await approve(next);await done(next);
  const waiting=await submit(a,'off-marker');await wait(state=>state.approvals.some((approval:any)=>approval.turnId===waiting&&approval.status==='pending'));await call('mcpAction',{id,action:'off'});await approve(waiting);state=await done(waiting);assert.match(state.turns.find((turn:any)=>turn.id===waiting).text,/off/);
  await call('mcpAction',{id,action:'remove'});
