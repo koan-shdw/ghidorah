@@ -582,10 +582,13 @@ def _merge_consecutive_users(messages: List[Dict]) -> Tuple[List[Dict], int]:
             # Folding the user row into the typed marker hid this turn from re-anchoring, so plugin
             # pre_llm_call context and memory prefetch were dropped on every turn after a switch.
             if prev.get("display_kind") in _PIVOT_DISPLAY_KINDS and not msg.get("display_kind"):
-                msg["content"] = merged_content
-                drop_stale_api_content(msg)
-                msg.pop(_DB_PERSISTED_MARKER, None)
-                merged[-1] = msg
+                # Ghidorah 2026-11-16: a new dict, not an edit in place. The turn's user row is shared with the
+                # caller's lists and is usually saved already: editing it folded the marker in again on the next
+                # rebuild (sent twice) and cleared its saved mark (written to the session twice). The saved rows
+                # stay marker + plain row, which fold the same way on reload.
+                folded = {**msg, "content": merged_content}
+                drop_stale_api_content(folded)
+                merged[-1] = folded
                 repairs += 1
                 continue
             had_api_sidecar = "api_content" in prev

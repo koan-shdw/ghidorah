@@ -66,11 +66,29 @@ def test_repair_folds_switch_marker_into_the_turn_that_follows():
     ]
 
     assert AIAgent._repair_message_sequence(agent, messages) == 1
-    assert len(messages) == 3 and messages[2] is turn
-    assert turn["content"] == "[System: The active model for this chat has changed to b.]\n\nhello"
-    assert "display_kind" not in turn
+    assert len(messages) == 3
+    assert messages[2]["content"] == "[System: The active model for this chat has changed to b.]\n\nhello"
+    assert "display_kind" not in messages[2]
     # The turn stays findable, so pre_llm_call context and memory prefetch reach it.
     assert reanchor_current_turn_user_idx(messages, "hello") == 2
+
+
+def test_switch_marker_fold_leaves_the_shared_saved_turn_alone():
+    # Ghidorah 2026-11-16: the fold edited the turn's user row in place. A rebuild from the history that still
+    # holds the marker folded it in again (the marker was sent twice), and the cleared saved mark wrote the user
+    # row to the session a second time.
+    from agent.context_compressor import _DB_PERSISTED_MARKER
+
+    agent = _bare_agent()
+    marker = {"role": "user", "content": "[System: The active model for this chat has changed to b.]", "display_kind": "model_switch"}
+    turn = {"role": "user", "content": "hello", _DB_PERSISTED_MARKER: True}
+    history = [{"role": "user", "content": "earlier"}, {"role": "assistant", "content": "answer"}, marker]
+    for _ in range(2):
+        messages = [*history, turn]
+        assert AIAgent._repair_message_sequence(agent, messages) == 1
+        assert messages[-1]["content"] == "[System: The active model for this chat has changed to b.]\n\nhello"
+        assert messages[-1].get(_DB_PERSISTED_MARKER) is True
+    assert turn == {"role": "user", "content": "hello", _DB_PERSISTED_MARKER: True}
 
 
 def test_repair_preserves_user_content_when_one_side_empty():
