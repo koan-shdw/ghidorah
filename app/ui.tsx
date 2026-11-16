@@ -292,7 +292,9 @@ function App(){
   const pool=chat?.pool||['deepseek-flash'];
   const connected=state.connected||Boolean(state.codex?.connected)||Boolean(state.claude?.connected)||Boolean(state.apiProviders?.some(row=>row.connected));
   const connectionStatus=state.availableModels?.length?'Connected':connected?'Check connections':'Not connected';
-  const needsModel=connected&&!(state.decisionEngine?.connected??state.jev?.connected)&&!picks.length&&!state.turns.some(t=>t.status==='completed'&&!t.command)&&!state.commands?.some(command=>command.kind==='Plugin command'&&command.name===draft.trimStart().split(/\s/,1)[0]);
+  // A plugin command runs in the plugin, so it needs no model: it sends with no model connected.
+  const pluginCommand=!!state.commands?.some(command=>command.kind==='Plugin command'&&command.name===draft.trimStart().split(/\s/,1)[0]);
+  const needsModel=connected&&!(state.decisionEngine?.connected??state.jev?.connected)&&!picks.length&&!state.turns.some(t=>t.status==='completed'&&!t.command)&&!pluginCommand;
   const turns=useMemo(()=>state.turns.filter(t=>t.chatId===chatId),[state.turns,chatId]);
   const chatTurns=useMemo(()=>{const jobs=new Set(turns.flatMap(parent=>parent.jobs||[]));return state.turns.filter(t=>t.chatId===chatId||jobs.has(t.id));},[state.turns,turns,chatId]);
   const working=turns.some(t=>['running','waiting','dispatching','stopping'].includes(t.status));
@@ -332,7 +334,7 @@ function App(){
   const sending=useRef(false),rowCall=useStable(call),index=useMemo(()=>rowIndex(state),[state.turns,state.tools,state.approvals,state.background]);
   const drafts=useDraftSaver((id,text)=>void api.invoke('draft',{chatId:id,text}).catch(()=>{}),(id,text)=>patch(previous=>({...previous,chats:previous.chats.map(c=>c.id===id?{...c,draft:text}:c)})));
   useEffect(()=>{if(modelsPending&&state.availableModels?.length){setModelsPending(false);setError('');void submit();}},[modelsPending,state.availableModels?.length]);
-  async function submit(explicit?:boolean,queue=true){if(sending.current||otherEditor||!chat||(!draft.trim()&&!chat.attachments?.length)||busy)return;if(!(state.availableModels||[]).length){if(connected){setModelsPending(true);setError('Models are still loading. Your message sends when they are ready.');}else void call('wizardOpen',{step:'suppliers'});return;}drafts.flush();const text=draft,revision=editorRevision.current;sending.current=true;setBusy(true);try{await call(working&&!queue?'correctGroup':'submit',{id:crypto.randomUUID(),chatId,text,...(explicit===undefined?{}:{selected:explicit})});if(revision===editorRevision.current)setDraft('');}catch{}finally{sending.current=false;setBusy(false);}}
+  async function submit(explicit?:boolean,queue=true){if(sending.current||otherEditor||!chat||(!draft.trim()&&!chat.attachments?.length)||busy)return;if(!(state.availableModels||[]).length&&!pluginCommand){if(connected){setModelsPending(true);setError('Models are still loading. Your message sends when they are ready.');}else void call('wizardOpen',{step:'suppliers'});return;}drafts.flush();const text=draft,revision=editorRevision.current;sending.current=true;setBusy(true);try{await call(working&&!queue?'correctGroup':'submit',{id:crypto.randomUUID(),chatId,text,...(explicit===undefined?{}:{selected:explicit})});if(revision===editorRevision.current)setDraft('');}catch{}finally{sending.current=false;setBusy(false);}}
   async function attach(files:File[]){
     if(otherEditor)return;if(!chat){setError('Start a chat before attaching files.');return;}if(busy){setError('Wait for the current files to finish preparing.');return;}const owner=chat.id;setBusy(true);setAttaching(true);
     try{for(const file of files){if(file.size>25*1024*1024)throw Error('Choose files up to 25 MB.');await call('attachmentAdd',{chatId:owner,name:file.name,bytes:new Uint8Array(await file.arrayBuffer())});}}catch(error){setError(errorText(error));}finally{setBusy(false);setAttaching(false);}

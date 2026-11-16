@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {PYTHON} from '../app/backend';
 
-const root=path.resolve('.'),data=await fs.mkdtemp(path.join(root,'work','plugin-commands-')),source=path.join(data,'fixture-plugin'),folder=path.join(data,'workspace');await fs.mkdir(source);await fs.mkdir(folder);
+const root=path.resolve('.'),data=await fs.mkdtemp(path.join(root,'work','plugin-commands-')),source=path.join(data,'fixture-plugin'),folder=await fs.mkdtemp(path.join(root,'work','plugin-commands-files-'));await fs.mkdir(source);
 await fs.writeFile(path.join(source,'plugin.yaml'),JSON.stringify({name:'command-example',version:'1',requires_env:['COMMAND_FIXTURE_TOKEN'],config_schema:{prefix:{type:'string',default:'from-settings'}}}));
 await fs.writeFile(path.join(source,'__init__.py'),`import asyncio, json, os, subprocess, sys, time
 from pathlib import Path
@@ -92,11 +92,11 @@ try{
  const mainPid=await instance.evaluate(()=>process.pid);
  execFileSync('taskkill',['/PID',String(mainPid),'/F'],{windowsHide:true,stdio:'pipe'});
  await childStopped(a);const heartbeatBefore=await fs.readFile(path.join(folder,'heartbeat-'+a+'.txt'),'utf8');await new Promise(resolve=>setTimeout(resolve,2100));assert.equal(await fs.readFile(path.join(folder,'heartbeat-'+a+'.txt'),'utf8'),heartbeatBefore);
- await instance.close().catch(()=>{});instance=await launch();await instance.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().forEach(window=>window.hide()));page=await instance.firstWindow();await wait(state=>state.backend==='ready'&&state.commands?.filter((row:any)=>row.plugin!=='Trismegistus').length===2);await done(id,'interrupted');assert.equal((await logs()).length,countBeforeCrash);assert.equal((await call('state')).tools.find((row:any)=>row.turnId===id).status,'uncertain');
+ await instance.close().catch(()=>{});instance=await launch();await instance.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().forEach(window=>window.hide()));page=await instance.firstWindow();await wait(state=>state.backend==='ready'&&state.commands?.filter((row:any)=>row.kind==='Plugin command').length===2);await done(id,'interrupted');assert.equal((await logs()).length,countBeforeCrash);assert.equal((await call('state')).tools.find((row:any)=>row.turnId===id).status,'uncertain');
  await call('submit',{id,chatId:a,text:'/command-example:record wait'});assert.equal((await logs()).length,countBeforeCrash);
  await call('saveKey',{key:'synthetic-deepseek-regression-credential'});await call('modelSelection',{chatId:a,model:'deepseek-flash',selected:true});const local=await send(a,'selection-check','async');await approval(local);await done(local);assert.deepEqual((await call('state')).chats.find((chat:any)=>chat.id===a).selectedModels,['deepseek-flash']);const chatTurn=crypto.randomUUID();await call('submit',{id:chatTurn,chatId:a,text:'Remember the earlier command result without repeating it.'});await done(chatTurn);assert.match(await fs.readFile(path.join(data,'requests.jsonl'),'utf8'),/COMMAND-RESULT/);assert.equal((await logs()).length,countBeforeCrash);
  console.log('PASS nested Hermes tool approval, Plan/Bypass, chat-scoped Stop, process-tree cleanup, mode-change cancellation, app-death cleanup, no replay and model handover');
- await call('nativePluginToggle',{id:installed.id,enabled:false});assert.equal((await call('state')).commands.filter((row:any)=>row.plugin!=='Trismegistus').length,0);await call('nativePluginToggle',{id:installed.id,enabled:true});
+ await call('nativePluginToggle',{id:installed.id,enabled:false});assert.equal((await call('state')).commands.filter((row:any)=>row.kind==='Plugin command').length,0);await call('nativePluginToggle',{id:installed.id,enabled:true});
  id=await send(a,'aux-ok','async');await approval(id);assert.match((await done(id)).text,/APPROVE/);
  id=await send(a,'aux-exhaust','async');await approval(id);await done(id,'interrupted');assert.equal((await call('state')).availableModels.includes('deepseek-flash'),false);
  const auxCount=(await fs.readFile(path.join(data,'aux.jsonl'),'utf8')).trim().split('\n').length;
