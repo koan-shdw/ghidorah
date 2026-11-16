@@ -216,5 +216,16 @@
     "Waves while you dictate: bars beside the buttons or a line across the message box. Choose in Settings › Voice.",
     "Dictation keeps your first and last words, and Done waits for a long recording instead of giving up.",
     "Side chats: Discard asks first, and Send to main chat puts a summary in the main chat's message box. A branch, a side chat and a handover show the same bar at the top of the chat."
+  ]},
+  {"version":"0.1.44","date":"2026-11-16","notes":[
+    "Zonos 3 Mini can read replies aloud through Zyphra Cloud on your own key. Choose it beside Kokoro in Settings › Voice › Reply voice and pick one of its ten voices. The key is tried before it is saved, and your voice's effects still apply.",
+    "Latest updates on an app's page: Add to to-dos makes a to-do from each ticked update, to work on later.",
+    "Bypass asks before a model reads Ghidorah's own data or your saved keys. Everything else in Bypass still runs without asking.",
+    "Turning on the wake word works again. Before, it was refused with Stop active work before restarting.",
+    "Restore, compact, fork, archive, handover and delete no longer stop at Inspect uncertain actions, and goals no longer pause there. Unfinished actions settle by themselves first.",
+    "A chat with a video and another model picked asks you to choose Gemini when Gemini is connected, instead of telling you to connect it.",
+    "After a model switch the new model is told once. Before, GPT was told twice.",
+    "Plugin commands send with no model connected, the usage panel fits a small window, and changing a project's mode no longer fails now and then.",
+    "The Show all chats button is gone: the Chats button on the rail clears an app's filter."
   ]}
 ]
