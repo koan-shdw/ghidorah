@@ -1,5 +1,5 @@
 import {apiSuppliers} from './api-catalog';
-import React,{useEffect,useRef,useState} from 'react';
+import React,{useEffect,useLayoutEffect,useRef,useState} from 'react';
 import type {Snapshot,Turn,Chat,ClaudeConnection} from './types';
 import {modelLabel,modelEfforts,providerFor} from './models';
 import {modelStatus} from './availability';
@@ -56,6 +56,20 @@ export function UsagePanel({id="usage-panel",state,chat,turns,models,refresh,clo
     const timer=setInterval(()=>setNow(Date.now()),30000);
     document.addEventListener('pointerdown',outside);document.addEventListener('keydown',key);
     return()=>{clearInterval(timer);document.removeEventListener('pointerdown',outside);document.removeEventListener('keydown',key);};
+  },[]);
+  // The panel stays inside its chat pane: below the pane's title bar and inside the composer's column, and scrolls
+  // when it is taller (900×700 with the sidebar open, 2026-11-16: it ran under the title bars and the sidebar).
+  // It is anchored by its bottom right corner, so its size never moves the box it is measured against.
+  useLayoutEffect(()=>{
+    const element=panel.current,pane=element?.closest('main');if(!element||!pane)return;
+    const column=element.closest<HTMLElement>('.bottom-area')||pane;
+    const fit=()=>{
+      const bar=pane.querySelector('.titlebar, .job-titlebar'),top=(bar?bar.getBoundingClientRect().bottom:pane.getBoundingClientRect().top)+8,own=element.getBoundingClientRect();
+      element.style.maxHeight=Math.max(160,Math.min(innerHeight-110,own.bottom-top))+'px';
+      element.style.maxWidth=Math.max(240,Math.min(innerWidth-52,own.right-column.getBoundingClientRect().left-8))+'px';
+    };
+    fit();const observer=new ResizeObserver(fit);observer.observe(pane);observer.observe(column);
+    return()=>observer.disconnect();
   },[]);
   async function update(){setBusy(true);try{await refresh();}finally{setBusy(false);}}
   // One row per picker that routed in this chat. Turns saved before the engine field count as Jev.

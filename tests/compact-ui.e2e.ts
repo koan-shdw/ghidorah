@@ -10,7 +10,7 @@ import React from 'react';import {createRoot} from 'react-dom/client';import {Us
 const now=Date.now(),models=['deepseek-flash','gpt-6-sol','claude-code:fable'];
 const state={chats:[{id:'chat',title:'New project',pool:models}],connected:true,balance:'USD 8.42',balanceCheckedAt:new Date(now).toISOString(),favouriteModels:['gpt-6-sol'],codex:{connected:true,models:['gpt-6-astra','gpt-6-sol','gpt-6-luna','gpt-5.6-sol','gpt-5.6-terra'],plan:'Pro',status:'Connected',checkedAt:new Date(now).toISOString(),windows:[{label:'Weekly',usedPercent:81,resetAt:new Date(now+172800000).toISOString()}]},claude:{connected:true,models:[{id:'claude-code:opus',label:'Opus',efforts:[]},{id:'claude-code:fable',label:'Fable 5.1',efforts:[]},{id:'claude-code:haiku',label:'Haiku',efforts:[]}],plan:'Max',status:'Connected',checkedAt:new Date(now).toISOString(),windows:[{label:'5-hour limit',usedPercent:100,resetAt:new Date(now+3480000).toISOString()},{label:'Weekly · all models',usedPercent:16,resetAt:new Date(now+172800000).toISOString()},{label:'Weekly · Fable',usedPercent:32,resetAt:new Date(now+172800000).toISOString()}]}};
 const turns=models.map((model,i)=>({model,created:now,usage:{turn_total:[9136,35763,89083][i],context_used:[9133,7719,29814][i],context_max:[1000000,272000,1000000][i],context_source:i===2?'claude_code':'provider_usage'}}));
-const render=(screen='usage',missing=false)=>createRoot(document.getElementById('root')).render(screen==='usage'?<div className="bottom-area" style={{position:'fixed',bottom:0,right:0}}><UsagePanel state={missing?{...state,codex:{...state.codex,windows:[]},claude:{...state.claude,windows:[{label:'Weekly',usedPercent:null,resetAt:null}]}}:state} turns={missing?[]:turns} models={models} refresh={async()=>{}} close={()=>{}}/></div>:<div className="modal-backdrop"><div className="settings"><header><h2>Chat models</h2></header><div className="settings-body"><ModelPool state={state} chatId="chat" call={async()=>{}} connections={()=>{}}/></div></div></div>);
+const render=(screen='usage',missing=false)=>createRoot(document.getElementById('root')).render(screen==='usage'?<main style={{position:'fixed',top:38,left:311,right:0,bottom:0,display:'flex',flexDirection:'column'}}><header className="titlebar"><span className="chat-title">New project</span></header><div style={{flex:1}}/><div className="bottom-area"><UsagePanel state={missing?{...state,codex:{...state.codex,windows:[]},claude:{...state.claude,windows:[{label:'Weekly',usedPercent:null,resetAt:null}]}}:state} turns={missing?[]:turns} models={models} refresh={async()=>{}} close={()=>{}}/></div></main>:<div className="modal-backdrop"><div className="settings"><header><h2>Chat models</h2></header><div className="settings-body"><ModelPool state={state} chatId="chat" call={async()=>{}} connections={()=>{}}/></div></div></div>);
 render(new URLSearchParams(location.search).get('screen')||'usage',location.search.includes('missing'));
 `},bundle:true,write:false,format:'iife'});
 await fs.writeFile(path.join(folder,'ui.js'),result.outputFiles[0].text);
@@ -22,12 +22,14 @@ const instance=await electron.launch({args:[path.join(folder,'main.cjs')],timeou
 try{
  const page=await instance.firstWindow();await page.getByRole('dialog',{name:'Context window and usage'}).waitFor();
  const panel=page.locator('.usage-panel');
- const overview=async()=>{
-   assert.ok(await panel.evaluate(e=>e.getBoundingClientRect().left>=0&&e.getBoundingClientRect().right<=innerWidth));
-   assert.ok(await page.locator('.usage-scroll').evaluate(e=>e.scrollHeight<=e.clientHeight+1),'overview should fit without scrolling');
+ // The panel sits in a chat pane like the app's: a 38 px app bar, the sidebar to x 311, the pane's 40 px title bar.
+ // It stays inside the pane below its title bar; a large window shows it whole, a small one scrolls it (2026-11-16).
+ const overview=async(fits:boolean)=>{
+   assert.ok(await panel.evaluate(e=>{const box=e.getBoundingClientRect(),pane=e.closest('main')!.getBoundingClientRect(),bar=e.closest('main')!.querySelector('.titlebar')!.getBoundingClientRect();return box.left>=pane.left&&box.right<=innerWidth&&box.top>=bar.bottom;}),'the panel stays inside its pane, below the title bar');
+   if(fits)assert.ok(await page.locator('.usage-scroll').evaluate(e=>e.scrollHeight<=e.clientHeight+1),'overview should fit without scrolling');
    assert.ok(await panel.evaluate(e=>e.scrollWidth<=e.clientWidth),'no horizontal overflow');
  };
- await overview();
+ await overview(true);
  assert.equal(await page.getByRole('progressbar',{name:'Claude Code 5-hour limit remaining'}).getAttribute('value'),'0');
  assert.equal(await page.getByRole('progressbar',{name:'OpenAI Weekly remaining'}).getAttribute('value'),'19');
  assert.equal(await page.getByRole('progressbar',{name:'DeepSeek context used'}).getAttribute('value'),'9133');
@@ -36,7 +38,9 @@ try{
  await page.getByText('Exact counts & reporting details',{exact:true}).click();
  assert.match(await page.locator('.usage-details').innerText(),/89,083 tokens/);
  await page.getByText('Exact counts & reporting details',{exact:true}).click();
- await instance.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(900,700));await page.screenshot({path:path.join(root,'work','usage-compact-small.png')});await overview();
+ await instance.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(900,700));await page.waitForTimeout(300);await overview(false);
+ const scroll=page.locator('.usage-scroll');await scroll.evaluate(e=>{e.scrollTop=e.scrollHeight;});
+ assert.ok(await page.getByText('Exact counts & reporting details',{exact:true}).evaluate(e=>{const box=e.getBoundingClientRect(),area=e.closest('.usage-scroll')!.getBoundingClientRect();return box.top>=area.top&&box.bottom<=area.bottom+1;}),'the last row scrolls into view');
  await page.screenshot({path:path.join(root,'work','usage-compact-small.png')});
  await page.goto(new URL('file:///'+path.join(folder,'index.html').replaceAll('\\','/')+'?missing=1').href);
  await panel.waitFor();assert.equal(await page.getByRole('progressbar').count(),0);assert.match(await panel.innerText(),/Unavailable/);assert.match(await panel.innerText(),/Windows unavailable/);
@@ -46,5 +50,5 @@ try{
  const tops=await gpt.locator('.pool-pill').evaluateAll(items=>items.map(e=>e.getBoundingClientRect().top));assert.ok(new Set(tops).size>1,'pills wrap');
  assert.deepEqual(await page.locator('.pool-group h5').allTextContents(),['Anthropic','DeepSeek','OpenAI']);
  await page.screenshot({path:path.join(root,'work','model-pool-catalogue.png')});
- console.log('PASS compact usage fits at 900×700, separate remaining/context scales, full details, missing data, supplier grouping and wrapped pills');
+ console.log('PASS compact usage fits at 1280×900 and stays inside its pane at 900×700, scrolling; separate remaining/context scales, full details, missing data, supplier grouping and wrapped pills');
 }finally{await instance.close();}
