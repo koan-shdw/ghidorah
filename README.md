@@ -24,7 +24,8 @@ models. Chats, keys and settings stay where they are across updates.
 
 - **Every model in one chat.** Claude Code with your own sign-in, Codex and GPT, DeepSeek, Gemini, Grok, Kimi, GLM,
   OpenRouter and more, side by side or picked per message.
-- **Real work.** Files, changes, terminal and preview panes beside the chat; approvals and permission modes; checkpoints.
+- **Real work.** Files, changes, terminal and preview panes beside the chat; approvals and permission modes (Bypass
+  still asks before Ghidorah's own data and your saved keys); checkpoints.
 - **Tools.** MCP servers, Claude Code plugins and skills, repository maps.
 - **Screen control.** A model can work in your apps and Chrome. It asks before each new app and before the whole
   screen, a bar shows while it works, and Esc stops it.
@@ -38,8 +39,8 @@ models. Chats, keys and settings stay where they are across updates.
   Claude's usage limit stops waits and is sent again by itself when the limit resets. A button on it opens the
   account's own usage page for limit resets and usage credits, and the message goes once either is used.
 - **Voice and remote.** Dictation and live voice. Dictation is heard by Whisper on this PC, or by Deepgram or
-  ElevenLabs on your own key, and bars or a line move in the message box while you talk. Kokoro reads replies aloud on
-  this PC. From your phone over Telegram: each chat has its own topic, a message typed there goes to that chat, and
+  ElevenLabs on your own key, and bars or a line move in the message box while you talk. Replies are read aloud by
+  Kokoro on this PC, or by Zonos 3 Mini on your own Zyphra key. From your phone over Telegram: each chat has its own topic, a message typed there goes to that chat, and
   approvals are answered there.
 
 ## Build from source
