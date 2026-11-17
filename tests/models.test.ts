@@ -1,6 +1,12 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {newestFirst,modelLabel,providerFor} from '../app/models';
+import {newestFirst,modelLabel,modelEfforts,providerFor} from '../app/models';
+
+test('Kimi K3 and its point versions show the levels the engine sends: low, high, max',()=>{
+ const k3={low:'Low',high:'High',max:'Max'},older={low:'Low',medium:'Medium',high:'High'};
+ for(const id of ['k3','k3-256k','kimi-k3-cot','kimi-k3.1-pro','kimi-k3.1-pro-highspeed'])assert.deepEqual(modelEfforts('api:kimi-coding:'+id),k3,id);
+ for(const id of ['kimi-k2.6','kimi-k2-turbo','moonshot-v1-k30'])assert.deepEqual(modelEfforts('api:kimi-coding:'+id),older,id);
+});
 
 test('model picker lists the newest models first within each supplier',()=>{
  const rows=[
