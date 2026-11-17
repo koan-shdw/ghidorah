@@ -45,10 +45,28 @@ export function planSteps(tools:ToolCall[],before:ToolCall[]|(()=>ToolCall[])=[]
 /** "6 of 6 steps done": dropped steps are left out of both numbers. */
 export function foldText(items:TaskItem[]){const kept=items.filter(item=>item.status!=='cancelled');return kept.filter(item=>item.status==='completed').length+' of '+kept.length+(kept.length===1?' step':' steps')+' done';}
 
-export function chatActivity(state:Pick<Snapshot,'chats'|'jobChats'|'turns'|'tools'|'approvals'>,chatId:string):ChatActivity{
+/** A chat's own turns and those of its side jobs: its child chats, and the chats a turn of this chat started. */
+function ownedTurns(state:Pick<Snapshot,'chats'|'jobChats'|'turns'>,chatId:string){
  const allTurns=new Map(state.turns.map(turn=>[turn.id,turn])),owners=new Set([chatId,...[...state.chats,...state.jobChats||[]].filter(chat=>chat.parentChatId===chatId).map(chat=>chat.id)]);
  for(const turn of state.turns)if(turn.parentTurnId&&allTurns.get(turn.parentTurnId)?.chatId===chatId)owners.add(turn.chatId);
- const turns=new Map(state.turns.filter(turn=>owners.has(turn.chatId)).map(turn=>[turn.id,turn]));
+ return {owners,turns:new Map(state.turns.filter(turn=>owners.has(turn.chatId)).map(turn=>[turn.id,turn]))};
+}
+// An agent at work, as a pill or a list row needs it. `step` is the turn's own activity line, so nothing here reads
+// tool rows. `stopId` is set only while the agent's background row is live: without that row there is nothing to stop.
+export interface ActiveAgent {id:string;name:string;type:string;model:string;step:string;since:number;status:'running'|'waiting';approvalId?:string;stopId?:string;stopping?:boolean}
+/** The chat's agents that are working right now, oldest first. An agent turn is running or waiting while it works;
+ * every other status is an agent that has ended. */
+export function activeAgents(state:Pick<Snapshot,'chats'|'jobChats'|'turns'|'approvals'|'background'>,chatId:string):ActiveAgent[]{
+ const {turns}=ownedTurns(state,chatId);
+ return [...turns.values()].filter(turn=>turn.automatic?.kind==='agent'&&(turn.status==='running'||turn.status==='waiting')).sort((a,b)=>a.created-b.created).map(turn=>{
+  const automatic=turn.automatic!,approval=state.approvals.find(row=>row.turnId===turn.id&&row.status==='pending');
+  const task=state.background?.find(row=>row.engine==='claude'&&row.chatId===turn.chatId&&row.processId===automatic.taskId&&row.generation===automatic.runtimeId&&['running','checking','stopping'].includes(row.status));
+  return {id:turn.id,name:automatic.description||automatic.agentType||'Agent',type:automatic.agentType||'',model:automatic.resolvedModel||turn.model,step:turn.activity||'',since:turn.created,status:turn.status as 'running'|'waiting',
+   ...(approval?{approvalId:approval.id}:{}),...(task?{stopId:task.id,...(task.status==='stopping'?{stopping:true}:{})}:{})};
+ });
+}
+export function chatActivity(state:Pick<Snapshot,'chats'|'jobChats'|'turns'|'tools'|'approvals'>,chatId:string):ChatActivity{
+ const {owners,turns}=ownedTurns(state,chatId);
  const plans=state.approvals.filter(approval=>owners.has(approval.chatId)&&turns.has(approval.turnId)&&typeof approval.params?.plan==='string').map(approval=>({approval,model:turns.get(approval.turnId)!.model}));
  const tasks=new Map<string,{owner:string;model:string;items:TaskItem[]}>(),byOwner=new Map<string,ToolCall[]>();
  for(const tool of state.tools){const turn=turns.get(tool.turnId);if(!turn)continue;const owner=turn.automatic?.kind==='agent'?turn.id:turn.chatId;(byOwner.get(owner)||byOwner.set(owner,[]).get(owner)!).push(tool);}
