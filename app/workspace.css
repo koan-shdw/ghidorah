@@ -4,8 +4,6 @@
 .workspace-resizer:hover{background:var(--accent);opacity:.4}
 .workspace-title{height:40px;display:flex;align-items:center;gap:8px;font-size:var(--fs-ui);padding:0 144px 0 14px;-webkit-app-region:drag;flex-shrink:0}
 .workspace-title button{margin-left:auto;-webkit-app-region:no-drag}
-.workspace-nav{display:flex;flex-wrap:wrap;gap:var(--space-2);padding:var(--space-3) var(--space-6);border-bottom:1px solid var(--line);font-size:var(--fs-ui)}
-.workspace-nav button[aria-pressed=true]{background:var(--raised)}
 .workspace-location,.editor-toolbar{display:flex;align-items:center;gap:7px;padding:7px 12px;border-bottom:1px solid var(--line);font-size:var(--fs-meta);min-height:35px;flex-shrink:0}
 .workspace-location>span,.editor-toolbar>span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .workspace-files{overflow:auto;max-height:30vh;flex-shrink:0;padding:6px 8px;font-size:var(--fs-ui)}
@@ -62,7 +60,6 @@
 .diff-comment-editor textarea{display:block;width:100%;min-height:60px;background:var(--bg);color:var(--text)}
 .workspace-view-home,.workspace-view-content,.workspace-view{display:flex;flex:1;min-width:0;min-height:0;flex-direction:column;overflow:hidden}
 .workspace-view-content[hidden]{display:none}
-.workspace-pane-actions{padding:4px 12px;font-size:var(--fs-meta)}
 .workspace-view-title{display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:var(--fs-ui);flex-shrink:0;background:var(--surface)}
 .workspace-view-title button{margin-left:auto}
 .workspace-view .error{font-size:var(--fs-ui);margin:8px}
@@ -103,3 +100,62 @@
 .change-list>div>button:first-of-type{min-width:90px}
 .git-controls [disabled]{opacity:.5}
 .editor-toolbar{flex-wrap:wrap}
+/* The panel's sections (workspace-overview.tsx): the chat's state as small headings and one-line rows. */
+.workspace-view-home[hidden]{display:none}
+.ws-body{flex:1;min-height:0;overflow:auto;padding:0 var(--space-7) var(--space-9);scrollbar-width:thin;scrollbar-color:var(--scrollbar) transparent}
+.ws-sec{padding:var(--space-6) 0 var(--space-5);border-top:1px solid var(--line)}
+.ws-sec:first-child{border-top:0}
+.ws-sec>summary{display:flex;align-items:center;gap:var(--space-4);min-height:var(--h-sm);margin:0 0 var(--space-2);font-size:var(--fs-list);font-weight:var(--fw-medium);list-style:none;cursor:pointer;border-radius:var(--r-sm)}
+.ws-sec>summary::-webkit-details-marker,.ws-fold>summary::-webkit-details-marker{display:none}
+.ws-sec>summary:focus-visible,.ws-fold>summary:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.ws-sec:not([open])>summary{margin-bottom:0}
+.ws-count{color:var(--muted);font-size:var(--fs-meta);font-weight:var(--fw-regular);font-variant-numeric:tabular-nums}
+.ws-sec-end{display:flex;align-items:center;gap:var(--space-4);margin-left:auto;color:var(--muted);font-size:var(--fs-meta);font-weight:var(--fw-regular)}
+.ws-chev{color:var(--muted);font-size:var(--fs-meta);transition:transform .15s}
+.ws-sec:not([open])>summary .ws-chev,.ws-fold:not([open])>summary>.ws-chev{transform:rotate(-90deg)}
+.ws-row{display:flex;align-items:center;gap:var(--space-5);width:100%;min-height:var(--h-lg);padding:0 var(--space-2);border-radius:var(--r-sm);font-size:var(--fs-ui);line-height:1.35;text-align:left}
+.ws-fold>summary{list-style:none;cursor:pointer;color:var(--muted)}
+.ws-fold>summary:hover{background:var(--raised)}
+.ws-icon{display:grid;place-items:center;width:var(--icon);height:var(--icon);flex:0 0 var(--icon);color:var(--muted)}
+.ws-icon>.sidebar-icon{width:100%;height:100%}
+.ws-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ws-label.mono{font-family:var(--font-mono);font-size:var(--fs-meta)}
+.ws-two{display:grid;flex:1;min-width:0;padding:var(--space-2) 0}
+.ws-name{justify-self:start;max-width:100%;padding:0;color:inherit;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ws-name:hover{background:transparent;text-decoration:underline}
+.ws-two>small{color:var(--muted);font-size:var(--fs-meta);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ws-value{color:var(--muted);font-size:var(--fs-meta);white-space:nowrap;font-variant-numeric:tabular-nums}
+.ws-arrow{color:var(--muted)}
+.ws-empty,.ws-row.done>.ws-label{color:var(--muted)}
+.ws-stop{display:grid;place-items:center;width:var(--h-sm);height:var(--h-sm);flex:0 0 var(--h-sm);padding:0;border-radius:var(--r-sm);color:var(--muted)}
+.ws-stop:hover:not(:disabled){color:var(--text)}
+.ws-stop>.sidebar-icon{width:12px;height:12px;flex:0 0 12px}
+.ws-link{padding:0;color:var(--muted);font-size:var(--fs-meta)}
+.ws-link:hover{background:transparent;color:var(--text)}
+.ws-row.ask{background:color-mix(in srgb,var(--warning) 9%,transparent)}
+.ws-ask{display:flex;gap:var(--space-3);padding:var(--space-2) 0 var(--space-3) calc(var(--icon) + var(--space-5) + var(--space-2))}
+.ws-ask>button{min-height:var(--h-sm);padding:0 var(--space-5);border:1px solid var(--line);border-radius:var(--r);background:var(--bg);font-size:var(--fs-meta)}
+.ws-ask>button:first-child:not(:only-child){background:var(--text);border-color:var(--text);color:var(--bg);font-weight:var(--fw-medium)}
+.ws-mark{display:inline-grid;place-items:center;width:var(--icon);height:var(--icon);flex:0 0 var(--icon);font-size:var(--fs-meta);line-height:1}
+.ws-mark.done{color:var(--green)}
+.ws-mark.failed{color:var(--danger)}
+.ws-mark.todo{color:var(--muted)}
+.ws-mark.ask>i{display:block;width:8px;height:8px;border-radius:var(--r-round);background:var(--warning)}
+.ws-status{display:inline-grid;place-items:center;width:var(--icon);flex:0 0 var(--icon);color:var(--muted);font-family:var(--font-mono);font-size:var(--fs-meta)}
+/* Context: a bar per model, then the limits of the accounts those models run on. The bar is the usage panel's. */
+.ws-meter{display:grid;gap:var(--space-2);padding:var(--space-2) var(--space-2) var(--space-4);font-size:var(--fs-ui)}
+.ws-meter>div{display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-5)}
+.ws-meter>div>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ws-meter strong{font-weight:var(--fw-medium)}
+.ws-meter.warning strong{color:var(--warning)}
+.ws-meter.exhausted strong{color:var(--danger)}
+.ws-meter>progress.usage-meter{margin:0}
+.ws-sub{margin:var(--space-3) var(--space-2) var(--space-2);color:var(--muted);font-size:var(--fs-meta);letter-spacing:.04em;text-transform:uppercase}
+.ws-body>.error{margin:var(--space-4) 0 0}
+/* A tool opened from its row or from the title bar: a way back, its name, then Detach and Pop out. */
+.ws-back{display:flex;align-items:center;gap:var(--space-4);min-height:var(--h-lg);padding:0 var(--space-6);border-bottom:1px solid var(--line);font-size:var(--fs-ui);flex-shrink:0}
+.ws-back button{display:inline-flex;align-items:center;gap:var(--space-2);min-height:var(--h-sm);padding:0 var(--space-4);border-radius:var(--r);color:var(--muted)}
+.ws-back button:hover:not(:disabled){color:var(--text)}
+.ws-back>strong{font-weight:var(--fw-medium)}
+.ws-back-end{display:flex;gap:var(--space-2);margin-left:auto;font-size:var(--fs-meta)}
+@media(prefers-reduced-motion:reduce){.ws-chev{transition:none}}

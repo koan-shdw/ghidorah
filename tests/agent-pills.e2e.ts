@@ -31,7 +31,8 @@ try{
  assert.equal(await pills.locator('.agent-pill-stop').count(),1,'a live agent can be stopped');assert.equal(await pills.getByRole('button',{name:'Stop all'}).count(),0,'Stop all only with more than one');
  const shot=async(name:string)=>{const png=await app.evaluate(async({BrowserWindow})=>{const w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('index.html'))!;await w.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true});await new Promise(r=>setTimeout(r,300));return (await w.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG().toString('base64');});await fs.mkdir(path.join(root,'work','agent-pills-shots'),{recursive:true});await fs.writeFile(path.join(root,'work','agent-pills-shots',name+'.png'),Buffer.from(png,'base64'));};
  const second=await agentOf('two.txt');await pollState(page,s=>s.turns.filter(t=>t.automatic?.kind==='agent'&&t.status==='waiting').length===2);
- await page.waitForFunction(()=>document.querySelectorAll('.agent-pills .agent-pill').length===2);assert.match(await pills.locator('.agent-pills-head').innerText(),/2\s*agents working · 2 need you[\s\S]*Stop all[\s\S]*Hide/);
+ // The second agent's turn waits a moment before its permission is recorded: wait for both to ask.
+ await page.waitForFunction(()=>document.querySelectorAll('.agent-pills .agent-pill.ask').length===2);assert.match(await pills.locator('.agent-pills-head').innerText(),/2\s*agents working · 2 need you[\s\S]*Stop all[\s\S]*Hide/);
  await shot('two-waiting');
  await click(pills.getByRole('button',{name:'Hide',exact:true}));assert.equal(await pills.locator('.agent-pill').count(),0);assert.match(await pills.locator('.agent-pills-head').innerText(),/2\s*agents working[\s\S]*Show/);
  await click(pills.getByRole('button',{name:'Show',exact:true}));assert.equal(await pills.locator('.agent-pill').count(),2);

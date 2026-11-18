@@ -4,6 +4,7 @@ import React,{useEffect,useId,useLayoutEffect,useRef,useState} from 'react';
 
 const paths={
  card:'M5.5 5h13A2.5 2.5 0 0 1 21 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5v-9A2.5 2.5 0 0 1 5.5 5zM3 10h18M7 15h4',
+ shield:'M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z',phone:'M9 3h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm2 15h2',
  attach:'M8 12l6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l8-8M6 14l8-8',microphone:'M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0V5zm-3 6v1a6 6 0 0 0 12 0v-1m-6 7v4m-4 0h8',voice:'M3 10v4m4-8v12m5-15v18m5-15v12m4-8v4',send:'M12 19V5m-6 6 6-6 6 6',stop:'M6 6h12v12H6z',usage:'M12 3v9h9M9 3.5a9 9 0 1 0 11.5 11.5M15 3.5a9 9 0 0 1 5.5 5.5',
  preview:'M3 4h18v16H3V4zm0 5h18M8 9v11',files:'M5 3h9l5 5v13H5V3zm9 0v6h5M8 13h8m-8 4h6',changes:'M5 7h14M12 3v8M5 17h14',
  chats:'M4 3h16a1 1 0 0 1 1 1v13H9l-6 4V4a1 1 0 0 1 1-1zm3 5h10M7 12h7',plugins:'M8 3h3a3 3 0 1 1 6 0h4v6a3 3 0 1 0 0 6v6h-6a3 3 0 1 0-6 0H3v-6a3 3 0 1 0 0-6V3h5',skills:'M3 4h7l2 2 2-2h7v15h-7l-2 2-2-2H3V4zm9 2v15',models:'M12 2l9 5v10l-9 5-9-5V7l9-5zm-9 5l9 5 9-5m-9 5v10',activity:'M6 9a6 6 0 0 1 12 0v6l3 3H3l3-3V9zm4 12h4',

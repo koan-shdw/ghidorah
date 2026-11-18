@@ -21,6 +21,8 @@ import './workspace.css';
 import {createPortal} from 'react-dom';
 import {PaneTargets} from './pane-shell';
 import {workspaceViews,workspaceTitle,type WorkspaceView} from './pane-layout';
+import {WorkspaceOverview} from './workspace-overview';
+import type {Snapshot} from './types';
 export type {WorkspaceView} from './pane-layout';
 
 type Call=(method:string,args?:any)=>Promise<any>;
@@ -59,10 +61,15 @@ function CodeEditor({file,onChange,onSave,theme,location}:{file:FileDraft;onChan
   useEffect(()=>{const view=editor.current;if(!view||!location||location.path!==file.path)return;const line=view.state.doc.line(Math.min(location.line||1,view.state.doc.lines)),anchor=Math.min(line.to,line.from+(location.column||1)-1);view.dispatch({selection:{anchor},effects:EditorView.scrollIntoView(anchor,{y:'center'})});view.focus();},[file.path,file.generation,theme,location?.id]);
   return <div className="code-editor" ref={host}/>;
 }
-export function WorkspacePanel({chatId,root,view,setView,visible,onHide,call,terminalRequest,theme,fileRequest,detached=[],detach,popped=[],only,initial,activity={plans:[],tasks:[],agents:[]},openAgent,onCommentDirty}:{onCommentDirty?:(dirty:boolean)=>void;openAgent?:(id:string)=>void;activity?:ChatActivity;popped?:WorkspaceView[];only?:WorkspaceView;initial?:{directory:string;file?:string;diff?:{file:string;staged:boolean}};detached?:WorkspaceView[];detach?:(view:WorkspaceView,detached:boolean)=>void;chatId:string;root:string|null;view:WorkspaceView;setView:(view:WorkspaceView)=>void;visible:boolean;onHide:()=>void;call:Call;terminalRequest:number;theme:string;fileRequest:FileRequest|null}){
+// The panel opens on its sections (workspace-overview.tsx, Koan's pick 2026-11-18). A tool (Files, Changes, Terminal,
+// Preview, and the full Plan and Tasks views) takes the sections' place when its row or its title-bar button is
+// used, under a bar with the way back, Detach and Pop out. `sections` says which of the two shows; the chat's window
+// owns it beside `view`. A tool in its own window (`only`) has no sections.
+export function WorkspacePanel({chatId,root,view,setView,visible,onHide,call,terminalRequest,theme,fileRequest,detached=[],detach,popped=[],only,initial,activity={plans:[],tasks:[],agents:[]},openAgent,onCommentDirty,state,sections=false,setSections,openSettings}:{state?:Snapshot;sections?:boolean;setSections?:(sections:boolean)=>void;openSettings?:()=>void;onCommentDirty?:(dirty:boolean)=>void;openAgent?:(id:string)=>void;activity?:ChatActivity;popped?:WorkspaceView[];only?:WorkspaceView;initial?:{directory:string;file?:string;diff?:{file:string;staged:boolean}};detached?:WorkspaceView[];detach?:(view:WorkspaceView,detached:boolean)=>void;chatId:string;root:string|null;view:WorkspaceView;setView:(view:WorkspaceView)=>void;visible:boolean;onHide:()=>void;call:Call;terminalRequest:number;theme:string;fileRequest:FileRequest|null}){
   const targets=useContext(PaneTargets),home=useRef<HTMLDivElement>(null),hosts=useRef(new Map<WorkspaceView,HTMLDivElement>());
   for(const view of workspaceViews)if(!hosts.current.has(view)){const element=document.createElement('div');element.className='workspace-view-content';hosts.current.set(view,element);}
-  const active=(name:WorkspaceView)=>!popped.includes(name)&&(only?name===only:detached.includes(name)||visible&&view===name);
+  const overview=!only&&sections&&!!state,show=(name:WorkspaceView)=>{setView(name);setSections?.(false);};
+  const active=(name:WorkspaceView)=>!popped.includes(name)&&(only?name===only:detached.includes(name)||visible&&!overview&&view===name);
   useLayoutEffect(()=>{for(const name of workspaceViews){const host=hosts.current.get(name)!,target=detached.includes(name)?targets.get('workspace:'+name):home.current;if(target&&host.parentElement!==target)target.append(host);host.hidden=!active(name);}});
   const [previewRequest,setPreviewRequest]=useState(0);
   const [git,setGit]=useState<GitSnapshot|null>(null),[gitBusy,setGitBusy]=useState(false),[gitNotice,setGitNotice]=useState('');
@@ -80,18 +87,23 @@ export function WorkspacePanel({chatId,root,view,setView,visible,onHide,call,ter
   async function refreshChanges(){requireSavedComment();const result=await call('workspaceChanges',{directory});requireSavedComment();const current=await call('workspaceGit',{chatId,directory,root,action:'inspect'});requireSavedComment();setChanges(result);setGit(current);setDiff(null);}
   async function gitAction(action:string,args:any={}){return run(async()=>{requireSavedComment();if(!git)throw Error('Refresh changes first.');gitOwner.current=chatId;setGitBusy(true);setGitNotice('');try{const result=await call('workspaceGit',{chatId,directory,root,action,revision:git.revision,...args});await refreshChanges();setGitNotice(result.output||'Git action completed.');return result;}catch(error){await refreshChanges().catch(()=>{});throw error;}finally{gitOwner.current=null;setGitBusy(false);}});}
   async function openDiff(file:string,staged:boolean){requireSavedComment();const result=await call('workspaceChanges',{directory,file,staged});requireSavedComment();setDiff(result);}
-  async function preview(relative:string){await call('previewOpen',{chatId,file:relative});setPreviewRequest(value=>value+1);setView('preview');}
-  async function open(relative:string){if(changed){setError('Save or discard the current draft before opening another file.');return;}const item=await call('workspaceRead',{file:relative});setFile({...item,draft:item.text,generation:(file?.generation||0)+1});setNotice('');setDiscard(false);setView('files');}
+  async function preview(relative:string){await call('previewOpen',{chatId,file:relative});setPreviewRequest(value=>value+1);show('preview');}
+  async function open(relative:string){if(changed){setError('Save or discard the current draft before opening another file.');return;}const item=await call('workspaceRead',{file:relative});setFile({...item,draft:item.text,generation:(file?.generation||0)+1});setNotice('');setDiscard(false);show('files');}
   async function save(){if(!file||saving)return;const source=file;setSaving(true);try{const result=await call('workspaceSave',{root:source.root,file:source.path,text:source.draft,revision:source.revision});setFile(current=>current?.path===source.path?{...current,...result,draft:current.draft}:current);setNotice('Saved');setError('');}catch(e){setError(String(e));}finally{setSaving(false);}}
   async function reload(){if(!file)return;const item=await call('workspaceRead',{file:file.path});setFile({...item,draft:item.text,generation:file.generation+1});setDiscard(false);setError('');setNotice('Reloaded from disk');}
-  async function newTerminal(){const item=await call('terminalOpen',{chatId});setTerminals(previous=>[...previous,item]);setTerminalId(item.id);setView('terminal');}
+  async function newTerminal(){const item=await call('terminalOpen',{chatId});setTerminals(previous=>[...previous,item]);setTerminalId(item.id);show('terminal');}
   useEffect(()=>{let live=true;if(chatId&&(!only||only==='terminal')&&!popped.includes('terminal'))void run(async()=>{const rows=await call('terminalList',{chatId});if(live){setTerminals(rows);setTerminalId(rows.at(-1)?.id||'');}});return()=>{live=false;};},[chatId,terminalRequest,popped.includes('terminal')]);
   useEffect(()=>{setDirectory(initial?.directory||'');setListing(null);setChanges(null);setGit(null);setGitNotice('');setDiff(null);if(root)void run(async()=>{await list(initial?.directory||'');if(only==='files'&&initial?.file)await open(initial.file);if(only==='changes'&&initial?.diff){await refreshChanges();setDiff(await call('workspaceChanges',{directory:initial.directory,file:initial.diff.file,staged:initial.diff.staged}));}});},[root]);
   useEffect(()=>{if(!commentDraft.current&&active('changes')&&root&&!(only==='changes'&&initial?.diff))void run(refreshChanges);},[active('changes'),directory,root]);
+  // The sections show the branch and the changed files: read when they come up, when the chat or folder changes and
+  // when a reply starts or ends. An open diff and a line comment in progress are left alone, and a folder that is
+  // not a repository simply shows none.
+  const glance=useRef(0),replying=!!state?.turns.some(turn=>turn.chatId===chatId&&['queued','running','waiting','stopping'].includes(turn.status));
+  useEffect(()=>{if(!overview||!visible||!root||commentDraft.current)return;const turn=++glance.current;void (async()=>{try{const result=await call('workspaceChanges',{directory}),current=await call('workspaceGit',{chatId,directory,root,action:'inspect'});if(turn===glance.current&&!commentDraft.current){setChanges(result);setGit(current);}}catch{}})();},[overview&&visible,chatId,directory,root,replying]);
   useEffect(()=>{if(!fileRequest)return;void run(async()=>{
-    if(fileRequest.chatFileId){await call('previewOpen',{chatId,chatFileId:fileRequest.chatFileId});setPreviewRequest(value=>value+1);setView('preview');return;}
+    if(fileRequest.chatFileId){await call('previewOpen',{chatId,chatFileId:fileRequest.chatFileId});setPreviewRequest(value=>value+1);show('preview');return;}
     // One of Koan's preview pages (FEATURE-SPECS 4), opened as him in the preview pane.
-    if(fileRequest.url){await call('previewOpen',{chatId,url:fileRequest.url});setPreviewRequest(value=>value+1);setView('preview');return;}
+    if(fileRequest.url){await call('previewOpen',{chatId,url:fileRequest.url});setPreviewRequest(value=>value+1);show('preview');return;}
     if(fileRequest.root!==root)throw Error('The working folder changed. Open the link again.');
     if(fileRequest.directory){await list(fileRequest.path);return;}
     if(!fileRequest.refresh&&canPreview(fileRequest.path)){await preview(fileRequest.path);return;}
@@ -115,11 +127,12 @@ export function WorkspacePanel({chatId,root,view,setView,visible,onHide,call,ter
   return <><aside className={'workspace-panel '+(only?'workspace-window-panel ':'')+(visible?'shown':'hidden')} style={{width}} aria-label="Workspace" aria-hidden={!visible}>
     {!only&&<div className="workspace-resizer" role="separator" aria-label="Resize workspace" aria-orientation="vertical" tabIndex={0} onPointerDown={resize} onKeyDown={event=>{if(event.key==='ArrowLeft')setWidth(Math.min(window.innerWidth-350,width+30));if(event.key==='ArrowRight')setWidth(Math.max(320,width-30));}}/>}
     {!only&&<header className="workspace-title"><strong>Workspace</strong><button aria-label="Hide workspace" onClick={onHide}>×</button></header>}
-    {!only&&<nav className="workspace-nav">{workspaceViews.map(name=><button key={name} aria-pressed={view===name} onClick={()=>setView(name)}>{workspaceTitle(name)}</button>)}</nav>}
-    {detach&&!detached.includes(view)&&!popped.includes(view)&&<div className="workspace-pane-actions"><button onClick={()=>detach(view,true)}>{'Detach '+workspaceTitle(view)}</button><button disabled={pending>0||saving} onClick={()=>void run(()=>pop(view))}>{'Pop out '+workspaceTitle(view)}</button></div>}
-    {!only&&popped.includes(view)&&<div className="workspace-empty"><p>{workspaceTitle(view)} is in its own window.</p><button onClick={()=>void run(()=>call('workspaceWindowOpen',{view,chatId}))}>Show window</button><button onClick={()=>void run(()=>call('workspaceWindowReturn',{view}))}>Return to workspace</button></div>}
-    {detached.includes(view)&&!popped.includes(view)&&<div className="workspace-empty"><p>{workspaceTitle(view)} is in its own pane.</p><button onClick={()=>detach?.(view,false)}>Return to workspace</button></div>}
-    <div className="workspace-view-home" ref={home}/>
+    {overview&&visible&&<WorkspaceOverview state={state!} chatId={chatId} root={root} directory={directory} git={git} changes={changes} terminals={terminals.length} activity={activity} call={call} open={show} openAgent={openAgent} openSettings={openSettings} focus={view}/>}
+    {!only&&!overview&&<div className="ws-back">{setSections&&state&&<button type="button" title="Back to the workspace's sections" onClick={()=>setSections(true)}>‹ Workspace</button>}<strong>{workspaceTitle(view)}</strong>
+      {detach&&!detached.includes(view)&&!popped.includes(view)&&<span className="ws-back-end"><button type="button" aria-label={'Detach '+workspaceTitle(view)} title="Move this tool to its own pane" onClick={()=>detach(view,true)}>Detach</button><button type="button" disabled={pending>0||saving} aria-label={'Pop out '+workspaceTitle(view)} title="Move this tool to its own window" onClick={()=>void run(()=>pop(view))}>Pop out</button></span>}</div>}
+    {!only&&!overview&&popped.includes(view)&&<div className="workspace-empty"><p>{workspaceTitle(view)} is in its own window.</p><button onClick={()=>void run(()=>call('workspaceWindowOpen',{view,chatId}))}>Show window</button><button onClick={()=>void run(()=>call('workspaceWindowReturn',{view}))}>Return to workspace</button></div>}
+    {!overview&&detached.includes(view)&&!popped.includes(view)&&<div className="workspace-empty"><p>{workspaceTitle(view)} is in its own pane.</p><button onClick={()=>detach?.(view,false)}>Return to workspace</button></div>}
+    <div className="workspace-view-home" ref={home} hidden={overview}/>
   </aside>{workspaceViews.map(name=>(!only||name===only)&&createPortal(<section className="workspace-view" aria-label={workspaceTitle(name)+' view'}>
     {detached.includes(name)&&<header className="workspace-view-title"><strong>{workspaceTitle(name)}</strong><button disabled={pending>0||saving} aria-label={'Pop out '+workspaceTitle(name)} onClick={()=>void run(()=>pop(name))}>↗</button><button aria-label={'Return '+workspaceTitle(name)+' to workspace'} onClick={()=>detach?.(name,false)}>↙</button></header>}
     {!root&&['files','changes','terminal'].includes(name)?<p className="workspace-notice">Choose the root working folder in Settings to open files and terminals.</p>:contents[name]}

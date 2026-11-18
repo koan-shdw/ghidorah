@@ -30,7 +30,7 @@ try{
   await assert.rejects(call('workingFolder',{clear:true}),/Save or discard/);
   await instance.evaluate(({dialog,app})=>{const original=dialog.showMessageBox;dialog.showMessageBox=async()=>({response:0,checkboxChecked:false});app.quit();dialog.showMessageBox=original;});assert.equal(await editor.textContent(),'keep my unsaved draft');
   await page.getByRole('button',{name:'Discard',exact:true}).click();await page.getByRole('button',{name:'Discard draft',exact:true}).click();await until(async()=>(await editor.textContent())==='external change','discard reload');
-  await page.getByRole('button',{name:'Changes',exact:true}).click();await page.getByRole('button',{name:'Working',exact:true}).click();await page.getByLabel('Git diff').filter({hasText:'+external change'}).waitFor();
+  await page.getByLabel('Open changes',{exact:true}).click();await page.getByRole('button',{name:'Working',exact:true}).click();await page.getByLabel('Git diff').filter({hasText:'+external change'}).waitFor();
   assert.equal(await fs.stat(path.join(folder,'helper-ran.txt')).then(()=>true,()=>false),false);console.log('PASS editor Save/Discard, stale save preserves external changes, actual Git diff executes no repository helpers');
   await page.screenshot({path:path.join(data,'changes.png')});
   await page.keyboard.press('Control+Backquote');await until(async()=>(await call('terminalList',{chatId})).length===1,'shortcut terminal');const terminal=(await call('terminalList',{chatId}))[0];

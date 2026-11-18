@@ -34,7 +34,8 @@ try{
  await assert.rejects(invoke(side,'terminalList',{chatId:other}),/another chat/);await assert.rejects(invoke(side,'workspaceRead',{file:'../outside.txt'}));
  await side.screenshot({path:path.join(data,'preview.png')});
  const png=await app.evaluate(async({webContents},id)=>(await webContents.fromId(id)!.capturePage()).toPNG().toString('base64'),preview.id);await fs.writeFile(path.join(data,'preview-content.png'),Buffer.from(png,'base64'));
- await side.getByRole('button',{name:'Changes',exact:true}).click();await side.getByRole('button',{name:'Working',exact:true}).click();await side.getByLabel('Git diff').filter({hasText:'+external edit'}).waitFor();
+ // A chat window is narrow, so its open panel lies over the title bar: the tool is changed from the panel's own sections.
+ await side.getByRole('button',{name:'‹ Workspace',exact:true}).click();await side.locator('.ws-body [data-section="tools"] [data-open="changes"]').click();await side.getByRole('button',{name:'Working',exact:true}).click();await side.getByLabel('Git diff').filter({hasText:'+external edit'}).waitFor();
  await side.screenshot({path:path.join(data,'changes.png')});
  await side.keyboard.press('Control+Backquote');await wait(async()=>(await invoke(side,'terminalList',{chatId})).length===1,'terminal shortcut');const terminal=(await invoke(side,'terminalList',{chatId}))[0];
  await invoke(side,'terminalWrite',{chatId,id:terminal.id,data:"[IO.File]::WriteAllText('window-terminal.txt', 'window command')\r"});await wait(async()=>fs.stat(path.join(folder,'window-terminal.txt')).then(()=>true,()=>false),'terminal command');
