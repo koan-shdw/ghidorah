@@ -1,5 +1,6 @@
 // chats handlers: moved out of app/main.ts unchanged (SPLIT-PLAN step 7); main.ts spreads them into handlers.
 import {copyArtifact,readArtifactFile} from '../../artifacts';
+import {sendNowCheck} from '../../send-now';
 import {saveAttachment} from '../../attachments';
 import type {BackgroundProcess} from '../../background-work';
 import {ContextDraft,contextSource,saveContext,summaryModel} from '../../chat-context';
@@ -58,7 +59,15 @@ async function settleForDelete(chatId:string){
 
 export const chatsHandlers:Record<string,(args:any)=>any>={
   sidebarSettings(args){const result=sidebar.settings(args);emit();return result;},
-  contextSettings({chatId,autoCompact,rlm,wakeUps}){const chat=sidebar.root(chatId);for(const value of [autoCompact,rlm,wakeUps])if(value!==undefined&&typeof value!=='boolean')throw Error('Choose on or off.');store.update<Chat>('chat',chat.id,{...(autoCompact!==undefined?{autoCompact}:{}),...(rlm!==undefined?{rlm}:{}),...(wakeUps!==undefined?{wakeUps}:{})});emit();},
+  contextSettings({chatId,autoCompact,rlm,wakeUps,sendNow}){const chat=sidebar.root(chatId);for(const value of [autoCompact,rlm,wakeUps,sendNow])if(value!==undefined&&typeof value!=='boolean')throw Error('Choose on or off.');store.update<Chat>('chat',chat.id,{...(autoCompact!==undefined?{autoCompact}:{}),...(rlm!==undefined?{rlm}:{}),...(wakeUps!==undefined?{wakeUps}:{}),...(sendNow!==undefined?{sendNow}:{})});emit();},
+  // Send now (Koan 2026-11-18): push a message that waits behind the running reply. It is Stop with the reason
+  // "superseded-by-message": the reply keeps its text, and the waiting messages go out by Stop's own rule. The check
+  // refuses what Stop would not send (a message the reply has read, a paused one, no reply running).
+  async sendNow({chatId,id}){
+    const turn=store.get<Turn>('turn',id);if(turn.chatId!==chatId)throw Error('This message belongs to another chat.');
+    const check=sendNowCheck(turn,store.where<Turn>('turn','chatId',chatId),replyRow(chatId)||null);if(!check.ok)throw Error(check.why);
+    await handlers.stop({chatId,reason:'superseded-by-message'});
+  },
   contextInfo({chatId}){
     const chat=sidebar.root(chatId),job=contextJobs.get(chatId);let source:any;
     try{source=contextSource(store,chatId);}catch(error){return {current:chat.context||null,instructions:chat.contextInstructions||'',reason:(error as Error).message,progress:job?{done:job.done,total:job.total}:null};}

@@ -1706,7 +1706,7 @@ app.whenReady().then(async()=>{
       }
       else if(method==='mode'){if(store.get<Chat>('chat',chatView).projectId!==args?.projectId)throw Error('This permission mode belongs to another chat.');}
       else if(['approve','answer'].includes(method)){if(!owns(store.get<Approval>('approval',args?.id).chatId))throw Error('This approval belongs to another chat.');}
-      else if(['chooseTurnModel','cancelQueued','sendPaused'].includes(method)){if(!owns(store.get<Turn>('turn',args?.id).chatId))throw Error('This message belongs to another chat.');}
+      else if(['chooseTurnModel','cancelQueued','sendPaused','sendNow'].includes(method)){if(!owns(store.get<Turn>('turn',args?.id).chatId))throw Error('This message belongs to another chat.');}
       else if(['chatLink','toolResult'].includes(method)){if(!owns(store.get<Turn>('turn',args?.turnId).chatId))throw Error('This link belongs to another chat.');}
       else if(method==='backgroundStop'){if(!owns(store.get<BackgroundProcess>('background',args?.id).chatId))throw Error('This process belongs to another chat.');}
       else if(method==='backgroundRefresh'){await background.refresh();return;}

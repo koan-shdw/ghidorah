@@ -10,7 +10,7 @@ import {createInterface} from 'node:readline';
 import {once} from 'node:events';
 import {Backend,PYTHON} from '../app/backend';
 import {sendNowCheck} from '../app/send-now';
-import {mainWindow,pollState} from './fixtures/poll-state';
+import {mainWindow,pollState,wakeWindows} from './fixtures/poll-state';
 
 const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work','send-now-')),folder=await fs.mkdtemp(path.join(root,'work','workspace-send-now-')),namespace='Trismegistus/Test/'+path.basename(data);
 const host=new Backend(root,data,namespace,()=>{});await host.host('initialize');await host.host('save_key',{key:'synthetic-deepseek-regression-credential'});
@@ -45,4 +45,60 @@ try{
  console.log('PASS the stopped reply reads "Stopped for your new message" in the chat');
  const claude=await call('addProject',{folder}) as string;await call('addModel',{chatId:claude,model:'claude-code:haiku'});
  await pushed('Claude Code',claude,async text=>{const id=crypto.randomUUID();await call('submit',{id,chatId:claude,text,models:['claude-code:haiku']});return id;},JSON.stringify({action:'slow',repeat:400}),JSON.stringify({action:'reply'}),false);
+
+ // The buttons. A message sent while a reply runs is drawn as waiting, with Send now and its remove button inside it.
+ await wakeWindows(app);page.setDefaultTimeout(20000);const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+ await app.evaluate(({BrowserWindow})=>{BrowserWindow.getAllWindows()[0].setBounds({x:0,y:0,width:1280,height:900});});
+ const click=(locator:any)=>locator.first().evaluate((element:HTMLElement)=>element.click());
+ const shot=async(name:string)=>{const png=await app.evaluate(async({BrowserWindow})=>{const w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('index.html'))!;await w.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true});await new Promise(r=>setTimeout(r,300));return (await w.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG().toString('base64');});await fs.mkdir(path.join(root,'work','send-now-shots'),{recursive:true});await fs.writeFile(path.join(root,'work','send-now-shots',name+'.png'),Buffer.from(png,'base64'));};
+ if(await page.getByLabel('Close settings',{exact:true}).count())await click(page.getByLabel('Close settings',{exact:true}));
+ await click(page.locator('[data-chat-id="'+hermes+'"] .chat-link'));
+ const main=page.getByRole('region',{name:'Main chat',exact:true}),box=main.getByLabel('Message',{exact:true}),send=async(text:string)=>{const id=crypto.randomUUID();await call('submit',{id,chatId:hermes,text,selected:true});return id;};
+ const status=async(id:string)=>(await call('state')).turns.find((t:any)=>t.id===id);
+ let slow=await send('SLOW_FIXTURE stream a long answer');await pollState(page,s=>(s.turns.find(t=>t.id===slow)?.text||'').length>20,60000);
+ let next=await send('Then say one line.');await main.locator('.user-message.waiting').waitFor();
+ const bubble=main.locator('.user-message.waiting');assert.match(await bubble.innerText(),/Then say one line\.[\s\S]*Waits its turn[\s\S]*Send now/);
+ assert.equal(await bubble.getByRole('button',{name:'Cancel queued message',exact:true}).count(),1);
+ assert.equal(await main.locator('article.turn',{has:page.locator('.user-message.waiting')}).locator('.model-label').count(),0,'a waiting message has no status line of its own');
+ await box.fill('A draft while it works');assert.match(await main.locator('.correction-option').innerText(),/Enter waits its turn\. Ctrl\+Enter sends now\./);
+ assert.equal(await main.locator('.composer-toolbar').getByRole('button',{name:'Send now',exact:true}).count(),1);await shot('waiting-and-draft');await box.fill('');
+ await assert.rejects(call('sendNow',{chatId:hermes,id:slow}),/being answered now/);await assert.rejects(call('sendNow',{chatId:claude,id:next}),/another chat/);
+ await click(bubble.getByRole('button',{name:'Send now',exact:true}));
+ await pollState(page,s=>s.turns.find(t=>t.id===slow)?.status==='stopped'&&s.turns.find(t=>t.id===next)?.status==='completed',90000);
+ assert.equal((await status(slow)).stopReason,'superseded-by-message');await assert.rejects(call('sendNow',{chatId:hermes,id:next}),/not waiting/);
+ await page.waitForFunction(()=>!document.querySelector('.user-message.waiting'));
+ console.log('PASS Send now on the waiting message stops the reply and the message is answered');
+
+ // Ctrl+Enter with the switch off: the draft stops the reply and goes.
+ slow=await send('SLOW_FIXTURE stream a long answer');await pollState(page,s=>(s.turns.find(t=>t.id===slow)?.text||'').length>20,60000);
+ await box.fill('Pushed with the key');await box.press('Control+Enter');
+ let state=await pollState(page,s=>s.turns.find(t=>t.id===slow)?.status==='stopped'&&s.turns.some(t=>t.chatId===hermes&&t.prompt==='Pushed with the key'&&t.status==='completed'),90000);
+ assert.equal(state.turns.find(t=>t.id===slow)!.stopReason,'superseded-by-message');
+ console.log('PASS Ctrl+Enter sends a draft now');
+
+ // The chat bar's switch: on, Enter stops the reply and sends, and the button beside the arrow offers the wait.
+ const toggle=main.getByRole('button',{name:'Send now',exact:true}).and(main.locator('.kit-switch'));assert.equal(await toggle.getAttribute('aria-pressed'),'false');
+ await click(toggle);await pollState(page,s=>s.chats.find(c=>c.id===hermes)?.sendNow===true);
+ // The state answers before the window draws: wait for the switch itself.
+ await page.waitForFunction(()=>document.querySelector('[aria-label="Main chat"] .kit-switch[aria-label="Send now"]')?.getAttribute('aria-pressed')==='true');
+ slow=await send('SLOW_FIXTURE stream a long answer');await pollState(page,s=>(s.turns.find(t=>t.id===slow)?.text||'').length>20,60000);
+ await box.fill('Enter sends this now');assert.match(await main.locator('.correction-option').innerText(),/Enter stops the reply and sends now\. Ctrl\+Enter waits its turn\./);
+ assert.equal(await main.locator('.composer-toolbar').getByRole('button',{name:'Wait its turn',exact:true}).count(),1);await shot('switch-on-draft');
+ await box.press('Enter');
+ state=await pollState(page,s=>s.turns.find(t=>t.id===slow)?.status==='stopped'&&s.turns.some(t=>t.chatId===hermes&&t.prompt==='Enter sends this now'&&t.status==='completed'),90000);
+ assert.equal(state.turns.find(t=>t.id===slow)!.stopReason,'superseded-by-message');
+ slow=await send('SLOW_FIXTURE stream a long answer');await pollState(page,s=>(s.turns.find(t=>t.id===slow)?.text||'').length>20,60000);
+ await box.fill('This one waits');await box.press('Control+Enter');
+ state=await pollState(page,s=>s.turns.some(t=>t.chatId===hermes&&t.prompt==='This one waits'&&(t.delivery==='sent'||t.status==='queued')),30000);
+ assert.equal(state.turns.find(t=>t.id===slow)!.status,'running','with the switch on, Ctrl+Enter leaves the reply running');
+ await call('stop',{chatId:hermes});await pollState(page,s=>!s.turns.some(t=>t.chatId===hermes&&['running','queued','dispatching','waiting','stopping'].includes(t.status)),90000);
+ console.log('PASS the chat bar switch turns Enter into Send now, and Ctrl+Enter into the wait');
+
+ // The start value for chats that have not set their own.
+ assert.equal((await call('state')).sendNowDefault,false);await call('sendNowDefault',{enabled:true});await assert.rejects(call('sendNowDefault',{enabled:'yes'}),/on or off/);
+ const fresh=await call('addProject',{folder}) as string;await click(page.locator('[data-chat-id="'+fresh+'"] .chat-link'));
+ await page.waitForFunction(()=>document.querySelector('[aria-label="Main chat"] .kit-switch[aria-label="Send now"]')?.getAttribute('aria-pressed')==='true');
+ await call('contextSettings',{chatId:fresh,sendNow:false});await page.waitForFunction(()=>document.querySelector('[aria-label="Main chat"] .kit-switch[aria-label="Send now"]')?.getAttribute('aria-pressed')==='false');
+ await call('sendNowDefault',{enabled:false});assert.deepEqual(errors,[]);
+ console.log('PASS a new chat starts with the Send now value from Settings, and keeps its own once set');
 }finally{await app.evaluate(({app})=>app.quit()).catch(()=>{});await app.close().catch(()=>{});fake.stdin.end('\n');lines.close();await fs.rm(folder,{recursive:true,force:true});await host.host('delete_key').catch(()=>{});execFileSync(PYTHON,['-c',"import sys;sys.path.insert(0,'backend');import windows_credentials as v;v.delete(sys.argv[1])",namespace+'/encryption'],{windowsHide:true,stdio:'ignore'});}

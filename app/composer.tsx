@@ -26,7 +26,8 @@ export function AttachmentImage({item,chatId=item.chatId,busy=false,remove}:{ite
  </div>;
 }
 
-export function Composer({voice,draft,commands=[],inputRef,disabled,sendError,busy,working,change,submit,stop,plugins,attachments=[],attaching=false,attach,remove,dictationChat,waves='bars'}:{voice?:()=>void;dictationChat?:string;waves?:WaveStyle;attaching?:boolean;attachments?:Attachment[];attach:(files:File[])=>void;remove:(id:string)=>void;draft:string;commands?:ChatCommand[];inputRef:React.RefObject<HTMLTextAreaElement|null>;disabled:boolean;sendError?:string|null;busy:boolean;working:boolean;change:(text:string)=>void;submit:()=>void;stop:()=>void;plugins:()=>void}){
+export function Composer({voice,draft,commands=[],inputRef,disabled,sendError,busy,working,change,submit,stop,plugins,attachments=[],attaching=false,attach,remove,dictationChat,waves='bars',other}:{
+ /** While a reply runs and there is something to send: the action Enter does not do, as a button with its key. */other?:{label:string;run:()=>void};voice?:()=>void;dictationChat?:string;waves?:WaveStyle;attaching?:boolean;attachments?:Attachment[];attach:(files:File[])=>void;remove:(id:string)=>void;draft:string;commands?:ChatCommand[];inputRef:React.RefObject<HTMLTextAreaElement|null>;disabled:boolean;sendError?:string|null;busy:boolean;working:boolean;change:(text:string)=>void;submit:()=>void;stop:()=>void;plugins:()=>void}){
  const id=useId(),commandId=id+'-commands',mentionId=id+'-mentions';
  const dictation=useDictation({chatId:dictationChat||'',draft,change,input:inputRef});
  // The waves show while dictation records, in the style chosen in Settings › Voice.
@@ -58,7 +59,8 @@ export function Composer({voice,draft,commands=[],inputRef,disabled,sendError,bu
    if(options.length&&!event.shiftKey&&!event.ctrlKey&&!event.altKey&&!event.metaKey&&['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();setIndex((selected+(event.key==='ArrowDown'?1:-1)+options.length)%options.length);return;}
    if(options.length&&!event.shiftKey&&!event.ctrlKey&&!event.altKey&&!event.metaKey&&(event.key==='Tab'||event.key==='Enter')){event.preventDefault();pick(options[selected]);return;}
   }
-  if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();if(!sendError)submit();}
+  // Ctrl+Enter does the other thing while a reply runs (Send now, or wait its turn when the chat's switch is on).
+  if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();if(!sendError){if(event.ctrlKey&&other&&working)other.run();else submit();}}
  }
  function paste(event:React.ClipboardEvent<HTMLTextAreaElement>){
   const items=Array.from(event.clipboardData.files);
@@ -90,7 +92,7 @@ export function Composer({voice,draft,commands=[],inputRef,disabled,sendError,bu
     <button type="button" className="attachment-trigger" aria-label="Attach files" title="Attach images, PDFs or text files · drop or paste" disabled={disabled||busy} onClick={()=>files.current?.click()}><SidebarIcon name="attach"/></button>
     {dictationChat&&<>{voice&&<button type="button" aria-label="Open voice" title="Voice helper" disabled={disabled} onClick={voice}><SidebarIcon name="voice"/></button>}<DictationControls dictation={dictation} disabled={disabled||busy}/></>}
     <button type="button" className="command-trigger" aria-label="Browse skills and commands" aria-expanded={open} aria-controls={commandId} disabled={disabled} title="Skills and commands" onClick={()=>{const next=!open;setBrowsing(next);setDismissed(!next);inputRef.current?.focus();}}><SidebarIcon name="slash"/></button>
-   </div>{listening&&waves==='bars'&&<DictationWaves style="bars" level={dictation.level}/>}<button type="button" className="send" aria-label={working&&!draft&&!attachments.length?'Stop':working?'Queue message':'Send'} title={working&&!draft&&!attachments.length?'Stop':sendError|| (working?'Queue message · Enter':'Send · Enter')} disabled={disabled||busy||!!sendError&&!(working&&!draft&&!attachments.length)} onClick={()=>working&&!draft&&!attachments.length?stop():submit()}><SidebarIcon name={working&&!draft&&!attachments.length?'stop':'send'}/></button></div>
+   </div>{listening&&waves==='bars'&&<DictationWaves style="bars" level={dictation.level}/>}{other&&working&&(!!draft.trim()||attachments.length>0)&&<button type="button" className="send-other" title={other.label+' · Ctrl+Enter'} disabled={disabled||busy||!!sendError} onClick={other.run}>{other.label}<kbd aria-hidden="true">Ctrl ↵</kbd></button>}<button type="button" className="send" aria-label={working&&!draft&&!attachments.length?'Stop':working?'Queue message':'Send'} title={working&&!draft&&!attachments.length?'Stop':sendError|| (working?'Queue message · Enter':'Send · Enter')} disabled={disabled||busy||!!sendError&&!(working&&!draft&&!attachments.length)} onClick={()=>working&&!draft&&!attachments.length?stop():submit()}><SidebarIcon name={working&&!draft&&!attachments.length?'stop':'send'}/></button></div>
   </div>
  </div>;
 }

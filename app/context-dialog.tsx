@@ -4,7 +4,9 @@ import {modelLabel} from './models';
 import {contextPercent,contextTooltip,usageModels} from './usage';
 import {Button,Dialog,Notice,Switch} from './kit';
 
-export function ContextControls({chat,turns,call}:{chat:Chat;turns:Turn[];call:(method:string,args?:any)=>Promise<any>}){
+export function ContextControls({chat,turns,call,sendNowDefault=false}:{chat:Chat;turns:Turn[];call:(method:string,args?:any)=>Promise<any>;
+ /** The Send now switch's start value for a chat that has not set its own (Settings › General). */sendNowDefault?:boolean}){
+ const sendNow=chat.sendNow??sendNowDefault;
  const [error,setError]=useState('');
  const models=usageModels([],chat.lockedModel?[chat.lockedModel]:chat.selectedModels?.length?chat.selectedModels:[chat.model]);
  const percent=contextPercent(turns,models);
@@ -12,7 +14,7 @@ export function ContextControls({chat,turns,call}:{chat:Chat;turns:Turn[];call:(
  const tooltip=[contextTooltip(turns,models),chat.compacting?`Compacting · ${chat.compacting.done}/${chat.compacting.total}`:chat.contextNotice,'Click to turn automatic compaction '+(chat.autoCompact===false?'on':'off')+'.'].filter(Boolean).join('\n');
  const claude=(chat.pool||[chat.model]).some(model=>model.startsWith('claude-code:'));
  const set=(change:Record<string,boolean>)=>{setError('');void call('contextSettings',{chatId:chat.id,...change}).catch(e=>setError(String(e)));};
- return <>{claude&&!chat.parentChatId&&<Switch semantics="pressed" className="rlm-toggle" ariaLabel="Let Claude wake itself up" checked={chat.wakeUps!==false} title="Let Claude wake itself up: Claude's own wake-ups and timers in this chat. They spend money while you are away." label="Wake-ups" onChange={on=>set({wakeUps:on})}/>}<Switch semantics="pressed" className="rlm-toggle" ariaLabel="RLM history" checked={chat.rlm!==false} title="RLM history assistance: focused lookups using the current model. Up to four helper calls per turn; their tokens appear in usage." label="RLM" onChange={on=>set({rlm:on})}/>{!chat.parentChatId&&!chat.sideSourceId&&<Switch semantics="pressed" className="rlm-toggle auto-compact" ariaLabel="Automatic compaction" checked={chat.autoCompact!==false} data-pressure={pressure} aria-busy={!!chat.compacting} aria-description={tooltip} title={tooltip} label="Auto-compact" onChange={on=>set({autoCompact:on})}/>}{error&&<span role="alert">{error}</span>}</>;
+ return <>{!chat.parentChatId&&<Switch semantics="pressed" className="rlm-toggle" ariaLabel="Send now" checked={sendNow} title={sendNow?'On: a message sent while a reply runs stops it and goes at once. Ctrl+Enter waits its turn.':'Off: a message sent while a reply runs waits its turn. Ctrl+Enter sends it now.'} label="Send now" onChange={on=>set({sendNow:on})}/>}{claude&&!chat.parentChatId&&<Switch semantics="pressed" className="rlm-toggle" ariaLabel="Let Claude wake itself up" checked={chat.wakeUps!==false} title="Let Claude wake itself up: Claude's own wake-ups and timers in this chat. They spend money while you are away." label="Wake-ups" onChange={on=>set({wakeUps:on})}/>}<Switch semantics="pressed" className="rlm-toggle" ariaLabel="RLM history" checked={chat.rlm!==false} title="RLM history assistance: focused lookups using the current model. Up to four helper calls per turn; their tokens appear in usage." label="RLM" onChange={on=>set({rlm:on})}/>{!chat.parentChatId&&!chat.sideSourceId&&<Switch semantics="pressed" className="rlm-toggle auto-compact" ariaLabel="Automatic compaction" checked={chat.autoCompact!==false} data-pressure={pressure} aria-busy={!!chat.compacting} aria-description={tooltip} title={tooltip} label="Auto-compact" onChange={on=>set({autoCompact:on})}/>}{error&&<span role="alert">{error}</span>}</>;
 }
 
 export function ContextDialog({chat,state,call,close}:{chat:Chat;state:Snapshot;call:(method:string,args?:any)=>Promise<any>;close:()=>void}){

@@ -58,9 +58,9 @@ try{
  assert.equal(queued.turns.find(t=>t.id===slow)?.status,'running');await liveMain.getByRole('button',{name:'Cancel queued message',exact:true}).focus();await page.keyboard.press('Enter');
  await pollState(page,s=>!s.turns.some(t=>t.prompt==='An unrelated follow-up for later'));
  await liveMain.getByLabel('Message',{exact:true}).fill('Use this correction and finish a short explanation');
- await liveMain.getByRole('button',{name:'Stop and send',exact:true}).waitFor();
+ await liveMain.locator('.composer-toolbar').getByRole('button',{name:'Send now',exact:true}).waitFor();
  const composerPng=await app.evaluate(async({BrowserWindow})=>Array.from((await BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('index.html'))!.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG()));await fs.writeFile(path.join(data,'correction-composer.png'),Buffer.from(composerPng));
- await liveMain.getByRole('button',{name:'Stop and send',exact:true}).evaluate(button=>{for(let n=0;n<2;n++)(button as HTMLButtonElement).click();});
+ await liveMain.locator('.composer-toolbar').getByRole('button',{name:'Send now',exact:true}).evaluate(button=>{for(let n=0;n<2;n++)(button as HTMLButtonElement).click();});
  const corrected=await pollState(page,s=>s.turns.some(t=>t.chatId===branch.id&&t.prompt==='Use this correction and finish a short explanation'&&t.status==='completed'));
  assert.ok(['stopped','interrupted'].includes(corrected.turns.find(t=>t.id===slow)!.status));assert.equal(corrected.turns.filter(t=>t.chatId===branch.id&&t.prompt==='Use this correction and finish a short explanation').length,1);
  // A run finishing just before the send reaches main must not discard the follow-up.
@@ -73,7 +73,7 @@ try{
  const blockedWrite=crypto.randomUUID(),cancelledFile=path.join(folder,'cancelled.txt');await fromBranch('submit',{id:blockedWrite,chatId:branch.id,models:['claude-code:haiku'],text:JSON.stringify({action:'write',path:cancelledFile})});
  const approvalState=await pollState(page,s=>s.approvals.some(a=>a.turnId===blockedWrite&&a.status==='pending')),approvalId=approvalState.approvals.find(a=>a.turnId===blockedWrite&&a.status==='pending')!.id;
  await branchWindow.evaluate(chatId=>window.desktop.invoke('attachmentAdd',{chatId,name:'correction.txt',bytes:new TextEncoder().encode('Keep the pending file absent')}),branch.id);
- await branchWindow.getByLabel('Message',{exact:true}).fill('Skip the pending file write and explain only');await branchWindow.getByRole('button',{name:'Stop and send',exact:true}).click();
+ await branchWindow.getByLabel('Message',{exact:true}).fill('Skip the pending file write and explain only');await branchWindow.locator('.composer-toolbar').getByRole('button',{name:'Send now',exact:true}).click();
  const windowCorrected=await pollState(page,s=>s.turns.some(t=>t.chatId===branch.id&&t.prompt==='Skip the pending file write and explain only'&&t.status==='completed'));
  assert.equal(windowCorrected.turns.find(t=>t.prompt==='Skip the pending file write and explain only')?.attachments?.[0].name,'correction.txt');
  assert.equal(windowCorrected.approvals.find(a=>a.id===approvalId)?.status,'expired');assert.equal(await fs.access(cancelledFile).then(()=>true,()=>false),false);assert.equal(windowCorrected.turns.filter(t=>t.chatId===source).length,3);

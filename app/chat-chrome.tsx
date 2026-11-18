@@ -68,7 +68,7 @@ export function ChatDock({state,chat,chatId,turns,call,usageId,details,setDetail
    <ChoiceMenu label="Permission mode" value={project?.mode||'manual'} options={permissionModes} disabled={!project} onChange={mode=>void call('mode',{projectId:project!.id,mode})}/>
    <ChatViewSelect chatId={chatId}/>
    <Button className="side-chat-button" disabled={!chat||!!chat.sideSourceId} title="Side chat · Ctrl+;" aria-label="Open side chat" onClick={openSideChat}>Side chat</Button>
-   {chat&&<ContextControls chat={chat} turns={turns} call={call}/>}
+   {chat&&<ContextControls chat={chat} turns={turns} call={call} sendNowDefault={state.sendNowDefault}/>}
    <Button className="connections-link" onClick={()=>{setDetails(false);openConnections();}}>Connections</Button>
    <SpeakReplies state={state} chatId={chatId} turns={turns} call={call} elsewhere={elsewhere}/>
    <HandoverChip state={state} chat={chat} call={call}/>

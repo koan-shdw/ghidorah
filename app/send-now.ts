@@ -9,6 +9,15 @@ export type SendNow={ok:true}|{ok:false;why:string};
 const no=(why:string):SendNow=>({ok:false,why});
 const waits=(turn:Turn)=>!turn.automatic&&(turn.status==='queued'||turn.status==='needs-model'||turn.status==='running'&&turn.delivery==='sent');
 
+/** A message of the owner's that waits behind a reply: held in the app, or passed to the engine and not read yet. */
+export const waitsItsTurn=(turn:Turn)=>!turn.automatic&&!turn.parentTurnId&&(turn.status==='queued'||turn.status==='running'&&turn.delivery==='sent');
+/** The chat's running reply as a window can tell it: the first turn at work that is not itself a waiting message. */
+export function runningReply(chatTurns:Turn[]){return chatTurns.find(turn=>!turn.automatic&&!turn.parentTurnId&&['dispatching','running','waiting','stopping'].includes(turn.status)&&turn.delivery!=='sent'&&!turn.answeredIn)?.id||null;}
+/** Whether a message typed while a reply runs stops it and goes at once. `on` is the chat's Send now switch;
+ * `other` is Ctrl+Enter or the button beside the send arrow, which do the opposite of Enter. A "??" side question
+ * and a "/" command never stop the reply: they keep their own paths. */
+export function sendsNow(text:string,working:boolean,on:boolean,other:boolean){return working&&!/^\s*(\?\?|\/)/.test(text)&&on!==other;}
+
 /** Whether `turn`, one of the chat's turns, can be pushed now. `replyId` is the chat's running reply, if any. */
 export function sendNowCheck(turn:Turn,chatTurns:Turn[],replyId:string|null):SendNow{
  if(turn.automatic)return no('Only a message you sent can be pushed.');
