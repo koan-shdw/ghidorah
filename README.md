@@ -24,18 +24,24 @@ models. Chats, keys and settings stay where they are across updates.
 
 - **Every model in one chat.** Claude Code with your own sign-in, Codex and GPT, DeepSeek, Gemini, Grok, Kimi, GLM,
   OpenRouter and more, side by side or picked per message.
-- **Real work.** Files, changes, terminal and preview panes beside the chat; approvals and permission modes (Bypass
-  still asks before Ghidorah's own data and your saved keys); checkpoints.
+- **What it costs.** Settings › Subscriptions lists every connection with what it costs a month, what is left, and
+  where the month's tokens went by day, model and app.
+- **Real work.** A Workspace panel beside the chat shows its folder and branch, context, plan, changed files, saved
+  outputs, agents and background work, and opens Files, Changes, Terminal and Preview; approvals and permission
+  modes (Bypass still asks before Ghidorah's own data and your saved keys); checkpoints.
 - **Tools.** MCP servers, Claude Code plugins and skills, repository maps.
 - **Screen control.** A model can work in your apps and Chrome. It asks before each new app and before the whole
   screen, a bar shows while it works, and Esc stops it.
 - **Pages.** Ask a model for a page and it opens as a card under the reply, private until you share it. Share pages
   with clients at a private link; their notes come back to the chat.
 - **Ask while it works.** Start a message with ?? and a side model answers from the live work, while the main model
-  keeps going.
+  keeps going. A plain message sent meanwhile waits its turn; Send now on it, or Ctrl+Enter, stops the reply and
+  sends it, and a Send now switch in the chat bar makes that what Enter does.
 - **Side chats.** Side chat (Ctrl+;) opens a new chat with this one's thread as its context. Send to main chat puts a
   summary in the main chat's message box, Keep as chat keeps it, and Discard asks first.
-- **Long jobs.** Background work, goals and routines that keep running while you do something else. A message that
+- **Long jobs.** Background work, goals and routines that keep running while you do something else. Agents at work
+  show as pills at the top right of the chat, each with its step and a stop square, and one that asks for a
+  permission takes Allow once or Deny right there. A message that
   Claude's usage limit stops waits and is sent again by itself when the limit resets. A button on it opens the
   account's own usage page for limit resets and usage credits, and the message goes once either is used.
 - **Voice and remote.** Dictation and live voice. Dictation is heard by Whisper on this PC, or by Deepgram or
