@@ -18,8 +18,8 @@ export interface MonthUsage extends UsageSum {
  agents:number;
  /** By app id. A chat linked to several apps counts in each, so these can add up to more than `tokens`. */
  apps:Record<string,UsageSum>;
- /** Tokens of chats no app links. */
- unlinked:number;
+ /** The chats no app links. */
+ unlinked:UsageSum;
  /** Tokens counted in more than one app. */
  shared:number;
  chats:ChatUsage[];
@@ -46,7 +46,7 @@ export function monthUsage({turns,chats,apps,from,to,dayOf=localDay}:{turns:Turn
   }
  };
  const appsOf=new Map<string,string[]>();for(const app of apps)for(const chatId of app.chatIds)(appsOf.get(chatId)||appsOf.set(chatId,[]).get(chatId)!).push(app.id);
- const out:MonthUsage={tokens:0,models:{},partial:false,routing:0,agents:0,apps:{},unlinked:0,shared:0,chats:[],days:{}};
+ const out:MonthUsage={tokens:0,models:{},partial:false,routing:0,agents:0,apps:{},unlinked:{tokens:0,models:{}},shared:0,chats:[],days:{}};
  const perChat=new Map<string,ChatUsage>();
  const add=(sum:UsageSum,model:string|null,tokens:number)=>{sum.tokens+=tokens;if(model)sum.models[model]=(sum.models[model]||0)+tokens;};
  for(const turn of turns){
@@ -70,7 +70,7 @@ export function monthUsage({turns,chats,apps,from,to,dayOf=localDay}:{turns:Turn
    add(out,part.model,part.tokens);add(chat,part.model,part.tokens);
    out.days[day]=(out.days[day]||0)+part.tokens;if(part.routing)out.routing+=part.tokens;
    for(const appId of linked)add(out.apps[appId]||(out.apps[appId]={tokens:0,models:{}}),part.model,part.tokens);
-   if(!linked.length)out.unlinked+=part.tokens;else if(linked.length>1)out.shared+=part.tokens*(linked.length-1);
+   if(!linked.length)add(out.unlinked,part.model,part.tokens);else if(linked.length>1)out.shared+=part.tokens*(linked.length-1);
   }
  }
  out.chats=[...perChat.values()].sort((a,b)=>b.tokens-a.tokens);

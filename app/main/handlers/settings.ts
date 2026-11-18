@@ -25,11 +25,50 @@ import {listenEndpoint,listeningKey,listeningView,speechKey,speechReady,voiceRow
 import {isEngine,isOnline,isWaveStyle} from '../../listening';
 import {checkKey} from '../../online-dictation';
 import {listeningKeys,onlineDictation} from '../../main';
+import {ELEVENLABS_API,elevenLabsAccount,type ElevenLabsAccount} from '../../elevenlabs-account';
+import {monthUsage} from '../../usage-months';
+import {voiceTestEndpoint} from '../voice';
 import {randomUUID} from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+// Settings › Subscriptions. The prices the owner typed, by row id.
+function typedPrices():Record<string,number>{
+  const saved=store.all<any>('settings').find(row=>row.id==='subscriptions')?.prices,out:Record<string,number>={};
+  if(saved&&typeof saved==='object')for(const [id,usd] of Object.entries(saved))if(/^[a-z0-9-]{1,40}$/.test(id)&&typeof usd==='number'&&Number.isFinite(usd)&&usd>=0)out[id]=usd;
+  return out;
+}
+// The ElevenLabs account is asked for at most once in ten minutes, and again when the page asks for a fresh read.
+let elevenLabsRead:{at:number;account:ElevenLabsAccount}|null=null;
+async function elevenLabs(fresh:boolean){
+  if(!fresh&&elevenLabsRead&&Date.now()-elevenLabsRead.at<600000)return elevenLabsRead.account;
+  const account=await elevenLabsAccount(await listeningKey('elevenlabs'),voiceTestEndpoint('TRISMEGISTUS_TEST_ELEVENLABS_API')||ELEVENLABS_API);
+  elevenLabsRead={at:Date.now(),account};return account;
+}
+
 export const settingsHandlers:Record<string,(args:any)=>any>={
+  // What the Subscriptions page cannot build from the window's own state: the typed prices, the ElevenLabs account
+  // (a read-only call with the listening key) and a month's token sums. The sums run here, over the store, because
+  // a window's state lacks most job chats; they read turns only (monthUsage).
+  async subscriptions({month,fresh}){
+    let elevenlabs:ElevenLabsAccount|null=null,elevenlabsNote='';
+    if(listeningView().connected.elevenlabs){try{elevenlabs=await elevenLabs(fresh===true);}catch(error){elevenlabsNote=backend.scrubber.text(String(error instanceof Error?error.message:error));}}
+    const turns=store.all<Turn>('turn'),label=(time:number)=>{const d=new Date(time);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');};
+    const months=[...new Set([label(Date.now()),...turns.map(turn=>label(turn.created))])].sort().reverse().slice(0,12);
+    const picked=typeof month==='string'&&months.includes(month)?month:months[0],[year,index]=picked.split('-').map(Number);
+    const apps=store.all<SavedApp>('saved-app'),usage=monthUsage({turns,chats:store.all<Chat>('chat'),apps,from:new Date(year,index-1,1).getTime(),to:new Date(year,index,1).getTime()}),chats=usage.chats.slice(0,60);
+    return {prices:typedPrices(),elevenlabs,elevenlabsNote,month:picked,months,usage:{...usage,chats},apps:apps.map(app=>({id:app.id,name:app.name,chatIds:app.chatIds})),
+      titles:Object.fromEntries(chats.map(row=>[row.chatId,store.find<Chat>('chat',row.chatId)?.title||'Deleted chat']))};
+  },
+  // A typed monthly price confirms a row; an empty one gives the row back to its list price or "amount unknown".
+  subscriptionPrice({id,usd}){
+    if(typeof id!=='string'||!/^[a-z0-9-]{1,40}$/.test(id))throw Error('Unknown subscription.');
+    const prices=typedPrices();
+    if(usd===null||usd==='')delete prices[id];
+    else if(typeof usd==='number'&&Number.isFinite(usd)&&usd>=0&&usd<=100000)prices[id]=Math.round(usd*100)/100;
+    else throw Error('Type the monthly price as a number.');
+    store.put('settings',{id:'subscriptions',prices});return prices;
+  },
   // Saved in the store, not the window's localStorage: Chromium writes that late and a quick quit loses it.
   chatLayout(args){store.put('settings',{id:'chat-layout',...readChatLayout(JSON.stringify(args||{}))});emit();},
   paneLayout({tree,workspace}){

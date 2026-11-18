@@ -15,7 +15,7 @@ test('a stretch sums replies per model, app, chat and day, and leaves out what i
  ],chats,apps,from:100,to:300,dayOf:day});
  assert.equal(use.tokens,42);assert.deepEqual(use.models,{m1:22,m2:20});assert.equal(use.partial,false);
  assert.deepEqual(use.apps,{app1:{tokens:30,models:{m1:10,m2:20}},app2:{tokens:35,models:{m1:15,m2:20}}});
- assert.equal(use.unlinked,7);assert.equal(use.shared,30);
+ assert.deepEqual(use.unlinked,{tokens:7,models:{m1:7}});assert.equal(use.shared,30);
  assert.deepEqual(use.days,{d1:30,d2:12});
  assert.deepEqual(use.chats.map(row=>[row.chatId,row.tokens,row.replies]),[['a',30,2],['lone',7,1],['b',5,1]]);
 });

@@ -2,7 +2,7 @@ import React,{useLayoutEffect,useRef,useState} from 'react';
 import {SidebarIcon,type IconName} from './kit';
 
 const groups=[
- {label:'Workspace',pages:[['general','General','settings'],['models','Default models','models'],['connections','Connections','fork'],['updates','Updates','restart']]},
+ {label:'Workspace',pages:[['general','General','settings'],['models','Default models','models'],['connections','Connections','fork'],['subscriptions','Subscriptions','card'],['updates','Updates','restart']]},
  {label:'Tools',pages:[['plugins','Plugins','plugins'],['mcp','MCP','plug'],['skills','Skills','skills'],['browser','Browser and computer','preview'],['images','Images','files'],['publishing','Publishing','send'],['sharing','Share with clients','pin']]},
  {label:'Automation',pages:[['always-on','Always on','activity'],['remote','Remote','chats'],['routines','Routines','changes'],['voice','Voice','voice']]},
  {label:'Account',pages:[['security','Security','eye']]},
