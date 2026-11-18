@@ -576,3 +576,31 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .handover-chip{display:inline-flex;align-items:center;border-radius:var(--r-pill);background:var(--surface);color:var(--muted);font-size:var(--fs-meta)}
 .handover-chip button{padding:0 var(--space-3);min-height:var(--h);color:inherit}
 .handover-chip button:first-child{padding-left:var(--space-4);color:var(--accent)}
+/* Agent pills (agent-pills.tsx): the agents at work, stacked in the chat's top corner. The anchor takes no room in
+   the chat's column; the stack hangs from it over the transcript. */
+.agent-pills-anchor{position:relative;height:0;flex:none;z-index:var(--z-anchor)}
+.agent-pills{position:absolute;top:var(--space-4);right:var(--space-7);display:flex;flex-direction:column;align-items:stretch;gap:var(--space-2);width:276px;max-width:calc(100% - var(--space-10))}
+.agent-pills-head{display:flex;align-items:center;gap:var(--space-3);align-self:flex-end;min-height:var(--h-sm);padding:0 var(--space-3) 0 var(--space-5);border:1px solid var(--line);border-radius:var(--r-pill);background:var(--surface);box-shadow:var(--shadow-card);color:var(--muted);font-size:var(--fs-meta);white-space:nowrap}
+.agent-pills-head b{color:var(--text);font-weight:var(--fw-medium)}
+.agent-pills-head>button{display:inline-flex;align-items:center;min-height:var(--h-sm);padding:0 var(--space-3);border-radius:var(--r-pill);color:var(--muted);font-size:var(--fs-meta)}
+.agent-pills-head>button:hover{color:var(--text)}
+.agent-pill{display:flex;align-items:flex-start;gap:var(--space-5);min-height:42px;padding:var(--space-4) var(--space-3) var(--space-4) var(--space-6);border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface);color:var(--text);box-shadow:var(--shadow-card);font-size:var(--fs-ui);line-height:1.35}
+.agent-pill>.kit-spinner,.agent-pill>.agent-mark{margin-top:var(--space-2)}
+.agent-pill.ask{border-color:color-mix(in srgb,var(--warning) 45%,var(--line));background:color-mix(in srgb,var(--warning) 8%,var(--surface))}
+.agent-pill.done{color:var(--muted)}
+.agent-mark{display:inline-grid;place-items:center;width:10px;height:10px;flex:0 0 10px;border-radius:var(--r-round);font-size:var(--fs-meta);line-height:1}
+.agent-mark.ask{background:var(--warning)}
+.agent-mark.done{color:var(--green)}
+.agent-pill-text{display:grid;flex:1;min-width:0}
+.agent-pill-name{padding:0;border-radius:var(--r-sm);color:inherit;font-size:var(--fs-ui);font-weight:var(--fw-medium);text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agent-pill-name:hover{text-decoration:underline}
+.agent-pill-text>small{color:var(--muted);font-size:var(--fs-meta);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agent-pill-meta{color:var(--muted);font-size:var(--fs-meta);font-variant-numeric:tabular-nums;white-space:nowrap}
+.agent-pill-ask{display:flex;gap:var(--space-3);margin-top:var(--space-3)}
+.agent-pill-ask>button{min-height:var(--h-sm);padding:0 var(--space-5);border:1px solid var(--line);border-radius:var(--r);background:var(--bg);font-size:var(--fs-meta)}
+.agent-pill-ask>button:first-child{background:var(--text);border-color:var(--text);color:var(--bg);font-weight:var(--fw-medium)}
+.agent-pill-stop{display:grid;place-items:center;width:var(--h-sm);height:var(--h-sm);flex:0 0 var(--h-sm);padding:0;border-radius:var(--r-round);color:var(--muted);font-size:var(--fs-title);line-height:1}
+.agent-pill-stop:hover:not(:disabled){background:var(--raised);color:var(--text)}
+.agent-pill-stop:disabled{opacity:.45}
+.agent-pill-stop>.sidebar-icon{width:12px;height:12px;flex:0 0 12px}
+.agent-pills .error{margin:0;padding:var(--space-3) var(--space-5);border:1px solid var(--line);border-radius:var(--r);background:var(--surface);font-size:var(--fs-meta)}
