@@ -105,15 +105,8 @@ export function subscriptionTotals(rows:SubscriptionRow[]){
 }
 /** The window of a row with the least left. */
 export function tightest(row:SubscriptionRow){return row.windows.length?[...row.windows].sort((a,b)=>a.left-b.left)[0]:null;}
-/** What needs the owner first: a limit nearly spent, a paid row with no figure, and list prices still unconfirmed. */
-export function needsLook(rows:SubscriptionRow[]):{id:string;tone:'warning'|'plain';lead:string;rest:string}[]{
- const out:{id:string;tone:'warning'|'plain';lead:string;rest:string}[]=[];
- for(const row of rows){const window=tightest(row);if(window&&window.left<=20)out.push({id:row.id,tone:'warning',lead:row.name+': '+Math.round(window.left)+'% left on '+window.label+'.',rest:''});}
- for(const row of rows)if(row.price.source==='unknown')out.push({id:row.id,tone:'plain',lead:row.name+' is paid, amount unknown.',rest:'Type it in, or open its page.'});
- const estimates=rows.filter(row=>row.price.source==='estimate');
- if(estimates.length)out.push({id:estimates[0].id,tone:'plain',lead:estimates.length===1?'1 price is a list price:':estimates.length+' prices are list prices:',rest:estimates.map(row=>row.name).join(', ')+'. Type the real '+(estimates.length===1?'figure':'figures')+' to confirm.'});
- return out;
-}
+/** A row's limit that is nearly spent: its tightest window at 20% left or less. The page marks it on the row. */
+export function nearlySpent(row:SubscriptionRow){const window=tightest(row);return window&&window.left<=20?window:null;}
 /** The tokens a row's models used, from a month's per-model sums. */
 export function usedBy(row:SubscriptionRow,models:Record<string,number>){
  if(!row.provider)return null;

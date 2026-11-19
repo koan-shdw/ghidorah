@@ -61,6 +61,26 @@ export function StatusDot({tone='muted',label,className}:{tone?:Tone;label?:stri
 export function Chip({tone,children,className,title}:{tone?:Tone;children?:React.ReactNode;className?:string;title?:string}){return <span className={join('kit-chip',tone&&'kit-tone-'+tone,className)} title={title}>{children}</span>;}
 /** Work in progress, when there is no number to show. */
 export function Spinner({label='Working',className}:{label?:string;className?:string}){return <span className={join('kit-spinner',className)} role="status" aria-label={label}/>;}
+/** A short hint for what it wraps, shown on hover or keyboard focus as a small card in the tooltip's look. The card is
+ * laid over the window on the top layer, so a modal dialog, a scrolling page or a clipped row never hides it.
+ * `side`: above the control, or to its left on the same line. `open` holds it shown, for a message that must be read
+ * (a refused value). No text, no card. */
+export function Tip({text,side='top',open=false,tone,className,children}:{text:string;side?:'top'|'left';open?:boolean;tone?:'danger';className?:string;children?:React.ReactNode}){
+ const host=useRef<HTMLSpanElement>(null),card=useRef<HTMLSpanElement>(null),[over,setOver]=useState(false),shown=(open||over)&&!!text;
+ useLayoutEffect(()=>{
+  const anchor=host.current,element=card.current;if(!shown||!anchor||!element)return;
+  if(!element.matches(':popover-open'))element.showPopover();
+  const place=()=>{
+   const box=anchor.getBoundingClientRect(),left=side==='left'?box.left-element.offsetWidth-8:box.right+6-element.offsetWidth,top=side==='left'?box.top+box.height/2-element.offsetHeight/2:box.top-element.offsetHeight-6;
+   element.style.left=Math.max(8,Math.min(left,innerWidth-element.offsetWidth-8))+'px';element.style.top=Math.max(8,Math.min(top,innerHeight-element.offsetHeight-8))+'px';
+  };
+  place();
+  // It stays on its control while the page scrolls under it or the window changes size.
+  window.addEventListener('resize',place);document.addEventListener('scroll',place,true);
+  return()=>{window.removeEventListener('resize',place);document.removeEventListener('scroll',place,true);};
+ },[shown,side,text]);
+ return <span ref={host} className={join('kit-tip-host',className)} onMouseEnter={()=>setOver(true)} onMouseLeave={()=>setOver(false)} onFocus={()=>setOver(true)} onBlur={()=>setOver(false)}>{children}{shown&&<span ref={card} popover="manual" className={join('kit-tip',tone&&'kit-tone-'+tone)} role="tooltip">{text}</span>}</span>;
+}
 
 /** A titled group of related content. */
 export function Card({title,children,className,as='section'}:{title?:React.ReactNode;children?:React.ReactNode;className?:string;as?:'section'|'div'|'article'}){

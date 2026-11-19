@@ -24,6 +24,10 @@
 .kit-dot.kit-tone-unread{background:var(--unread)}
 .kit-dot.kit-tone-accent{background:var(--accent)}
 .kit-chip{display:inline-flex;align-items:center;gap:var(--space-2);min-height:var(--h-sm);padding:0 var(--space-4);border:1px solid var(--line);border-radius:var(--r-pill);color:var(--muted);font-size:var(--fs-meta);line-height:1.3;white-space:nowrap}
+/* Tip: a short hint over the window, in the tooltip card's look (.model-usage-tooltip). kit.tsx places it. */
+.kit-tip-host{display:inline-flex;align-items:center;min-width:0}
+.kit-tip{position:fixed;inset:auto;margin:0;width:max-content;max-width:270px;padding:var(--space-3) var(--space-5);overflow:visible;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);box-shadow:var(--shadow-popover);color:var(--text);font-size:var(--fs-meta);font-style:normal;font-weight:var(--fw-regular);line-height:1.4;letter-spacing:0;text-align:left;text-transform:none;white-space:normal;pointer-events:none}
+.kit-tip.kit-tone-danger{border-color:var(--danger);color:var(--danger)}
 .kit-chip.kit-tone-ok,.kit-chip.kit-tone-live{color:var(--green);border-color:color-mix(in srgb,var(--green) 40%,var(--line))}
 .kit-chip.kit-tone-warning{color:var(--warning);border-color:color-mix(in srgb,var(--warning) 40%,var(--line))}
 .kit-chip.kit-tone-danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}

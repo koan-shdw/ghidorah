@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {Button,Card,Chip,Dialog,Notice,SettingRow,StatusDot,Switch,Tabs,fileIcon} from '../app/kit';
+import {Button,Card,Chip,Dialog,Notice,SettingRow,StatusDot,Switch,Tabs,Tip,fileIcon} from '../app/kit';
 
 const html=(element:React.ReactElement)=>renderToStaticMarkup(element);
 
@@ -30,6 +30,13 @@ test('dots, chips, cards, rows and notices carry their tone and structure',()=>{
  const row=html(React.createElement(SettingRow,{name:'Theme',description:'Five themes'},React.createElement('select')));
  assert.match(row,/kit-row-name">Theme<\/span><small>Five themes<\/small>/);assert.match(row,/kit-row-control"><select>/);
  assert.match(html(React.createElement(Notice,{tone:'danger',role:'alert'},'Failed')),/kit-notice kit-tone-danger" role="alert"/);
+});
+
+test('a tip wraps its control and draws no card until it is shown; held open it is a tooltip on the top layer',()=>{
+ const mark=React.createElement('i',null,'!');
+ assert.equal(html(React.createElement(Tip,{text:'Type what you pay a month.'},mark)),'<span class="kit-tip-host"><i>!</i></span>');
+ assert.equal(html(React.createElement(Tip,{text:'Type the monthly price as a number.',open:true,tone:'danger'},mark)),'<span class="kit-tip-host"><i>!</i><span popover="manual" class="kit-tip kit-tone-danger" role="tooltip">Type the monthly price as a number.</span></span>');
+ assert.equal(html(React.createElement(Tip,{text:'',open:true},mark)),'<span class="kit-tip-host"><i>!</i></span>','no text, no card');
 });
 
 test('tabs mark the shown view',()=>{

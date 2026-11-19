@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {needsLook,subscriptionLinks,subscriptionRows,subscriptionTotals,tightest,usedBy} from '../app/subscriptions';
+import {nearlySpent,subscriptionLinks,subscriptionRows,subscriptionTotals,tightest,usedBy} from '../app/subscriptions';
 import {elevenLabsAccount,readElevenLabsAccount} from '../app/elevenlabs-account';
 
 const answer={tier:'starter',character_count:3700,character_limit:10000,status:'active',next_character_count_reset_unix:1795000000,currency:'usd',billing_period:'monthly_period',next_invoice:{amount_due_cents:600}};
@@ -46,10 +46,13 @@ test('ElevenLabs without an account read is an estimate from nothing, so paid an
  const noInvoice=subscriptionRows(state,{prices:{},elevenlabs:readElevenLabsAccount({...answer,next_invoice:null})}).rows.find(row=>row.id==='elevenlabs')!;
  assert.equal(noInvoice.price.source,'estimate');assert.equal(noInvoice.price.usd,6);
 });
-test('needs a look names a limit nearly spent, paid rows with no figure, and list prices',()=>{
- const look=needsLook(subscriptionRows(state,{prices:{chatgpt:20,gemini:1,'openrouter-api':1,'xai-oauth':1,deepseek:1,deepgram:1,zyphra:1},elevenlabs:account}).rows);
- assert.deepEqual(look,[{id:'claude',tone:'warning',lead:'Claude Code: 8% left on Weekly · Fable.',rest:''},{id:'claude',tone:'plain',lead:'1 price is a list price:',rest:'Claude Code. Type the real figure to confirm.'}]);
- assert.equal(needsLook(subscriptionRows(state,{prices:{},elevenlabs:account}).rows).filter(item=>/amount unknown/.test(item.lead)).length,7);
+test('a row is marked nearly spent by its tightest limit, at 20% left or less',()=>{
+ const {rows}=subscriptionRows(state,{prices:{},elevenlabs:account}),[claude,chatgpt,eleven]=rows;
+ assert.deepEqual(nearlySpent(claude),{label:'Weekly · Fable',left:8,resetAt:null});
+ assert.equal(nearlySpent(chatgpt),null,'96% left');assert.equal(nearlySpent(eleven),null,'63% left');
+ assert.equal(nearlySpent(rows.find(row=>row.id==='deepseek')!),null,'a balance is not a limit');
+ const edge=(left:number)=>nearlySpent({...claude,windows:[{label:'Weekly',left,resetAt:null}]});
+ assert.equal(edge(20)?.left,20);assert.equal(edge(20.5),null);assert.equal(edge(0)?.left,0);
 });
 test('a row uses the tokens of its own supplier\'s models; links open only the suppliers\' own pages',()=>{
  const {rows}=subscriptionRows(state,{prices:{}}),models={'claude-code:opus':10,'claude-code:fable':5,'gpt-6-astra':7,'api:gemini:gemini-4-carbon':3,'deepseek-flash':2,'command:x':9};

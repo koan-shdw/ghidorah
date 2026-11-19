@@ -1,6 +1,7 @@
 // Settings › Subscriptions on a test copy: the fake model, the stand-in Claude and a stand-in ElevenLabs on this
-// computer. It checks the command the page reads, the rows and the foot of the page, a typed price moving a row from
-// "paid, amount unknown" to confirmed, and the month's tokens per app. No real service is called and no link opened.
+// computer. It checks the command the page reads, the rows and the foot of the page, the mark and the box on a row
+// with no price, a typed price confirming the row, and the month's tokens per app. No real service is called and
+// no link opened.
 import {_electron as electron} from 'playwright';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -60,24 +61,46 @@ try{
  const names=await body.locator('.sub-row .sub-name strong').allInnerTexts();assert.deepEqual(names,['Claude Code','ElevenLabs','DeepSeek']);
  const row=(name:string)=>body.locator('.sub-row').filter({has:page.locator('.sub-name strong',{hasText:name})});
  assert.match(await row('ElevenLabs').locator('summary').innerText(),/Starter[\s\S]*63% left[\s\S]*3\.7K credits[\s\S]*\$6\.00/);
- assert.match(await row('DeepSeek').locator('summary').innerText(),/Prepaid[\s\S]*tok[\s\S]*Paid/);
- assert.match(await row('Claude Code').locator('summary').innerText(),/% left[\s\S]*tok[\s\S]*Paid/);
+ assert.match(await row('DeepSeek').locator('summary').innerText(),/Prepaid[\s\S]*tok[\s\S]*!\s*\$/);assert.equal(await row('DeepSeek').locator('summary .sub-pricebox input').getAttribute('placeholder'),'a month');
+ assert.match(await row('Claude Code').locator('summary').innerText(),/% left[\s\S]*tok[\s\S]*!\s*\$/);assert.equal(await row('ElevenLabs').locator('summary .sub-pricebox').count(),0,'a priced row has no box');
  const foot=()=>body.locator('.sub-totals').innerText();
  assert.match(await foot(),/Confirmed\s*\$6\.00[\s\S]*Estimated\s*\$0\.00[\s\S]*2\s*paid, amount unknown[\s\S]*A month\s*\$6\.00/);
- assert.equal(await body.locator('.sub-look li').count(),2,'the two paid rows with no figure');
- await click(body.locator('.sub-look .link-button').first());assert.equal(await row('Claude Code').evaluate((element:HTMLDetailsElement)=>element.open),true,'Show opens the row');
- await row('Claude Code').getByLabel('Monthly price of Claude Code',{exact:true}).fill('120');
- await page.waitForFunction(()=>/Confirmed\s*\$126\.00/.test(document.querySelector('.sub-totals')?.textContent||''));
+ // What needs the owner is marked on its row: no list above the rows, a mark beside each missing price.
+ assert.equal(await body.locator('.sub-look').count(),0,'no list above the rows');assert.equal(await body.getByText('Show ›').count(),0);
+ assert.deepEqual(await body.locator('.sub-row:has(button.sub-attn) .sub-name strong').allInnerTexts(),['Claude Code','DeepSeek'],'a mark on each row with no price');
+ const confirmed=(amount:string)=>page.waitForFunction(text=>document.querySelector('.sub-totals')?.textContent?.replace(/\s+/g,' ').includes('Confirmed '+text),amount);
+ const box=(name:string)=>row(name).getByLabel('Monthly price of '+name,{exact:true}),opened=(name:string)=>row(name).evaluate((element:HTMLDetailsElement)=>element.open);
+ // The mark says what to do and puts the cursor in that row's box; the row stays folded.
+ const mark=row('Claude Code').locator('button.sub-attn');await mark.focus();
+ assert.equal(await row('Claude Code').locator('.kit-tip').innerText(),'Type what you pay a month.');
+ assert.equal(await row('Claude Code').locator('.kit-tip').evaluate((element:HTMLElement)=>element.matches(':popover-open')),true,'the tip is laid over the Settings window');
+ await click(mark);assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('aria-label')),'Monthly price of Claude Code');assert.equal(await opened('Claude Code'),false);
+ // Enter saves the figure: the row is confirmed, loses its mark, and the foot adds it.
+ await box('Claude Code').fill('120');await box('Claude Code').press('Enter');await confirmed('$126.00');
  assert.match(await foot(),/1\s*paid, amount unknown[\s\S]*A month\s*\$126\.00/);assert.match(await row('Claude Code').locator('summary').innerText(),/\$120\.00/);
+ assert.equal(await row('Claude Code').locator('button.sub-attn').count(),0,'a priced row has no mark');assert.equal(await opened('Claude Code'),false);
  assert.deepEqual((await call('subscriptions',{})).prices,{claude:120});
- await row('Claude Code').getByLabel('Monthly price of Claude Code',{exact:true}).fill('');
- await page.waitForFunction(()=>/Confirmed\s*\$6\.00/.test(document.querySelector('.sub-totals')?.textContent||''));
+ // A price that is there is clicked to change it. Escape drops the change and leaves Settings open; emptied, the
+ // row goes back to what the supplier reports.
+ await click(row('Claude Code').locator('button.sub-figure'));assert.equal(await box('Claude Code').inputValue(),'120');
+ await box('Claude Code').fill('999');await box('Claude Code').press('Escape');assert.match(await row('Claude Code').locator('summary').innerText(),/\$120\.00/);
+ assert.equal(await dialog.count(),1,'Escape in the box does not close Settings');assert.deepEqual((await call('subscriptions',{})).prices,{claude:120});
+ await click(row('Claude Code').locator('button.sub-figure'));await box('Claude Code').fill('');await box('Claude Code').press('Enter');await confirmed('$6.00');
+ assert.equal(await row('Claude Code').locator('button.sub-attn').count(),1);assert.deepEqual((await call('subscriptions',{})).prices,{});
+ // Leaving the box saves too. A figure that is not a number is refused in words beside the box.
+ await box('DeepSeek').fill('1.2.3');await box('DeepSeek').blur();
+ assert.equal(await row('DeepSeek').locator('.kit-tip.kit-tone-danger').innerText(),'Type the monthly price as a number.');
+ await box('DeepSeek').fill('3');await box('DeepSeek').blur();await confirmed('$9.00');assert.deepEqual((await call('subscriptions',{})).prices,{deepseek:3});
+ // The opened row says where the price comes from and has no second box.
+ await click(row('DeepSeek').locator('summary .sub-name'));assert.equal(await opened('DeepSeek'),true);
+ assert.match(await row('DeepSeek').locator('.sub-facts').innerText(),/Price\s*You typed this figure/);assert.equal(await row('DeepSeek').locator('.sub-detail input').count(),0);
+ await click(row('DeepSeek').locator('summary .sub-name'));await click(row('DeepSeek').locator('button.sub-figure'));await box('DeepSeek').fill('');await box('DeepSeek').press('Enter');await confirmed('$6.00');
  assert.match(await body.locator('.sub-usage').innerText(),/Where it went[\s\S]*tokens[\s\S]*All models[\s\S]*No app[\s\S]*of the month/);
  await click(body.locator('.sub-legend button').nth(1));assert.match(await body.locator('.sub-app .sub-share').first().innerText(),/% of /);
- await row('Claude Code').getByLabel('Monthly price of Claude Code',{exact:true}).fill('120');await page.waitForFunction(()=>/Confirmed\s*\$126\.00/.test(document.querySelector('.sub-totals')?.textContent||''));
+ await box('Claude Code').fill('120');await box('Claude Code').press('Enter');await confirmed('$126.00');
  const shot=async(file:string)=>{const png=await app.evaluate(async({BrowserWindow})=>{const w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('index.html'))!;await w.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true});await new Promise(r=>setTimeout(r,300));return (await w.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG().toString('base64');});await fs.writeFile(file,Buffer.from(png,'base64'));};
  await fs.mkdir(path.join(root,'work','subscriptions-shots'),{recursive:true});await shot(path.join(root,'work','subscriptions-shots','page.png'));
  await body.evaluate((element:HTMLElement)=>{element.scrollTop=element.scrollHeight;});await page.waitForTimeout(300);await shot(path.join(root,'work','subscriptions-shots','page-end.png'));
  assert.deepEqual(errors,[]);
- console.log('PASS the Subscriptions page: rows, what needs a look, a typed price confirming a row, totals, the month per app and model');
+ console.log('PASS the Subscriptions page: rows, a mark and a box where a price is missing, typed prices saved, changed and dropped, totals, the month per app and model');
 }finally{await app.evaluate(({app})=>app.quit()).catch(()=>{});await app.close().catch(()=>{});fake.stdin.end('\n');lines.close();eleven.close();await fs.rm(folder,{recursive:true,force:true});await host.host('delete_key').catch(()=>{});await host.host('delete_key',{provider:'elevenlabs'}).catch(()=>{});execFileSync(PYTHON,['-c',"import sys;sys.path.insert(0,'backend');import windows_credentials as v;v.delete(sys.argv[1])",namespace+'/encryption'],{windowsHide:true,stdio:'ignore'});}

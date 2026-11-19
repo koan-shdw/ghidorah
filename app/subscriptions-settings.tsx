@@ -1,13 +1,15 @@
 // Settings › Subscriptions (Koan's pick 2026-11-18: version 3 of the mockup). One page for every connection: what
-// it costs a month and where that figure comes from, what is left, and where the tokens went. First what needs a
-// look, then the ledger with its sums at the foot of the page, then the month by day, model and app.
+// it costs a month and where that figure comes from, what is left, and where the tokens went. The ledger first, with
+// its sums at the foot of the page, then the month by day, model and app. What needs the owner is marked where it
+// is (Koan's pick 2026-11-18, version 2 of the fix mockup): a small amber mark beside a limit nearly spent and beside
+// a price that is missing, and the missing price is a box in the row itself.
 // The rows are built here from the window's own state (subscriptions.ts); the `subscriptions` command adds the typed
 // prices, the ElevenLabs account and a month's token sums.
 import React,{useEffect,useRef,useState} from 'react';
 import type {ElevenLabsAccount} from './elevenlabs-account';
-import {Tabs} from './kit';
+import {Tabs,Tip} from './kit';
 import {modelLabel} from './models';
-import {needsLook,subscriptionRows,subscriptionTotals,tightest,usedBy,type PriceSource,type SubscriptionRow} from './subscriptions';
+import {nearlySpent,subscriptionRows,subscriptionTotals,tightest,usedBy,type PriceSource,type SubscriptionRow} from './subscriptions';
 import type {Snapshot} from './types';
 import type {MonthUsage,UsageSum} from './usage-months';
 import {compact,Meter,shortReset} from './usage-panel';
@@ -21,31 +23,57 @@ const share=(part:number,whole:number)=>{const value=whole?part/whole:0;return (
 const monthName=(month:string)=>{const [year,index]=month.split('-').map(Number);return new Date(year,index-1,1).toLocaleString(undefined,{month:'long'});};
 const marks:Record<PriceSource,[string,string]>={confirmed:['✓','Confirmed'],estimate:['≈','Estimate'],unknown:['?','Amount unknown']};
 function Mark({source,why}:{source:PriceSource;why:string}){return <i className={'sub-src '+source} role="img" aria-label={marks[source][1]} title={marks[source][1]+'. '+why+'.'}>{marks[source][0]}</i>;}
-function Price({row}:{row:SubscriptionRow}){
- const {price}=row;
- return <div className={'sub-price'+(price.usd===null&&!price.other?' unknown':'')}><Mark source={price.source} why={price.why}/>{price.usd!==null?usd(price.usd):price.other||'Paid'}</div>;
-}
 function Left({row,now}:{row:SubscriptionRow;now:number}){
- const window=tightest(row);
- if(window)return <div className={'sub-left'+(window.left<=0?' danger':window.left<=20?' warning':'')}><span><b>{Math.round(window.left)}% left</b><span>{window.label}</span></span><Meter label={row.name+' '+window.label+' remaining'} used={100-window.left} remaining/><small title={window.resetAt?new Date(window.resetAt).toLocaleString():undefined}>{shortReset(window.resetAt,now)}</small></div>;
+ const window=tightest(row),low=nearlySpent(row);
+ if(window){
+  const left=<b>{Math.round(window.left)}% left</b>,reset=shortReset(window.resetAt,now);
+  return <div className={'sub-left'+(window.left<=0?' danger':window.left<=20?' warning':'')}><span>{low?<span className="sub-low"><Tip text={[Math.round(low.left)+'% left on '+low.label,reset].filter(Boolean).join('. ')+'.'}><i className="sub-attn" role="img" aria-label="Nearly used up">!</i></Tip>{left}</span>:left}<span>{window.label}</span></span><Meter label={row.name+' '+window.label+' remaining'} used={100-window.left} remaining/><small title={window.resetAt?new Date(window.resetAt).toLocaleString():undefined}>{reset}</small></div>;
+ }
  return <div className="sub-left"><span>{row.balance?<><b>{row.balance}</b><span>left</span></>:<span>No limit reported</span>}</span></div>;
 }
-function Row({row,used,month,now,open,toggle,typed,call,saved,hold}:{row:SubscriptionRow;used:string;month:string;now:number;open:boolean;toggle:(open:boolean)=>void;typed:number|undefined;call:Call;saved:(prices:Record<string,number>)=>void;hold:(element:HTMLDetailsElement|null)=>void}){
- const [draft,setDraft]=useState(typed===undefined?'':String(typed)),[error,setError]=useState('');
- // The figure is saved as it is typed; an empty field gives the row back to its list price.
- function type(text:string){
-  setDraft(text);const clean=text.replace(/[^0-9.]/g,''),value=clean===''?null:Number(clean);
+function Row({row,used,month,now,typed,call,saved}:{row:SubscriptionRow;used:string;month:string;now:number;typed:number|undefined;call:Call;saved:(prices:Record<string,number>)=>void}){
+ // A row with no price holds the box to type it in. A price that is there is clicked to change it, in the same box.
+ const [editing,setEditing]=useState(false),[draft,setDraft]=useState(''),[error,setError]=useState('');
+ const box=useRef<HTMLInputElement>(null),first=useRef(''),forced=useRef(false),cancelled=useRef(false),saving=useRef(false);
+ const unknown=row.price.source==='unknown',boxed=unknown||editing;
+ function edit(){const value=row.price.usd===null?'':String(row.price.usd);first.current=value;setDraft(value);setError('');setEditing(true);}
+ function leave(){first.current='';setDraft('');setError('');setEditing(false);}
+ useEffect(()=>{if(editing){box.current?.focus();box.current?.select();}},[editing]);
+ // Enter saves what is in the box; leaving the box saves it when it changed, and Escape drops it. An empty box gives
+ // the row back to what the supplier reports.
+ async function save(force:boolean){
+  if(saving.current)return;
+  if(!force&&draft===first.current){if(!error)leave();return;}
+  const clean=draft.replace(/[^0-9.]/g,''),value=clean===''?null:Number(clean);
   if(value!==null&&!Number.isFinite(value)){setError('Type the monthly price as a number.');return;}
-  setError('');void call('subscriptionPrice',{id:row.id,usd:value}).then(saved).catch(problem=>setError(String(problem).replace(/^Error invoking remote method 'app': (?:Error: )?/,'')));
+  if(value===null&&typed===undefined){leave();return;}
+  saving.current=true;
+  try{saved(await call('subscriptionPrice',{id:row.id,usd:value}));leave();}
+  catch(problem){setError(String(problem).replace(/^Error invoking remote method 'app': (?:Error: )?/,''));}
+  finally{saving.current=false;}
  }
- return <details className="supplier-pill sub-row" ref={hold} open={open} onToggle={event=>toggle(event.currentTarget.open)}>
-  <summary><div className="sub-name"><VendorIcon id={row.vendor}/><strong>{row.name}</strong><small>{row.plan}</small></div><Left row={row} now={now}/><div className={'sub-used'+(used==='None'?' none':'')}>{used}</div><Price row={row}/><span className="supplier-chevron">⌄</span></summary>
+ function blurred(){
+  if(cancelled.current){cancelled.current=false;forced.current=false;leave();return;}
+  const force=forced.current;forced.current=false;void save(force);
+ }
+ function key(event:React.KeyboardEvent<HTMLInputElement>){
+  if(event.key==='Enter'){event.preventDefault();forced.current=true;event.currentTarget.blur();}
+  else if(event.key==='Escape'&&(editing||draft!=='')){event.preventDefault();event.stopPropagation();cancelled.current=true;event.currentTarget.blur();}
+ }
+ const about=typed!==undefined?'You typed this figure. Click to change it. Empty it to go back to what the supplier reports.':row.price.source==='estimate'?'List price of '+row.plan+'. Click to type what you pay.':row.price.why+'. Click to type your own figure.';
+ // Inside the row's summary a click that is not on a control would fold or unfold the row: the box and the marks
+ // keep their clicks.
+ const price=boxed?<div className="sub-price">
+   {unknown&&<Tip text="Type what you pay a month." side="left"><button type="button" className="link-button sub-attn" aria-label={'No price for '+row.name+'. Type what you pay a month.'} onClick={event=>{event.preventDefault();box.current?.focus();}}>!</button></Tip>}
+   <Tip text={error} open tone="danger"><span className={'sub-pricebox'+(unknown?'':' set')} onClick={event=>{event.preventDefault();box.current?.focus();}}><span aria-hidden="true">$</span><input ref={box} inputMode="decimal" aria-label={'Monthly price of '+row.name} aria-invalid={error?true:undefined} placeholder="a month" value={draft} onChange={event=>{setDraft(event.target.value);setError('');}} onKeyDown={key} onKeyUp={event=>{if(event.key===' ')event.preventDefault();}} onBlur={blurred}/></span></Tip>
+  </div>
+  :<div className="sub-price"><Mark source={row.price.source} why={row.price.why}/><Tip text={about} side="left"><button type="button" className="link-button sub-figure" onClick={event=>{event.preventDefault();edit();}}>{row.price.usd!==null?usd(row.price.usd):row.price.other}</button></Tip></div>;
+ return <details className="supplier-pill sub-row">
+  <summary><div className="sub-name"><VendorIcon id={row.vendor}/><strong>{row.name}</strong><small>{row.plan}</small></div><Left row={row} now={now}/><div className={'sub-used'+(used==='None'?' none':'')}>{used}</div>{price}<span className="supplier-chevron">⌄</span></summary>
   <div className="supplier-settings sub-detail"><div className="sub-detail-grid">
    <div><h4>What is left</h4>{row.windows.length?row.windows.map(window=><div className={'sub-window'+(window.left<=0?' danger':window.left<=20?' warning':'')} key={window.label}><div><span>{window.label}</span><strong>{Math.round(window.left)}% left</strong></div><Meter label={row.name+' '+window.label+' remaining'} used={100-window.left} remaining/><small title={window.resetAt?new Date(window.resetAt).toLocaleString():undefined}>{shortReset(window.resetAt,now)}</small></div>)
     :row.balance?<div className="sub-window"><div><span>{row.group==='use'?'Credit':'Balance'}</span><strong>{row.balance}</strong></div></div>:<p className="hint">{row.name} reports no limit or balance to apps.</p>}</div>
-   <div><h4>{monthName(month)}</h4><div className="sub-facts"><div><span>How you pay</span><span>{row.how}</span></div><div><span>Used</span><span>{used}</span></div>{row.facts.map(([name,value])=><div key={name}><span>{name}</span><span>{value}</span></div>)}</div>
-    <label>Monthly price<input inputMode="decimal" aria-label={'Monthly price of '+row.name} placeholder={row.listUsd!==undefined?row.listUsd.toFixed(2):'0.00'} value={draft} onChange={event=>type(event.target.value)}/><small>{typed!==undefined?'You typed this figure. Empty the field to go back to what the supplier reports.':row.price.source==='confirmed'?row.price.why+'. Type a figure to replace it.':row.price.why+'. Type the figure from your bill to confirm it.'}</small></label>
-    {error&&<p className="error" role="alert">{error}</p>}</div>
+   <div><h4>{monthName(month)}</h4><div className="sub-facts"><div><span>How you pay</span><span>{row.how}</span></div><div><span>Used</span><span>{used}</span></div>{row.facts.map(([name,value])=><div key={name}><span>{name}</span><span>{value}</span></div>)}<div><span>Price</span><span>{typed!==undefined?'You typed this figure':row.price.why}</span></div></div></div>
   </div><div className="actions">{row.links.map(link=><button type="button" key={link.kind} onClick={()=>void call('link',{kind:link.kind}).catch(()=>{})}>{link.label} ↗</button>)}</div></div>
  </details>;
 }
@@ -70,23 +98,20 @@ function Usage({view,state,model,setModel}:{view:View;state:Snapshot;model:strin
  </section>;
 }
 export function SubscriptionsSettings({state,call,openConnections}:{state:Snapshot;call:Call;openConnections:()=>void}){
- const [view,setView]=useState<View|null>(null),[model,setModel]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[now,setNow]=useState(Date.now()),[open,setOpen]=useState<string[]>([]);
- const elements=useRef(new Map<string,HTMLDetailsElement>());
+ const [view,setView]=useState<View|null>(null),[model,setModel]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[now,setNow]=useState(Date.now());
  async function load(month?:string,fresh=false){setBusy(true);try{setView(await call('subscriptions',{month,fresh}));setError('');}catch(problem){setError(String(problem).replace(/^Error invoking remote method 'app': (?:Error: )?/,''));}finally{setBusy(false);}}
  useEffect(()=>{void load();const timer=setInterval(()=>setNow(Date.now()),30000);return()=>clearInterval(timer);},[]);
- const {rows,free}=subscriptionRows(state,{prices:view?.prices||{},elevenlabs:view?.elevenlabs,elevenlabsNote:view?.elevenlabsNote}),totals=subscriptionTotals(rows),look=needsLook(rows);
+ const {rows,free}=subscriptionRows(state,{prices:view?.prices||{},elevenlabs:view?.elevenlabs,elevenlabsNote:view?.elevenlabsNote}),totals=subscriptionTotals(rows);
  const used=(row:SubscriptionRow)=>{if(row.id==='elevenlabs'&&view?.elevenlabs)return compact(view.elevenlabs.used)+' credits';const tokens=view?usedBy(row,view.usage.models):null;return tokens===null?'—':tokens?compact(tokens)+' tok':'None';};
- const show=(id:string)=>{setOpen(list=>list.includes(id)?list:[...list,id]);requestAnimationFrame(()=>elements.current.get(id)?.scrollIntoView({block:'center'}));};
  const groups=[['subscription','Subscriptions','a flat price each month'],['use','Pay per use','billed by what you send']] as const;
  return <section className="sub-page">
   <div className="sub-topline"><p className="hint">Everything Ghidorah is connected to: what it costs a month, what is left, and where to manage it. <span className="sub-key"><Mark source="confirmed" why="Typed by you, or reported as money by the supplier"/>confirmed</span><span className="sub-key"><Mark source="estimate" why="The list price of the plan the supplier reports"/>estimate</span></p>
    <div className="sub-tools">{view&&view.months.length>1&&<Tabs className="sub-month" label="Month" items={view.months.slice(0,4).reverse().map(id=>({id,label:monthName(id)}))} value={view.month} onChange={month=>void load(month)}/>}<button type="button" disabled={busy} onClick={()=>{void call('refreshUsage').catch(()=>{});void load(view?.month,true);}}>{busy?'Reading…':'Refresh'}</button></div></div>
   {error&&<p className="error" role="alert">{error}</p>}
   {!rows.length?<><p className="hint">Nothing is connected yet. A supplier is added in Connections.</p><div className="actions"><button type="button" className="primary" onClick={openConnections}>Open Connections</button></div></>:<>
-   {look.length>0&&<ul className="sub-look" aria-label="Needs a look">{look.map((item,index)=><li key={index} className={item.tone==='warning'?'warning':undefined}><span className={'kit-dot'+(item.tone==='warning'?' kit-tone-warning':'')}/><span><b>{item.lead}</b> {item.rest}</span><button type="button" className="link-button" onClick={()=>show(item.id)}>Show ›</button></li>)}</ul>}
    <section className="settings-card sub-ledger"><div className="sub-head"><span>Service</span><span>What is left</span><span>Used</span><span>A month</span><span/></div>
-    {groups.map(([id,label,what])=>rows.some(row=>row.group===id)&&<React.Fragment key={id}><div className="sub-group-label">{label} · {what}</div>{rows.filter(row=>row.group===id).map(row=><Row key={row.id} row={row} used={used(row)} month={view?.month||new Date().toISOString().slice(0,7)} now={now} open={open.includes(row.id)} toggle={next=>setOpen(list=>next?list.includes(row.id)?list:[...list,row.id]:list.filter(item=>item!==row.id))}
-     typed={view?.prices[row.id]} call={call} saved={prices=>setView(current=>current&&{...current,prices})} hold={element=>{if(element)elements.current.set(row.id,element);else elements.current.delete(row.id);}}/>)}</React.Fragment>)}
+    {groups.map(([id,label,what])=>rows.some(row=>row.group===id)&&<React.Fragment key={id}><div className="sub-group-label">{label} · {what}</div>{rows.filter(row=>row.group===id).map(row=><Row key={row.id} row={row} used={used(row)} month={view?.month||new Date().toISOString().slice(0,7)} now={now}
+     typed={view?.prices[row.id]} call={call} saved={prices=>setView(current=>current&&{...current,prices})}/>)}</React.Fragment>)}
     {free.length>0&&<><div className="sub-group-label">No charge</div><ul className="sub-free">{free.map(item=><li key={item.name}><strong>{item.name}</strong><span>{item.what}</span></li>)}</ul></>}
    </section>
    {view&&<Usage view={view} state={state} model={model in view.usage.models?model:''} setModel={setModel}/>}
