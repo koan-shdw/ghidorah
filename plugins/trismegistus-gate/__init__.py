@@ -125,6 +125,10 @@ async def _send_once(row):
         # The chat was deleted or archived in the app: its thread goes, with its messages.
         await adapter._bot.delete_forum_topic(chat_id=int(row['chat_id']), message_thread_id=int(thread))
         return {'ok': True}
+    if row.get('op') == 'react':
+        # The mark on his own message: the app has it, it is answered, it failed. No text takes the mark away.
+        await adapter._bot.set_message_reaction(chat_id=int(row['chat_id']), message_id=int(row['message_id']), reaction=row['text'] or None)
+        return {'ok': True}
     if row.get('keys'):
         # A message with buttons under it. Without `notify` it arrives without sound, as the adapter's own sends do.
         message = await adapter._bot.send_message(chat_id=int(row['chat_id']), text=row['text'], reply_markup=_keys(row.get('keys')),

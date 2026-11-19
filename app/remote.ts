@@ -60,7 +60,8 @@ export function remoteTurnId(owner:string,messageId:string){return 'telegram-'+o
 export interface Key {text:string;data?:string;url?:string;style?:'danger'|'success'|'primary'}
 // notify: with sound. Without it a message arrives silently: the gateway's Telegram adapter sends without sound
 // unless told otherwise (its "important" mode, the default).
-export interface OutRow {seq:number;chat_id:string;text:string;deny?:boolean;approvalId?:string;thread_id?:string;op?:'topic'|'rename'|'delete';notify?:boolean;keys?:Key[][]}
+// op 'react': the mark on his message `message_id`; text is the emoji, '' takes the mark away.
+export interface OutRow {seq:number;chat_id:string;text:string;deny?:boolean;approvalId?:string;thread_id?:string;op?:'topic'|'rename'|'delete'|'react';message_id?:string;notify?:boolean;keys?:Key[][]}
 // gone: Telegram answered that the thread no longer exists, so nothing was sent.
 export async function gateChannel(handlers:{inbound:(value:any)=>Promise<void>;ready:(info?:{username?:string})=>void;outbox:(after:number)=>OutRow[];sent:(seq:number,ok:boolean,messageId?:string,gone?:boolean)=>void}){
  let token=randomBytes(32).toString('hex');const waiting=new Set<()=>void>();
@@ -130,6 +131,7 @@ export interface DeskDeps {
  seen(id:string):boolean;
  done(id:string):void;                      // persist only after handling, never before accepting a turn
  send(text:string,deny?:boolean,thread?:string):void; // queue a message to the owner, into a topic if given
+ mark(messageId:string,emoji:string):void;   // the mark on his message: the app has it, it is answered, it failed
  alert(title:string,body:string):void;       // desktop alert
  chats():{id:string;title:string}[];         // the owner's chats, most recent first
  newChat():Promise<string>;
@@ -176,8 +178,9 @@ export class RemoteDesk {
   if(thread&&!chat)chat=await this.deps.linkTopic(thread);
   if(fresh){const id=await this.deps.newChat();chat={id,title:'the new chat'};}
   if(!chat){send('There is no chat yet. Send /new to start one.');return;}
-  try{await this.deps.submit(remoteTurnId(settings.owner,message.message_id),chat.id,request.text,thread);send('Sent to '+chat.title+'.');}
-  catch(error){const reason=String(error).replace(/^Error: /,'').slice(0,300);this.deps.alert('Remote task failed',reason);send('Not sent: '+reason);}
+  // The mark on his text says the app has it (Koan 2026-11-19). Without threads the words still name the chat.
+  try{await this.deps.submit(remoteTurnId(settings.owner,message.message_id),chat.id,request.text,thread);this.deps.mark(message.message_id,MARK.taken);if(!settings.topics)send('Sent to '+chat.title+'.');}
+  catch(error){const reason=String(error).replace(/^Error: /,'').slice(0,300);this.deps.alert('Remote task failed',reason);this.deps.mark(message.message_id,MARK.failed);send('Not sent: '+reason);}
  }
  private async command(name:string,arg:string,chat:{id:string;title:string}|null,send:(text:string)=>void){
   if(name==='help'||name==='start')return send(Object.entries(COMMANDS).map(([command,what])=>'/'+command+': '+what).join('\n'));
@@ -199,11 +202,26 @@ export class RemoteDesk {
 
 // A chat's state in words, for /status.
 export const STATUS:Record<string,string>={queued:'Queued',dispatching:'Starting',running:'Working',waiting:'Waiting for approval',stopping:'Stopping',completed:'Completed','needs-model':'Choosing a model',failed:'Failed',stopped:'Stopped',interrupted:'Interrupted',partial:'Partly done'};
-// The reply a finished remote turn sends, named by the model that wrote it.
+// The marks on his own messages, each one of Telegram's reactions: the app has it, it is answered, it failed.
+export const MARK={taken:'👀',done:'👍',failed:'👎',none:''};
+export function markFor(status:string){return status==='completed'||status==='partial'?MARK.done:status==='stopped'?MARK.none:MARK.failed;}
+// The reply a finished remote turn sends, named by the model that wrote it. It is never cut: the gateway's Telegram
+// adapter splits a long text into as many messages as it needs.
 export function replyFor(turn:{status:string;text?:string|null;error?:string|null},model:string){
- if(turn.status==='completed')return clip((turn.text||'(no text)').trim()+'\n\n'+model);
+ if(turn.status==='completed')return (turn.text||'(no text)').trim()+'\n\n'+model;
  if(turn.status==='stopped')return 'Stopped.';
  return clip('Failed: '+(turn.error||turn.status));
+}
+// A message Claude read while it was writing a reply has no reply of its own: the reply it was read in answers it
+// (Turn.answeredIn, readAt). Its share is what that reply says from the point it was read up to the next message
+// read; the reply's own message gets what came before the first. '' when the share is empty: then the answer is in
+// the neighbouring share. Before, such a message was answered "(no text)" (84 of 612 messages by 2026-11-19).
+type Read={id:string;created:number;readAt?:{text:number}};
+export function replyShare(owner:{id:string;text:string},turnId:string,joined:Read[]){
+ const rows=[...joined].filter(row=>row.id!==owner.id).sort((a,b)=>(a.readAt?.text||0)-(b.readAt?.text||0)||a.created-b.created),starts=rows.map(row=>Math.min(row.readAt?.text||0,owner.text.length));
+ if(turnId===owner.id)return owner.text.slice(0,starts.length?starts[0]:undefined).trim();
+ const index=rows.findIndex(row=>row.id===turnId);
+ return index<0?'':owner.text.slice(starts[index],index+1<rows.length?starts[index+1]:undefined).trim();
 }
 // Hermes asks before a tool touches the secrets list; from Telegram that is refused, never offered (5.21 H6). The
 // permissions plugin's wording is matched too, since its approval reaches here without the secret: rule key.

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
-import {readRemote,readInbound,parseRequest,remoteTurnId,gateChannel,GatewaySupervisor,RemoteDesk,replyFor,secretApproval,clip,topicName,topicLink,type DeskDeps} from '../app/remote';
+import {readRemote,readInbound,parseRequest,remoteTurnId,gateChannel,GatewaySupervisor,RemoteDesk,replyFor,replyShare,markFor,secretApproval,clip,topicName,topicLink,type DeskDeps} from '../app/remote';
 import {Store} from '../app/store';
 import {chatPlace,claimRemoteOutbox,enqueueRemote,pruneRemoteOutbox,recordRemoteReceipt,remotePrompt,type TopicRecord} from '../app/remote-outbox';
 import {autoTitled,cleanName,fallbackName,planTopics,topicRetry,uniqueName} from '../app/remote-threads';
@@ -59,10 +59,11 @@ test('a gateway that keeps stopping is restarted, then latched off after three e
 // topics: one thread per chat is on, as it is unless he turns it off; `false` is the plain bot chat without threads.
 function desk(overrides:Partial<DeskDeps>={},topics=true){
  const sent:string[]=[],threads:(string|undefined)[]=[],alerts:string[]=[],submitted:any[]=[],seen=new Set<string>();let settings={enabled:true,owner:'4242',chatId:null as string|null,paused:false,topics,topicsSince:null as number|null,topicError:'',username:''};
- const deps:DeskDeps={settings:()=>settings,save:patch=>{settings={...settings,...patch};},seen:id=>seen.has(id),done:id=>{seen.add(id);},send:(text,_deny,thread)=>{sent.push(text);threads.push(thread);},alert:(title,body)=>{alerts.push(title+': '+body);},
+ const marks:string[][]=[];
+ const deps:DeskDeps={settings:()=>settings,save:patch=>{settings={...settings,...patch};},seen:id=>seen.has(id),done:id=>{seen.add(id);},send:(text,_deny,thread)=>{sent.push(text);threads.push(thread);},mark:(id,emoji)=>{marks.push([id,emoji]);},alert:(title,body)=>{alerts.push(title+': '+body);},
   chats:()=>[{id:'c2',title:'Second'},{id:'c1',title:'First'}],newChat:async()=>'c3',topicChat:thread=>thread==='55'?{id:'c1',title:'First'}:null,linkTopic:async()=>({id:'c9',title:'New chat'}),submit:async(id,chatId,text,thread)=>{submitted.push(thread?[id,chatId,text,thread]:[id,chatId,text]);},stop:async()=>{},status:()=>'Ready',
   waiting:()=>null,prompt:()=>false,code:async()=>'Approved.',deny:async()=>'Denied.',answer:async()=>'Answered.',...overrides};
- return {desk:new RemoteDesk(deps),sent,threads,alerts,submitted,settings:()=>settings};
+ return {desk:new RemoteDesk(deps),sent,threads,alerts,submitted,marks,settings:()=>settings};
 }
 const from=(id:string,text:string)=>({message_id:id,chat_id:'4242',user_id:'4242',text});
 
@@ -76,7 +77,7 @@ test('Telegram Start shows help once without sending its connection payload to a
 test('without threads, a message becomes one turn in the chosen chat; a repeated delivery does nothing; strangers are ignored',async()=>{
  const run=desk({},false);
  await run.desk.receive(from('1','fix the build'));await run.desk.receive(from('1','fix the build'));
- assert.deepEqual(run.submitted,[['telegram-4242-1','c2','fix the build']]);assert.deepEqual(run.sent,['Sent to Second.']);assert.equal(run.alerts.length,1);
+ assert.deepEqual(run.submitted,[['telegram-4242-1','c2','fix the build']]);assert.deepEqual(run.sent,['Sent to Second.']);assert.deepEqual(run.marks,[['1','👀']]);assert.equal(run.alerts.length,1);
  await run.desk.receive({...from('2','hi'),user_id:'99',chat_id:'99'});assert.equal(run.submitted.length,1);
  await run.desk.receive(from('3','/project'));assert.match(run.sent.at(-1)!,/^1\. Second \(current\)\n2\. First\n/);
  await run.desk.receive(from('4','/project 2'));assert.equal(run.settings().chatId,'c1');
@@ -96,8 +97,33 @@ test('while an approval is shown, only a code or Deny answers it; a code never r
  const idle=desk();await idle.desk.receive(from('1','123456'));assert.equal(idle.sent.at(-1),'No approval is waiting.');
 });
 
-test('replies name their model; secrets-list approvals are recognised',()=>{
+test('a message that cannot be sent on gets the failed mark and the reason',async()=>{
+ const run=desk({submit:async()=>{throw Error('Wait for the connection update to finish.');}});
+ await run.desk.receive({...from('1','now'),thread_id:'55'});
+ assert.deepEqual(run.marks,[['1','👎']]);assert.deepEqual(run.sent,['Not sent: Wait for the connection update to finish.']);assert.match(run.alerts.at(-1)!,/^Remote task failed/);
+});
+
+// Read from his data 2026-11-19: a text Claude read in the middle of another reply was answered "(no text)".
+test('a message read in the middle of a reply is answered by its share of that reply',()=>{
+ const text='I am reading the folders.\n\nYes, agents as instructed: three readers.\n\nYou asked for Opus agents and I confirmed it.',owner={id:'t1',text};
+ const second=text.indexOf('Yes'),third=text.indexOf('You asked');
+ const joined=[{id:'t3',created:3,readAt:{text:third}},{id:'t2',created:2,readAt:{text:second}}];
+ assert.equal(replyShare(owner,'t1',joined),'I am reading the folders.');
+ assert.equal(replyShare(owner,'t2',joined),'Yes, agents as instructed: three readers.');
+ assert.equal(replyShare(owner,'t3',joined),'You asked for Opus agents and I confirmed it.');
+ assert.equal(replyShare(owner,'t1',[]),text,'a reply nothing was read in is whole');assert.equal(replyShare(owner,'t9',joined),'');
+ // Two messages read at the same point: the later one carries the answer, the earlier one's share is empty.
+ const same=[{id:'t2',created:2,readAt:{text:second}},{id:'t3',created:3,readAt:{text:second}}];
+ assert.equal(replyShare(owner,'t2',same),'');assert.equal(replyShare(owner,'t3',same),text.slice(second));
+ // Claude's final message replaced the streamed text, so the points were reset: the last message read carries it all.
+ const reset=[{id:'t2',created:2,readAt:{text:0}},{id:'t3',created:3,readAt:{text:0}}];
+ assert.deepEqual([replyShare(owner,'t1',reset),replyShare(owner,'t2',reset),replyShare(owner,'t3',reset)],['','',text]);
+ assert.deepEqual(['completed','partial','stopped','failed','interrupted'].map(markFor),['👍','👍','','👎','👎']);
+});
+
+test('replies name their model and are never cut; secrets-list approvals are recognised',()=>{
  assert.equal(replyFor({status:'completed',text:'Done.'},'DeepSeek'),'Done.\n\nDeepSeek');
+ assert.equal(replyFor({status:'completed',text:'x'.repeat(9000)},'DeepSeek').length,9010,'a long reply goes whole; the gateway splits it into messages');
  assert.equal(replyFor({status:'failed',error:'No credit'},'x'),'Failed: No credit');
  assert.equal(secretApproval({description:'Access to protected credentials requires your approval.'}),true);
  assert.equal(secretApproval({description:'Access to private app data or credentials requires your approval. Use skills_list and skill_view for installed skills.'}),true,'the permissions plugin wording');
@@ -107,11 +133,12 @@ test('replies name their model; secrets-list approvals are recognised',()=>{
 test("a message in a topic goes to that topic's chat and is answered there; an unknown topic gets a new chat",async()=>{
  const run=desk();
  await run.desk.receive({...from('1','in the topic'),thread_id:'55'});
- assert.deepEqual(run.submitted,[['telegram-4242-1','c1','in the topic','55']]);assert.deepEqual([run.sent.at(-1),run.threads.at(-1)],['Sent to First.','55']);
+ // The mark on his text says the app has it; no "Sent to" line any more.
+ assert.deepEqual(run.submitted,[['telegram-4242-1','c1','in the topic','55']]);assert.deepEqual(run.sent,[]);assert.deepEqual(run.marks,[['1','👀']]);
  await run.desk.receive({...from('2','/status'),thread_id:'55'});assert.deepEqual([run.sent.at(-1),run.threads.at(-1)],['First: Ready','55']);
  await run.desk.receive({...from('3','a topic made in Telegram'),thread_id:'77'});assert.deepEqual(run.submitted.at(-1),['telegram-4242-3','c9','a topic made in Telegram','77']);
  // A text in the bot chat's main view starts a new chat; a command there is about the chosen chat, as before.
- await run.desk.receive(from('4','no topic'));assert.deepEqual([run.submitted.at(-1),run.threads.at(-1)],[['telegram-4242-4','c3','no topic'],undefined]);
+ await run.desk.receive(from('4','no topic'));assert.deepEqual([run.submitted.at(-1),run.marks.at(-1)],[['telegram-4242-4','c3','no topic'],['4','👀']]);
  await run.desk.receive(from('5','/status'));assert.equal(run.sent.at(-1),'Second: Ready');
  assert.equal(topicName({title:'Plan'}),'Plan');assert.equal(topicName({title:'Plan'},'⏳'),'⏳ Plan');assert.equal(topicName({title:'  '}),'New chat');assert.equal(topicName({title:'x'.repeat(300)}).length,128);
  assert.equal(topicLink('ghidora_bot','55'),'https://t.me/ghidora_bot/55');assert.equal(topicLink('','55'),'');
@@ -121,7 +148,7 @@ test("a message in a topic goes to that topic's chat and is answered there; an u
 test('a reply is a message; only a reply to an old question or approval is refused',async()=>{
  const run=desk({prompt:id=>id==='900'});
  await run.desk.receive({...from('1','typed in the topic'),thread_id:'55',reply_to_message_id:'300'});
- assert.deepEqual(run.submitted,[['telegram-4242-1','c1','typed in the topic','55']]);assert.deepEqual([run.sent.at(-1),run.threads.at(-1)],['Sent to First.','55']);
+ assert.deepEqual(run.submitted,[['telegram-4242-1','c1','typed in the topic','55']]);assert.deepEqual(run.marks.at(-1),['1','👀']);
  await run.desk.receive({...from('2','a reply outside a topic'),reply_to_message_id:'301'});assert.deepEqual(run.submitted.at(-1),['telegram-4242-2','c3','a reply outside a topic']);
  await run.desk.receive({...from('3','yes'),thread_id:'55',reply_to_message_id:'900'});
  assert.equal(run.submitted.length,2,'a late answer starts no task');assert.match(run.sent.at(-1)!,/no longer waiting for a reply/);

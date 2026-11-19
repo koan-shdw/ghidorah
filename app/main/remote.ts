@@ -3,7 +3,7 @@ import featureWheels from '../../backend/feature-wheels.json';
 import {backend,claude,data,drainRemoteInbox,emit,handlers,namespace,pluginRuntime,remoteChannel,remoteDesk,remoteEpoch,remoteSecret,root,store} from '../main';
 import {modelLabel} from '../models';
 import {redactPastedKeys} from '../redaction';
-import {OutRow,approvalPrompt,clip,parseRequest,readInbound,readRemote,replyFor,secretApproval,topicLink} from '../remote';
+import {OutRow,approvalPrompt,clip,markFor,parseRequest,readInbound,readRemote,replyFor,replyShare,secretApproval,topicLink} from '../remote';
 import {RemoteCodeState,bindingDigest,checkCode} from '../remote-code';
 import {enqueueRemoteInbound} from '../remote-inbox';
 import {claimRemoteOutbox,enqueueRemote,enqueueRemoteReply,pruneRemoteOutbox,recordRemoteReceipt,recoverRemoteOutbox,type OutPlace,type OutRecord,type TopicRecord} from '../remote-outbox';
@@ -200,9 +200,7 @@ function settleTopics(){
       const topic=topics.get(turn.chatId);
       // Work that finished while Remote was off stays on the desktop rather than arriving in a burst.
       if(!topic||topic.status==='failed'||topic.status==='deleting'||turn.remote||turn.parentTurnId||turn.automatic||turn.goal?.automatic||(turn.finished||0)<Date.now()-600000)continue;
-      const models=turn.jobs?.length?turn.jobs.map(id=>store.get<Turn>('turn',id)).filter(job=>!job.automatic):[turn];
-      const text='🖥 '+clip(turn.prompt.trim(),600)+'\n\n'+models.map(job=>replyFor(job,modelLabel(job.model,claude.models))).join('\n\n');
-      enqueueRemote(store,settings.owner,backend.scrubber.text(clip(text)),undefined,false,{topicChat:turn.chatId});queued=true;
+      if(copyDesktopTurn(turn))queued=true;
     }
     // ponytail: a turn finishing in the same millisecond as the cursor is missed; key on ids if that ever matters.
     if(at!==cursor)store.put('settings',{id:'remote-mirror',at});
@@ -210,15 +208,52 @@ function settleTopics(){
   if(queued)remoteChannel?.notify();
   void nameNext();
 }
-// The reply to each finished remote turn, sent once; called in emit(), the way settleParallel works.
+const ENDED=['completed','partial','failed','stopped','interrupted'];
+// The Telegram message a remote turn came from: its id is the tail of the turn's id (remoteTurnId).
+export function remoteMessageId(turn:Pick<Turn,'id'>){return /^telegram-\d+-(\d+)$/.exec(turn.id)?.[1];}
+export function remoteMark(messageId:string|undefined,emoji:string){
+  const owner=remoteSettings().owner;if(!owner||!messageId)return;
+  enqueueRemote(store,owner,emoji,undefined,false,{op:'react',message_id:messageId});remoteChannel?.notify();
+}
+// The messages from Telegram that a reply read while it was being written.
+const readIn=(owner:Turn)=>store.where<Turn>('turn','chatId',owner.chatId).filter(row=>row.answeredIn===owner.id&&row.id!==owner.id&&!!row.remote);
+// Desktop work in a chat with a thread: the message and its final reply, once. What the reply wrote after it read a
+// message from Telegram is left out here: that part goes out as the answer to that message (settleRemote).
+function copyDesktopTurn(turn:Turn){
+  const owner=remoteSettings().owner,copied=store.all<any>('settings').find(row=>row.id==='remote-copied')?.ids as string[]|undefined;
+  if(!owner||copied?.includes(turn.id))return false;
+  const models=turn.jobs?.length?turn.jobs.map(id=>store.get<Turn>('turn',id)).filter(job=>!job.automatic):[turn],joined=readIn(turn);
+  const text='🖥 '+clip(turn.prompt.trim(),600)+'\n\n'+models.map(job=>replyFor(job===turn&&joined.length?{...job,text:replyShare(turn,turn.id,joined)||'…'}:job,modelLabel(job.model,claude.models))).join('\n\n');
+  enqueueRemote(store,owner,backend.scrubber.text(text),undefined,false,{topicChat:turn.chatId});
+  store.put('settings',{id:'remote-copied',ids:[...(copied||[]).slice(-49),turn.id]});
+  return true;
+}
+// The reply to each finished remote turn, sent once, and the mark on his message; called in emit(), the way
+// settleParallel works. A message Claude read in the middle of another reply is answered by its share of that reply,
+// after the message that reply belongs to.
 export function settleRemote(){
   settleTopicsSoon();
   settleApprovals();
-  for(const turn of store.turnsWith<Turn>('remote'))if(turn.remote&&!turn.remote.replied&&!turn.parentTurnId&&!turn.automatic&&['completed','partial','failed','stopped','interrupted'].includes(turn.status)){
-    const models=turn.jobs?.length?turn.jobs.map(id=>store.get<Turn>('turn',id)).filter(job=>!job.automatic):[turn];
-    const text=models.map(job=>replyFor(job,modelLabel(job.model,claude.models))).join('\n\n')+(turn.remote.fallback?'\nThe picker was unsure; an available model answered.':'');
-    enqueueRemoteReply(store,turn.id,backend.scrubber.text(clip(text)));remoteChannel?.notify();
+  const reply=(turn:Turn)=>{
+    if(!turn.remote||turn.remote.replied)return;
+    const owner=turn.answeredIn&&turn.answeredIn!==turn.id?store.find<Turn>('turn',turn.answeredIn):undefined;
+    const models=turn.jobs?.length?turn.jobs.map(id=>store.get<Turn>('turn',id)).filter(job=>!job.automatic):[turn],joined=readIn(owner||turn);
+    // Its own words, when another reply answered it or its reply was shared with messages read later.
+    const share=owner?replyShare(owner,turn.id,joined):joined.length?replyShare(turn,turn.id,joined):null,label=(row:Turn)=>modelLabel(row.model,claude.models);
+    const text=share===null?models.map(job=>replyFor(job,label(job))).join('\n\n'):turn.status!=='completed'&&turn.status!=='partial'?replyFor(turn,label(turn)):share?share+'\n\n'+label(owner||turn):'';
+    // An empty share sends nothing: the answer is in the message beside it, and the mark says it is answered.
+    if(text)enqueueRemoteReply(store,turn.id,backend.scrubber.text(text+(turn.remote.fallback?'\nThe picker was unsure; an available model answered.':'')));
+    else store.update<Turn>('turn',turn.id,{remote:{...turn.remote,replied:true}});
+    remoteMark(remoteMessageId(turn),markFor(turn.status));remoteChannel?.notify();
     if(turn.status!=='completed')remoteAlert('Remote task '+(turn.status==='stopped'?'stopped':'failed'),turn.error||turn.prompt);
+  };
+  for(const turn of store.turnsWith<Turn>('remote'))if(turn.remote&&!turn.remote.replied&&!turn.parentTurnId&&!turn.automatic&&ENDED.includes(turn.status)){
+    const owner=turn.answeredIn&&turn.answeredIn!==turn.id?store.find<Turn>('turn',turn.answeredIn):undefined;
+    if(owner){
+      if(!ENDED.includes(owner.status))continue;                    // its answer is still being written
+      if(owner.remote)reply(owner);else if(store.all<TopicRecord>('remote-topic').some(topic=>topic.id===owner.chatId&&(topic.status==='ready'||topic.status==='pending'||topic.status==='creating')))copyDesktopTurn(owner);
+    }
+    reply(store.get<Turn>('turn',turn.id));
   }
 }
 export function remoteRow(){return store.all<any>('settings').find(row=>row.id==='remote');}

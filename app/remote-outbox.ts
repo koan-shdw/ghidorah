@@ -8,14 +8,14 @@ export interface OutRecord extends OutRow {id:string;status:'pending'|'sending'|
 // A chat's thread in the owner's bot chat. pending: planned, waiting for the chat's name. creating: its row is out.
 // failed: Telegram refused it; tried again at retryAt. deleting: its chat is gone and the thread is being removed.
 export interface TopicRecord {id:string;threadId?:string;name:string;status:'pending'|'creating'|'ready'|'failed'|'deleting';created:number;tries?:number;retryAt?:number}
-export type OutPlace={thread_id?:string;topicChat?:string;op?:OutRow['op'];fallback?:boolean;notify?:boolean;keys?:OutRow['keys']};
+export type OutPlace={thread_id?:string;topicChat?:string;op?:OutRow['op'];fallback?:boolean;notify?:boolean;keys?:OutRow['keys'];message_id?:string};
 export function enqueueRemote(store:Store,owner:string,text:string,approvalId?:string,deny=false,place:OutPlace={}){
  if(!/^[1-9]\d{0,19}$/.test(owner))throw Error('Invalid Telegram owner.');
  // ponytail: linear history scan; pruneRemoteOutbox keeps the history short.
  const seq=store.all<OutRecord>('remote-out').reduce((max,row)=>Math.max(max,row.seq),0)+1;
  if(!Number.isSafeInteger(seq))throw Error('Remote message sequence exhausted.');
- const {thread_id,topicChat,op,fallback,notify,keys}=place;
- return store.put<OutRecord>('remote-out',{id:String(seq),seq,chat_id:owner,text,status:'pending',...(approvalId?{approvalId}:{}),...(deny?{deny:true}:{}),...(thread_id?{thread_id}:{}),...(topicChat?{topicChat}:{}),...(op?{op}:{}),...(fallback?{fallback:true}:{}),...(notify?{notify:true}:{}),...(keys?.length?{keys}:{})});
+ const {thread_id,topicChat,op,fallback,notify,keys,message_id}=place;
+ return store.put<OutRecord>('remote-out',{id:String(seq),seq,chat_id:owner,text,status:'pending',...(approvalId?{approvalId}:{}),...(deny?{deny:true}:{}),...(thread_id?{thread_id}:{}),...(topicChat?{topicChat}:{}),...(op?{op}:{}),...(fallback?{fallback:true}:{}),...(notify?{notify:true}:{}),...(keys?.length?{keys}:{}),...(message_id?{message_id}:{})});
 }
 // `after` is no longer read: a row's own status says whether it was handed over, and a row that waits for its
 // chat's thread must not be passed by for good when a later row goes first.
