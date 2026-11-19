@@ -23,7 +23,9 @@ test('Stop cancels a pending session create/resume/setup and never attaches its 
   const session=sessionFunction({store,projectFor:()=>project,workingDirectory:()=>project.folder,wireModel:(m:string)=>m,providerFor:()=> 'deepseek',backend:{rpc:{request}},hermesModels:new Map(),usageBaseline:new Map(),configured:async()=>{}});
   const turn=store.accept('current',chat.id,'Run'),preparing=new Map([[chat.id,{turnId:turn.id,controller}]]);store.update<any>('turn',turn.id,{status:'dispatching'});
   let stopNode:ts.MethodDeclaration|undefined;const visit=(node:ts.Node)=>{if(ts.isMethodDeclaration(node)&&node.name.getText(source)==='stop')stopNode=node;ts.forEachChild(node,visit);};visit(source);assert.ok(stopNode);
-  const stopEnv={store,preparing,hermesTurns:new Map(),replyRow:(id:string)=>preparing.get(id)?.turnId,goals:{pause:()=>{}},contextJobs:new Map(),pluginControllers:new Map(),jevControllers:new Map(),mcpToolRequests:new Map(),requests:new Map(),background:{stopChat:async()=>{}},native:{stopChat:async()=>{},replyRow:()=>undefined,interrupt:async()=>[]},emit:()=>{}};
+  // dropLimitCarry: his Stop also calls off a carry-on left waiting by a usage limit (limit-carry).
+  const carriesDropped:string[]=[];
+  const stopEnv={store,preparing,hermesTurns:new Map(),replyRow:(id:string)=>preparing.get(id)?.turnId,goals:{pause:()=>{}},dropLimitCarry:(id:string)=>{carriesDropped.push(id);},contextJobs:new Map(),pluginControllers:new Map(),jevControllers:new Map(),mcpToolRequests:new Map(),requests:new Map(),background:{stopChat:async()=>{}},native:{stopChat:async()=>{},replyRow:()=>undefined,interrupt:async()=>[]},emit:()=>{}};
   const stop=new Function(...Object.keys(stopEnv),ts.transpile(stopNode.getText(source).replace(/^async stop/,'async function stop'),{target:ts.ScriptTarget.ES2022})+';return stop;')(...Object.values(stopEnv));
   const result=session(chat,'deepseek-flash',controller.signal);await waiting;await stop({chatId:chat.id});
   await assert.rejects(Promise.race([result,new Promise((_,reject)=>setTimeout(()=>reject(Error('Cancellation was ignored: '+stage)),100))]),{name:'AbortError'});
