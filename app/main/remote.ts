@@ -142,14 +142,11 @@ export function settleApprovals(){
   const next=store.all<Approval>('approval').find(row=>row.status==='pending'&&remote.has(row.turnId));if(!next)return;
   if(next.method!=='clarify'&&secretApproval(next.params)){void handlers.approve({id:next.id,choice:'deny'}).catch(()=>{});remoteSend('Refused: a message from Telegram cannot open the protected credentials. Use the desktop.',false,undefined,store.get<Turn>('turn',next.turnId).remote?.thread);remoteAlert('Remote task blocked','Protected credentials were refused.');return;}
   const question=next.method==='clarify',description=String(question?(next.params?.question||next.params?.questions?.[0]?.question||'The AI has a question.'):(next.params?.description||next.params?.command||'An action needs your approval.'));
-  // By button (his switch in Settings, Remote) an approval needs no paired authenticator; by code it does.
-  const byButton=remoteSettings().approveBy==='button';
-  const kind=description.length>3600||question&&next.params?.questions?.length>1||!question&&!remoteSecret&&!byButton?'desktop':question?'question':'approval';
+  const kind=description.length>3600||question&&next.params?.questions?.length>1||!question&&!remoteSecret?'desktop':question?'question':'approval';
   store.transaction(()=>{
-    const digest=bindingDigest(remoteBinding(next)),buttons=kind==='approval'&&byButton;
-    const text=kind==='desktop'?'An approval is waiting on the desktop. Open the app to review it.':question?'Question:\n'+description+'\n\nReply to this message with your answer.':buttons?'Approval needed:\n'+clip(description.trim(),3600):approvalPrompt(description);
-    const row=remoteSend(text,kind==='approval'&&!buttons,next.id,store.get<Turn>('turn',next.turnId).remote?.thread,{notify:loud('needs'),...(buttons?{keys:[[{text:'Approve',data:'gh:ok:'+digest.slice(0,24),style:'success'},{text:'Deny',data:'gh:no:'+digest.slice(0,24),style:'danger'}]]}:{})});
-    store.put('settings',{id:'remote-shown',approvalId:next.id,kind,digest,at:Date.now(),seq:row?.seq});
+    const text=kind==='desktop'?'An approval is waiting on the desktop. Open the app to review it.':question?'Question:\n'+description+'\n\nReply to this message with your answer.':approvalPrompt(description);
+    const row=remoteSend(text,kind==='approval',next.id,store.get<Turn>('turn',next.turnId).remote?.thread,{notify:loud('needs')});
+    store.put('settings',{id:'remote-shown',approvalId:next.id,kind,digest:bindingDigest(remoteBinding(next)),at:Date.now(),seq:row?.seq});
   });
 }
 export function remoteChats(){return store.all<Chat>('chat').filter(chat=>!chat.archived&&!chat.parentChatId).sort((a,b)=>(b.updated??b.created??0)-(a.updated??a.created??0)).map(({id,title})=>({id,title}));}
@@ -361,22 +358,6 @@ export async function remoteEvent(value:unknown):Promise<{text?:string}>{
     const turns=['running','waiting'].flatMap(status=>store.where<Turn>('turn','status',status));let stopped=0;
     for(const agent of activeAgents({chats:store.all<Chat>('chat'),jobChats:[],turns,approvals:store.all<Approval>('approval'),background:[...(background?.rows()||[]),...(native?.rows()||[])]},chat.id))if(agent.stopId&&!agent.stopping)try{await handlers.backgroundStop({id:agent.stopId});stopped++;}catch{}
     return {text:stopped?plural(stopped,'agent')+' stopped.':'No agent is running.'};
-  }
-  // Approve and Deny under an approval (Settings, Remote, "Approve with a button"). The press is bound to the
-  // approval shown, as a code is: a changed or answered approval refuses it.
-  if(action==='ok'||action==='no'){
-    const shown=remoteShown(),gone={text:'That approval is no longer waiting.'};
-    if(shown?.kind!=='approval'||!arg||!shown.digest.startsWith(arg))return gone;
-    const approval=store.all<Approval>('approval').find(row=>row.id===shown.approvalId);
-    if(!approval||approval.status!=='pending'){store.remove('settings','remote-shown');return gone;}
-    if(action==='ok'&&remoteSettings().approveBy!=='button')return {text:'Reply to the message with the code from your authenticator.'};
-    if(bindingDigest(remoteBinding(approval))!==shown.digest){store.remove('settings','remote-shown');emit();return {text:'The approval changed. It is shown again.'};}
-    store.remove('settings','remote-shown');
-    try{await handlers.approve({id:approval.id,choice:action==='ok'?'once':'deny',...(action==='ok'?{expectedRemote:{digest:shown.digest,epoch:remoteEpoch}}:{})});}finally{emit();}
-    // The message loses its buttons and keeps what he chose.
-    const asked=shown.seq?store.find<OutRecord>('remote-out',String(shown.seq)):undefined;
-    if(asked&&shown.messageId){enqueueRemote(store,asked.chat_id,asked.text+'\n\nYou '+(action==='ok'?'approved':'denied')+' · '+resetClock(Date.now()),undefined,false,{op:'edit',message_id:shown.messageId});remoteChannel?.notify();}
-    return {text:action==='ok'?'Approved.':'Denied.'};
   }
   return {text:'That button is no longer in use.'};
 }

@@ -109,9 +109,6 @@ export const settingsHandlers:Record<string,(args:any)=>any>={
   // A chat's state as the first mark of its thread's name, which Telegram draws as the thread's icon. Off, the
   // names go back to plain at the next pass.
   remoteStateIcon({on}){if(typeof on!=='boolean')throw Error('Invalid switch.');remoteSave({stateIcon:on});emit();},
-  // How an approval asked from Telegram is given: a fresh code from his authenticator (as it has been), or Approve
-  // and Deny under the message. An approval already shown is asked again in the new way.
-  remoteApproveBy({by}){if(by!=='code'&&by!=='button')throw Error('Choose a code or a button.');remoteSave({approveBy:by});store.remove('settings','remote-shown');emit();},
   // For a clean start, after he has cleared the bot's chat in Telegram: the threads the app knows are deleted there
   // and one per chat is made again, the oldest used first.
   remoteTopicsRebuild(){if(!remoteSettings().enabled||!remoteSettings().topics)throw Error('Turn Remote and "One topic per chat" on first.');remoteRebuildTopics();},

@@ -7,8 +7,8 @@ import {cardReceipt,chatPlace,claimRemoteOutbox,enqueueRemote,enqueueRemoteReply
 import {autoTitled,cleanName,fallbackName,planTopics,topicRetry,uniqueName} from '../app/remote-threads';
 
 test('only the owner\'s direct message is read; a code, Deny and the safe commands are told apart',()=>{
- assert.deepEqual(readRemote({enabled:true,owner:'4242',chatId:'c1'}),{enabled:true,owner:'4242',chatId:'c1',paused:false,topics:true,topicsSince:null,topicError:'',username:'',stateIcon:true,approveBy:'code'});
- assert.equal(readRemote({stateIcon:false}).stateIcon,false);assert.equal(readRemote({approveBy:'button'}).approveBy,'button');assert.equal(readRemote({approveBy:'anything'}).approveBy,'code','approval stays by code unless he turns the button on');
+ assert.deepEqual(readRemote({enabled:true,owner:'4242',chatId:'c1'}),{enabled:true,owner:'4242',chatId:'c1',paused:false,topics:true,topicsSince:null,topicError:'',username:'',stateIcon:true});
+ assert.equal(readRemote({stateIcon:false}).stateIcon,false);
  assert.equal(readRemote({username:'ghidora_bot'}).username,'ghidora_bot');assert.equal(readRemote({username:'not a name'}).username,'');
  assert.equal(readRemote({owner:'0123'}).owner,'',"an id can't start with 0");
  const message={message_id:'17',chat_id:'4242',user_id:'4242',text:'hello'};
@@ -79,7 +79,7 @@ test('a gateway that keeps stopping is restarted, then latched off after three e
 
 // topics: one thread per chat is on, as it is unless he turns it off; `false` is the plain bot chat without threads.
 function desk(overrides:Partial<DeskDeps>={},topics=true){
- const sent:string[]=[],threads:(string|undefined)[]=[],alerts:string[]=[],submitted:any[]=[],seen=new Set<string>();let settings={enabled:true,owner:'4242',chatId:null as string|null,paused:false,topics,topicsSince:null as number|null,topicError:'',username:'',stateIcon:true,approveBy:'code' as 'code'|'button'};
+ const sent:string[]=[],threads:(string|undefined)[]=[],alerts:string[]=[],submitted:any[]=[],seen=new Set<string>();let settings={enabled:true,owner:'4242',chatId:null as string|null,paused:false,topics,topicsSince:null as number|null,topicError:'',username:'',stateIcon:true};
  const marks:string[][]=[];
  const deps:DeskDeps={settings:()=>settings,save:patch=>{settings={...settings,...patch};},seen:id=>seen.has(id),done:id=>{seen.add(id);},send:(text,_deny,thread)=>{sent.push(text);threads.push(thread);},mark:(id,emoji)=>{marks.push([id,emoji]);},alert:(title,body)=>{alerts.push(title+': '+body);},
   chats:()=>[{id:'c2',title:'Second'},{id:'c1',title:'First'}],newChat:async()=>'c3',topicChat:thread=>thread==='55'?{id:'c1',title:'First'}:null,linkTopic:async()=>({id:'c9',title:'New chat'}),submit:async(id,chatId,text,thread,attachments)=>{submitted.push([id,chatId,text,...(thread?[thread]:[]),...(attachments?.length?[attachments.map(item=>item.name)]:[])]);},stop:async()=>{},status:()=>'Ready',

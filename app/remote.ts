@@ -10,12 +10,10 @@ import type {ChildProcess} from 'node:child_process';
 // time only new chats got one and is no longer read). topicError: why the last thread could not be made; it is tried
 // again by itself. username: the bot's, as Telegram reports it, for links to a thread.
 // stateIcon: a chat's state leads its thread's name (working, needs him, held); off, names stay plain.
-// approveBy: how an approval asked from Telegram is given. 'code': a fresh code from his authenticator, as it has
-// been. 'button': Approve and Deny under the message, no code; his to turn on (Settings, Remote).
-export interface RemoteSettings {enabled:boolean;owner:string;chatId:string|null;paused:boolean;topics:boolean;topicsSince:number|null;topicError:string;username:string;stateIcon:boolean;approveBy:'code'|'button'}
+export interface RemoteSettings {enabled:boolean;owner:string;chatId:string|null;paused:boolean;topics:boolean;topicsSince:number|null;topicError:string;username:string;stateIcon:boolean}
 export function readRemote(row:any):RemoteSettings{
  return {enabled:row?.enabled===true,owner:typeof row?.owner==='string'&&/^[1-9]\d{0,19}$/.test(row.owner)?row.owner:'',chatId:typeof row?.chatId==='string'&&row.chatId?row.chatId:null,paused:row?.paused===true,
-  topics:row?.topics!==false,topicsSince:Number.isSafeInteger(row?.topicsSince)?row.topicsSince:null,topicError:typeof row?.topicError==='string'?row.topicError:'',username:typeof row?.username==='string'&&/^\w{3,40}$/.test(row.username)?row.username:'',stateIcon:row?.stateIcon!==false,approveBy:row?.approveBy==='button'?'button':'code'};
+  topics:row?.topics!==false,topicsSince:Number.isSafeInteger(row?.topicsSince)?row.topicsSince:null,topicError:typeof row?.topicError==='string'?row.topicError:'',username:typeof row?.username==='string'&&/^\w{3,40}$/.test(row.username)?row.username:'',stateIcon:row?.stateIcon!==false};
 }
 // A chat's thread name, as in the app. glyph: the chat's state, shown first; Telegram draws a name's first
 // character as the thread's round icon. Telegram takes 128.
