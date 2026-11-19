@@ -2,7 +2,7 @@ import './attachment-thumbnails.css';
 import {linkedClipboardText} from './clipboard-text';
 import {ChatFilesButton} from './chat-files-panel';
 import {FileMentions} from './file-mentions';
-import {DictationControls,useDictation} from './dictation';
+import {DictationControls,DictationProblem,useDictation} from './dictation';
 import {DictationWaves} from './dictation-waves';
 import type {WaveStyle} from './listening';
 import {SidebarIcon} from './kit';
@@ -31,7 +31,13 @@ export function Composer({voice,draft,commands=[],inputRef,disabled,sendError,bu
  const id=useId(),commandId=id+'-commands',mentionId=id+'-mentions';
  const dictation=useDictation({chatId:dictationChat||'',draft,change,input:inputRef});
  // The waves show while dictation records, in the style chosen in Settings › Voice.
- const listening=!!dictationChat&&dictation.phase==='recording';
+ const listening=!!dictationChat&&dictation.phase==='recording',dictating=!!dictationChat&&dictation.phase!=='idle';
+ // While dictating, Enter and the send arrow finish dictation, wait for the last words and send (Koan 2026-11-19).
+ // The send runs after the box has the final words, so it uses this render's submit, not the one from the press.
+ const latest=useRef({submit,other,sendError,working});latest.current={submit,other,sendError,working};
+ const sendDictated=(alternative:boolean)=>()=>{const now=latest.current;if(now.sendError)return;if(alternative&&now.other&&now.working)now.other.run();else now.submit();};
+ // With nothing typed while a reply runs the arrow is Stop, except while dictating: there it always sends.
+ const stops=working&&!draft&&!attachments.length&&!dictating;
  const [mentionIndex,setMentionIndex]=useState<number|null>(null);
  const files=useRef<HTMLInputElement>(null);
  const root=useRef<HTMLDivElement>(null),list=useRef<HTMLDivElement>(null);
@@ -86,13 +92,14 @@ export function Composer({voice,draft,commands=[],inputRef,disabled,sendError,bu
   {attachments.length>0&&<div className="attachments" aria-label="Draft attachments">{attachments.map(item=>item.kind==='image'?<AttachmentImage key={item.id} item={item} busy={busy} remove={remove}/>:<span className="attachment" key={item.id} title={item.name}><span>{item.kind==='pdf'?'PDF':item.kind==='video'?'▶':'▤'}</span><span>{item.name}</span><small>{item.pages?item.pages+' pages':item.size<1024?item.size+' B':Math.ceil(item.size/1024)+' KB'}</small><button aria-label={'Remove '+item.name} disabled={busy} onClick={()=>remove(item.id)}>×</button></span>)}</div>}
   <input ref={files} type="file" multiple hidden disabled={disabled||busy} aria-label="Choose attachments" onChange={event=>{attach(Array.from(event.target.files||[]));event.target.value='';}}/>
   <div className={'composer-box'+(listening?' is-dictating waves-'+waves:'')}>
-   <textarea ref={inputRef} role="combobox" aria-label="Message" aria-autocomplete="list" aria-expanded={open||mentionIndex!==null} aria-controls={mentionIndex!==null?mentionId:open?commandId:undefined} aria-activedescendant={mentionIndex!==null&&mentionIndex>=0?mentionId+'-'+mentionIndex:open&&selected>=0?commandId+'-'+selected:undefined} aria-multiline="true" placeholder={dictation.placeholder||'Message'} value={draft} disabled={disabled} readOnly={dictation.phase!=='idle'} onFocus={()=>{setFocused(true);if(dictationChat)dictation.focus();}} onSelect={event=>setCaret(event.currentTarget.selectionStart)} onChange={event=>{setDismissed(false);setBrowsing(false);setCaret(event.target.selectionStart);change(event.target.value);}} onPaste={paste} onKeyDown={event=>{if(!dictation.key(event))keydown(event);}}/>
+   <textarea ref={inputRef} role="combobox" aria-label="Message" aria-autocomplete="list" aria-expanded={open||mentionIndex!==null} aria-controls={mentionIndex!==null?mentionId:open?commandId:undefined} aria-activedescendant={mentionIndex!==null&&mentionIndex>=0?mentionId+'-'+mentionIndex:open&&selected>=0?commandId+'-'+selected:undefined} aria-multiline="true" placeholder={dictation.placeholder||'Message'} value={draft} disabled={disabled} readOnly={dictation.phase!=='idle'} onFocus={()=>{setFocused(true);if(dictationChat)dictation.focus();}} onSelect={event=>setCaret(event.currentTarget.selectionStart)} onChange={event=>{setDismissed(false);setBrowsing(false);setCaret(event.target.selectionStart);change(event.target.value);}} onPaste={paste} onKeyDown={event=>{if(!dictation.key(event,sendDictated(event.ctrlKey)))keydown(event);}}/>
    {listening&&waves==='line'&&<DictationWaves style="line" level={dictation.level}/>}
    <div className="composer-toolbar"><div className="composer-tools">
     <button type="button" className="attachment-trigger" aria-label="Attach files" title="Attach images, PDFs or text files · drop or paste" disabled={disabled||busy} onClick={()=>files.current?.click()}><SidebarIcon name="attach"/></button>
-    {dictationChat&&<>{voice&&<button type="button" aria-label="Open voice" title="Voice helper" disabled={disabled} onClick={voice}><SidebarIcon name="voice"/></button>}<DictationControls dictation={dictation} disabled={disabled||busy}/></>}
+    {dictationChat&&voice&&<button type="button" aria-label="Open voice" title="Voice helper" disabled={disabled} onClick={voice}><SidebarIcon name="voice"/></button>}
     <button type="button" className="command-trigger" aria-label="Browse skills and commands" aria-expanded={open} aria-controls={commandId} disabled={disabled} title="Skills and commands" onClick={()=>{const next=!open;setBrowsing(next);setDismissed(!next);inputRef.current?.focus();}}><SidebarIcon name="slash"/></button>
-   </div>{listening&&waves==='bars'&&<DictationWaves style="bars" level={dictation.level}/>}{other&&working&&(!!draft.trim()||attachments.length>0)&&<button type="button" className="send-other" title={other.label+' · Ctrl+Enter'} disabled={disabled||busy||!!sendError} onClick={other.run}>{other.label}<kbd aria-hidden="true">Ctrl ↵</kbd></button>}<button type="button" className="send" aria-label={working&&!draft&&!attachments.length?'Stop':working?'Queue message':'Send'} title={working&&!draft&&!attachments.length?'Stop':sendError|| (working?'Queue message · Enter':'Send · Enter')} disabled={disabled||busy||!!sendError&&!(working&&!draft&&!attachments.length)} onClick={()=>working&&!draft&&!attachments.length?stop():submit()}><SidebarIcon name={working&&!draft&&!attachments.length?'stop':'send'}/></button></div>
+    {dictationChat&&<DictationProblem dictation={dictation}/>}
+   </div>{listening&&waves==='bars'&&<DictationWaves style="bars" level={dictation.level}/>}{other&&working&&(!!draft.trim()||attachments.length>0)&&<button type="button" className="send-other" title={other.label+' · Ctrl+Enter'} disabled={disabled||busy||!!sendError} onClick={()=>{if(!dictating||!dictation.finishThen(sendDictated(true)))other.run();}}>{other.label}<kbd aria-hidden="true">Ctrl ↵</kbd></button>}{dictationChat&&<DictationControls dictation={dictation} disabled={disabled||busy}/>}<button type="button" className="send" aria-label={stops?'Stop':working?'Queue message':'Send'} title={stops?'Stop':sendError|| (working?'Queue message · Enter':'Send · Enter')} disabled={disabled||busy||!!sendError&&!stops} onClick={()=>{if(stops)stop();else if(!dictating||!dictation.finishThen(sendDictated(false)))submit();}}><SidebarIcon name={stops?'stop':'send'}/></button></div>
   </div>
  </div>;
 }

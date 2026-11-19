@@ -1,8 +1,10 @@
-// Dictation (R4), Claude's one for one: tap the mic or Ctrl+D to start and again to finish, or hold either for half a
-// second and let go to finish. While dictating the message box says Connecting... then Listening..., your words appear
-// live where the cursor was, X or Esc cancels and puts the box back, ✓ or Enter finishes without sending. It stops by
-// itself after a minute without words or ten minutes in all. Audio streams as 16 kHz mono PCM to the local speech
-// worker (Claude streams the same to its server). Right-click the mic for the microphone, language and hold setting.
+// Dictation (R4): tap the mic or Ctrl+D to start and again to finish, or hold either for half a second and let go to
+// finish. While dictating the message box says Connecting... then Listening..., your words appear live where the
+// cursor was, and Esc cancels and puts the box back. Enter or the send arrow finishes, waits for the last words and
+// sends, so dictation is closed and the box is empty afterwards (Koan 2026-11-19; the ✓ and ✕ buttons are gone).
+// Shift+Enter or the mic finishes and leaves the words unsent. It stops by itself after a minute without words or ten
+// minutes in all. Audio streams as 16 kHz mono PCM to the speech worker. Right-click the mic for the microphone,
+// language and hold setting.
 import React,{useEffect,useRef,useState} from 'react';
 import {SidebarIcon} from './kit';
 
@@ -54,12 +56,16 @@ export function micProblem(failure:unknown):Problem{
 }
 let warmed=false,activeComposer:symbol|null=null;
 type Phase='idle'|'connecting'|'recording'|'finishing';
-type Run={id:string;before:string;after:string;stop:()=>void;send:()=>void;lastWords:number;started:number;notice:Problem|null;finishWhenReady:boolean;timer?:ReturnType<typeof setInterval>;finishTimer?:ReturnType<typeof setTimeout>;tailTimer?:ReturnType<typeof setTimeout>};
+// then: what to do once the final words are in the box (send the message); unset when dictation only finishes.
+type Run={id:string;before:string;after:string;stop:()=>void;send:()=>void;lastWords:number;started:number;notice:Problem|null;finishWhenReady:boolean;then?:()=>void;timer?:ReturnType<typeof setInterval>;finishTimer?:ReturnType<typeof setTimeout>;tailTimer?:ReturnType<typeof setTimeout>};
 
 export function useDictation({chatId,draft,change,input}:{chatId:string;draft:string;change:(value:string)=>void;input:React.RefObject<HTMLTextAreaElement|null>}){
  const [phase,setPhaseState]=useState<Phase>('idle'),[problem,setProblem]=useState<Problem|null>(null),[level,setLevel]=useState(0);
  const self=useRef(Symbol('composer')),live=useRef({draft,change,chatId}),phaseRef=useRef<Phase>('idle'),run=useRef<Run|null>(null),press=useRef<{at:number}|null>(null);
  live.current={draft,change,chatId};
+ // What follows the final words runs after the box has drawn them, so a send reads the finished text.
+ const [settled,setSettled]=useState(0),next=useRef<(()=>void)|null>(null);
+ useEffect(()=>{const then=next.current;next.current=null;then?.();},[settled]);
  const setPhase=(next:Phase)=>{phaseRef.current=next;setPhaseState(next);};
  const invoke=(method:string,args:any)=>window.desktop.invoke(method,args);
  function end(next:Problem|null=null){const current=run.current;run.current=null;if(current){current.stop();clearInterval(current.timer);clearTimeout(current.finishTimer);clearTimeout(current.tailTimer);}setPhase('idle');setLevel(0);setProblem(next);}
@@ -114,11 +120,13 @@ export function useDictation({chatId,draft,change,input}:{chatId:string;draft:st
    void invoke('dictationFinish',{id:current.id}).catch(()=>{});
   },TAIL_MS);
  }
+ // Finish, and once the last words are in the box do `then`. A lost connection or an error keeps the words unsent.
+ function finishThen(then:()=>void){const current=run.current;if(!current)return false;current.then=then;finish();return true;}
  function cancel(){const current=run.current;if(!current)return;void invoke('dictationCancel',{id:current.id}).catch(()=>{});live.current.change(current.before+current.after);end();}
  useEffect(()=>window.desktop.onDictation(event=>{
   const current=run.current;if(!current||event.id!==current.id)return;
   if(event.type==='partial'){current.lastWords=Date.now();put(current,event.text||'');}
-  else if(event.type==='final'){put(current,event.text||'');end(current.notice);}
+  else if(event.type==='final'){put(current,event.text||'');end(current.notice);if(current.then){next.current=current.then;setSettled(count=>count+1);}}
   else end(event.text===LOST?{title:LOST,detail:KEPT}:{title:'Couldn\'t finish dictation.',detail:event.text||'Nothing was added to the message box.'});
  }),[]);
  useEffect(()=>()=>{const current=run.current;run.current=null;if(current){void invoke('dictationCancel',{id:current.id}).catch(()=>{});current.stop();clearInterval(current.timer);clearTimeout(current.finishTimer);clearTimeout(current.tailTimer);}},[]);
@@ -136,29 +144,33 @@ export function useDictation({chatId,draft,change,input}:{chatId:string;draft:st
   return ()=>{window.removeEventListener('keydown',key);window.removeEventListener('keyup',key);window.removeEventListener('keyup',release);};
  },[]);
  useEffect(()=>()=>{if(activeComposer===self.current)activeComposer=null;},[]);
- return {phase,problem,level,start,finish,cancel,down,up,
+ return {phase,problem,level,start,finish,finishThen,cancel,down,up,
   // The composer you last typed in owns Ctrl+D. Its first focus loads the speech model so the first press is quick.
   focus(){activeComposer=self.current;if(!warmed){warmed=true;void invoke('dictationWarm',{}).catch(()=>{});}},
   dismiss(){setProblem(null);},
   placeholder:phase==='connecting'?'Connecting...':phase==='recording'||phase==='finishing'?'Listening...':'',
-  // Esc cancels and Enter finishes while dictating; neither sends.
-  key(event:React.KeyboardEvent){if(phaseRef.current==='idle')return false;if(event.key==='Escape'){event.preventDefault();cancel();return true;}if(event.key==='Enter'){event.preventDefault();finish();return true;}return false;}};
+  // While dictating Esc cancels. Enter finishes and then does `send`; Shift+Enter, or Enter with no `send`, only finishes.
+  key(event:React.KeyboardEvent,send?:()=>void){if(phaseRef.current==='idle')return false;if(event.key==='Escape'){event.preventDefault();cancel();return true;}if(event.key==='Enter'){event.preventDefault();if(send&&!event.shiftKey)finishThen(send);else finish();return true;}return false;}};
 }
 export type Dictation=ReturnType<typeof useDictation>;
 
+/** The microphone, beside the send arrow: press to start, press again to stop and keep the words unsent. */
 export function DictationControls({dictation,disabled}:{dictation:Dictation;disabled:boolean}){
- const {phase,problem}=dictation,[menu,setMenu]=useState(false),active=phase!=='idle';
- const label=phase==='recording'?'Stop dictation':phase==='finishing'?'Finishing dictation…':phase==='connecting'?'Connecting…':'Dictate';
- return <>
+ const {phase}=dictation,[menu,setMenu]=useState(false),active=phase!=='idle';
+ const label=phase==='recording'?'Stop dictation · Enter sends · Esc cancels':phase==='finishing'?'Finishing dictation…':phase==='connecting'?'Connecting…':'Dictate';
+ return <span className="dictation-anchor">
   <button type="button" className={'dictation-trigger '+phase} aria-label={active?'Stop dictation':'Dictate'} aria-pressed={active} title={label+' · Ctrl+D · Right-click for microphone settings'} disabled={(disabled&&!active)||phase==='finishing'}
    onPointerDown={event=>{if(event.button===0){event.preventDefault();event.currentTarget.setPointerCapture(event.pointerId);dictation.down();}}} onPointerUp={event=>{if(event.button===0)dictation.up();}} onPointerCancel={()=>dictation.up()}
    onClick={event=>{if(event.detail===0)dictation.down();}} onContextMenu={event=>{event.preventDefault();setMenu(true);}} onKeyDown={event=>{if(event.shiftKey&&event.key==='F10'){event.preventDefault();setMenu(true);}}}>
    <SidebarIcon name={active?'stop':'microphone'}/>
   </button>
-  {active&&<><button type="button" className="dictation-cancel" aria-label="Cancel dictation" title="Cancel · Esc" onClick={()=>dictation.cancel()}>✕</button><button type="button" className="dictation-done" aria-label="Finish dictation" title="Done · Enter" disabled={phase!=='recording'} onClick={()=>dictation.finish()}>✓</button></>}
-  {problem&&<span className="dictation-error" role="alert"><strong>{problem.title}</strong> {problem.detail} <button type="button" onClick={()=>{dictation.dismiss();void dictation.start();}}>Dictate again</button></span>}
   {menu&&<DictationMenu close={()=>setMenu(false)}/>}
- </>;
+ </span>;
+}
+/** What went wrong with the microphone or the speech worker, on its own line under the box's tools. */
+export function DictationProblem({dictation}:{dictation:Dictation}){
+ const {problem}=dictation;
+ return problem?<span className="dictation-error" role="alert"><strong>{problem.title}</strong> {problem.detail} <button type="button" onClick={()=>{dictation.dismiss();void dictation.start();}}>Dictate again</button></span>:null;
 }
 
 function DictationMenu({close}:{close:()=>void}){

@@ -7,9 +7,10 @@ import assert from 'node:assert/strict';
 import {Backend,PYTHON} from '../app/backend';
 import {speechClip} from './speech-clips';
 
-// Dictation, Claude's one for one, through real local speech packages, the tiny model and Chromium's fake microphone
-// playing a real spoken clip: live text while speaking, Done, Cancel, Esc, Enter, Ctrl+D, hold to talk, and windows
-// that own their dictation. No live accounts or physical microphone.
+// Dictation through real local speech packages, the tiny model and Chromium's fake microphone playing a real spoken
+// clip: live text while speaking, the microphone beside the send arrow, stopping with it, Esc, Shift+Enter, Ctrl+D,
+// hold to talk, Enter and the send arrow sending and closing dictation, and windows that own their dictation. No live
+// accounts or physical microphone.
 const root=path.resolve('.'),data=await fs.mkdtemp(path.join(root,'work','finish-dictation-')),namespace='Trismegistus/Test/'+path.basename(data);
 const host=new Backend(root,data,namespace,()=>{}),clip=await speechClip(path.join(root,'work','test-assets'),'0.wav');
 await host.host('initialize');
@@ -37,10 +38,12 @@ try{
  const picture=async(name:string)=>{await page.waitForTimeout(600);await page.locator('.composer-box:has(.dictation-waves)').screenshot({path:path.join(pictures,name+'.png')});};
  const theme=(name:string)=>page.evaluate(name=>{document.documentElement.dataset.theme=name;},name);
  const heard=(pattern:RegExp)=>page.waitForFunction(source=>new RegExp(source,'i').test((document.querySelector('textarea[aria-label="Message"]') as HTMLTextAreaElement)?.value||''),pattern.source,{timeout:120000});
- // Tap: the words arrive while the microphone is still listening (live text), then Done keeps them, unsent.
+ // The microphone sits beside the send arrow, and the tick and the ✕ are gone (Koan 2026-11-19).
+ await page.locator('.composer-toolbar>.dictation-anchor+.send').waitFor();
+ // Tap: the words arrive while the microphone is still listening (live text), then the microphone again keeps them, unsent.
  await box.fill('Keep my typed text.');await box.press('End');
  const started=Date.now();await dictate.click();await stop.waitFor();
- await page.getByRole('button',{name:'Cancel dictation',exact:true}).waitFor();
+ assert.equal(await page.getByRole('button',{name:/^(Finish|Cancel) dictation$/}).count(),0,'no tick or ✕ while listening');
  await heard(/yellow|light|squalid|nightfall|brothels/);assert.equal(await stop.isVisible(),true,'text appears while still listening');const live=Date.now()-started;
  // The waves: bars beside the buttons by default, drawn from the microphone; pictures in the dark and light themes.
  await page.locator('.composer-box.waves-bars .composer-toolbar>.dictation-waves.bars').waitFor();await drawn();
@@ -48,7 +51,7 @@ try{
  // The fake microphone loops the clip from wherever it is; listen until the whole phrase has been said.
  await heard(/yellow lamps?/);await heard(/light up/);
  assert.equal(await box.getAttribute('readonly'),'','the box is held while dictating');
- await page.getByRole('button',{name:'Finish dictation',exact:true}).click();await idle();
+ await stop.click();await idle();
  const typed=await value();assert.ok(typed.startsWith('Keep my typed text. '),typed);assert.match(typed.toLowerCase(),/yellow lamps?/,'Clip: '+clip.text);assert.match(typed.toLowerCase(),/light up/);
  await page.screenshot({path:path.join(data,'dictation.png')});
  // Ctrl+D starts in the box you are typing in; Esc cancels and puts the box back. This one shows the line.
@@ -60,15 +63,32 @@ try{
  await call('listeningWaves',{style:'bars'});
  await page.waitForFunction(before=>(document.querySelector('textarea[aria-label="Message"]') as HTMLTextAreaElement).value.length>before.length,typed,{timeout:120000});
  await page.keyboard.press('Escape');await idle();assert.equal(await value(),typed,'Esc puts the box back as it was');
- // Enter finishes, never sends.
+ // Shift+Enter finishes and leaves the words unsent.
  await box.focus();await page.keyboard.press('Control+d');await stop.waitFor();
  await page.waitForFunction(before=>(document.querySelector('textarea[aria-label="Message"]') as HTMLTextAreaElement).value.length>before.length,typed,{timeout:120000});
- await page.keyboard.press('Enter');await idle();const entered=await value();assert.ok(entered.length>typed.length&&entered.startsWith(typed));
+ await page.keyboard.press('Shift+Enter');await idle();const entered=await value();assert.ok(entered.length>typed.length&&entered.startsWith(typed));
  // Hold to talk: a press held past half a second finishes when let go.
  const mic=await dictate.boundingBox();await page.mouse.move(mic!.x+mic!.width/2,mic!.y+mic!.height/2);
  await page.mouse.down();await stop.waitFor();await page.waitForFunction(before=>(document.querySelector('textarea[aria-label="Message"]') as HTMLTextAreaElement).value.length>before.length,entered,{timeout:120000});
  await page.mouse.up();await idle();assert.ok((await value()).length>entered.length,'letting go of a held press finishes and keeps the words');
- assert.equal((await call('state')).turns.some((turn:any)=>turn.chatId===chatId),false,'dictation never sends');
+ assert.equal((await call('state')).turns.some((turn:any)=>turn.chatId===chatId),false,'stopping with the microphone, Shift+Enter and hold to talk never send');
+ // Enter while listening (Koan 2026-11-19): dictation closes, the typed and spoken words go as one message, the box is
+ // empty and stays empty. Before, Enter only finished, and the send arrow left dictation on so the words came back.
+ const mine=()=>call('state').then((s:any)=>s.turns.filter((turn:any)=>turn.chatId===chatId&&!turn.parentTurnId&&!turn.automatic).sort((a:any,b:any)=>a.created-b.created));
+ const empty=async()=>{await page.waitForFunction(()=>(document.querySelector('textarea[aria-label="Message"]') as HTMLTextAreaElement).value==='',null,{timeout:30000});await page.waitForTimeout(2500);assert.equal(await value(),'','sent words do not come back into the box');};
+ await call('addModel',{chatId,model:'claude-code:haiku'});await call('modelLock',{chatId,model:'claude-code:haiku'});
+ const before=await value();await box.focus();await page.keyboard.press('Control+d');await stop.waitFor();
+ await page.waitForFunction(before=>(document.querySelector('textarea[aria-label="Message"]') as HTMLTextAreaElement).value.length>before.length,before,{timeout:120000});
+ await page.keyboard.press('Enter');await idle();await wait(s=>s.turns.some((turn:any)=>turn.chatId===chatId),60000);
+ const first=(await mine())[0];assert.ok(first.prompt.startsWith(before)&&first.prompt.length>before.length,'Enter sent the typed and the spoken words: '+first.prompt);
+ await empty();assert.equal(await stop.count(),0,'dictation is closed after Enter');assert.equal((await mine()).length,1,'one message, sent once');
+ // The send arrow while listening does the same, also while the first reply may still be running.
+ await box.focus();await page.keyboard.press('Control+d');await stop.waitFor();
+ await page.waitForFunction(()=>(document.querySelector('textarea[aria-label="Message"]') as HTMLTextAreaElement).value.trim().length>0,null,{timeout:120000});
+ await page.locator('.composer-toolbar>.send').click();await idle();
+ await wait(s=>s.turns.filter((turn:any)=>turn.chatId===chatId&&!turn.parentTurnId&&!turn.automatic).length===2,60000);
+ const both=await mine();assert.equal(both.length,2,'the send arrow sent the spoken words');assert.ok(both[1].prompt.trim().length>0);
+ await empty();assert.equal(await stop.count(),0,'dictation is closed after the send arrow');
  // A window owns its dictation: another chat's window cannot start one here, and an open chat window keeps its own.
  const popupPromise=instance.waitForEvent('window');await call('openChatWindow',{chatId});const popup=await popupPromise;
  await popup.getByRole('button',{name:'Dictate',exact:true}).waitFor();

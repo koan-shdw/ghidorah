@@ -4,24 +4,27 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 const require=createRequire(import.meta.url),{build}=require('esbuild'),{_electron}=require('playwright');
 declare const audit:any;
-// The dictation hook in a bare Chromium window with a stand-in microphone and app: live text, Done, Cancel and Esc,
-// the microphone released on every way out, a late permission after unmount, microphone errors, and a chat change.
+// The dictation hook in a bare Chromium window with a stand-in microphone and app: live text, stopping with the
+// microphone, Esc, Enter and the send arrow sending once the last words are in, Shift+Enter, the microphone released
+// on every way out, a late permission after unmount, microphone errors, and a chat change.
 const appRoot=path.resolve('.');
 const here=await fs.mkdtemp(path.join(appRoot,'work','dictation-lifecycle-')),entry=path.join(here,'dictation-fixture.cjs');
 await fs.writeFile(entry,"const {app,BrowserWindow}=require('electron');app.setPath('userData',__dirname);app.whenReady().then(()=>new BrowserWindow({webPreferences:{sandbox:true,contextIsolation:true}}).loadURL('about:blank'));app.on('window-all-closed',()=>app.quit());");
 const component=path.join(appRoot,'app/dictation.tsx').replaceAll('\\','/');
 const {outputFiles}=await build({stdin:{contents:`
-import React,{useRef,useState} from 'react';import {createRoot} from 'react-dom/client';import {useDictation,DictationControls} from ${JSON.stringify(component)};
+import React,{useRef,useState} from 'react';import {createRoot} from 'react-dom/client';import {useDictation,DictationControls,DictationProblem} from ${JSON.stringify(component)};
 if(!crypto.randomUUID)crypto.randomUUID=()=>'00000000-0000-4000-8000-'+String(Date.now()).padStart(12,'0').slice(-12);
-window.audit={stops:0,calls:[],pending:false,fail:'',processors:[],listener:null};const audit=window.audit;
+window.audit={stops:0,calls:[],sent:[],pending:false,fail:'',processors:[],listener:null};const audit=window.audit;
 window.desktop={invoke:async(method,args)=>{audit.calls.push([method,args]);return method==='dictationStart'?{device:'cpu'}:undefined;},onDictation:handler=>{audit.listener=handler;return ()=>{if(audit.listener===handler)audit.listener=null;};}};
 audit.say=(type,text)=>{const start=audit.calls.filter(c=>c[0]==='dictationStart').at(-1);audit.listener?.({id:start[1].id,type,text});};
 Object.defineProperty(navigator,'mediaDevices',{value:{enumerateDevices:async()=>[],getUserMedia:async()=>{if(audit.pending)await new Promise(resolve=>audit.allow=resolve);if(audit.fail)throw Object.assign(Error('fixture'),{name:audit.fail});return {getTracks:()=>[{stop:()=>audit.stops++}],getAudioTracks:()=>[{}]};}}});
 window.AudioContext=class {sampleRate=48000;destination={};createMediaStreamSource(){return {connect(){}};}createGain(){return {gain:{value:1},connect(){}};}createScriptProcessor(){const p={connect(){}};audit.processors.push(p);return p;}close(){return Promise.resolve();}};
 const host=document.createElement('div');document.body.append(host);let root=createRoot(host);audit.unmount=()=>root.unmount();audit.mount=()=>{root=createRoot(host);root.render(<Harness/>);};
-function Harness(){const [draft,setDraft]=useState('original draft'),[chat,setChat]=useState('one'),input=useRef(null);audit.other=()=>setChat('two');
+function Harness(){const [draft,setDraft]=useState('original draft'),[chat,setChat]=useState('one'),input=useRef(null),drawn=useRef(draft);drawn.current=draft;audit.other=()=>setChat('two');
  const dictation=useDictation({chatId:chat,draft,change:setDraft,input});
- return <><textarea ref={input} aria-label="Message" value={draft} readOnly={dictation.phase!=='idle'} placeholder={dictation.placeholder||'Message'} onFocus={()=>dictation.focus()} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>dictation.key(e)}/><DictationControls dictation={dictation} disabled={false}/></>;}
+ // The stand-in for the message box's send, as the composer does it: it sends the box as drawn when it runs, then empties it.
+ const send=()=>{audit.sent.push(drawn.current);setDraft('');};
+ return <><textarea ref={input} aria-label="Message" value={draft} readOnly={dictation.phase!=='idle'} placeholder={dictation.placeholder||'Message'} onFocus={()=>dictation.focus()} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>dictation.key(e,send)}/><DictationControls dictation={dictation} disabled={false}/><button aria-label="Send" onClick={()=>{if(!dictation.finishThen(send))send();}}>Send</button><DictationProblem dictation={dictation}/></>;}
 root.render(<Harness/>);`,loader:'tsx',resolveDir:appRoot},bundle:true,write:false,nodePaths:[path.join(appRoot,'node_modules')],platform:'browser'});
 const app=await _electron.launch({executablePath:require('electron'),args:[entry]});
 try{
@@ -29,18 +32,44 @@ try{
  const button=(name:string)=>page.getByRole('button',{name,exact:true}),box=page.getByLabel('Message');
  const methods=()=>page.evaluate(()=>audit.calls.map((c:any)=>c[0]));
  const remount=async()=>{await page.evaluate(()=>{audit.unmount();audit.pending=false;audit.fail='';audit.mount();});await button('Dictate').waitFor();};
- // Words land where the cursor was, live; Done keeps the final words.
+ const finishes=()=>page.evaluate(()=>audit.calls.filter((c:any)=>c[0]==='dictationFinish').length),sent=()=>page.evaluate(()=>audit.sent as string[]);
+ const finished=(count:number)=>page.waitForFunction((count:number)=>audit.calls.filter((c:any)=>c[0]==='dictationFinish').length===count,count);
+ const listen=async(words:string)=>{await button('Dictate').click();await button('Stop dictation').waitFor();await page.evaluate((words:string)=>audit.say('partial',words),words);};
+ // The tick and the ✕ are gone (Koan 2026-11-19): the microphone, Enter, the send arrow and Esc do it all.
+ assert.equal(await page.getByRole('button',{name:/^(Finish|Cancel) dictation$/}).count(),0);
+ // Words land where the cursor was, live; the microphone again keeps the final words, unsent.
  await box.focus();await page.evaluate(()=>(document.querySelector('textarea') as HTMLTextAreaElement).setSelectionRange(8,8));
  await button('Dictate').click();await button('Stop dictation').waitFor();assert.equal(await box.getAttribute('placeholder'),'Listening...');
+ assert.equal(await page.getByRole('button',{name:/^(Finish|Cancel) dictation$/}).count(),0,'no tick or ✕ while listening');
  await page.evaluate(()=>audit.say('partial','spoken'));await page.waitForFunction(()=>(document.querySelector('textarea') as HTMLTextAreaElement).value==='original spoken draft');
- // Done keeps the microphone open a moment for the last word (Koan 2026-11-14), then closes it and asks for the text.
- await button('Finish dictation').click();assert.equal((await methods()).includes('dictationFinish'),false,'not cut at the press');assert.equal(await page.evaluate(()=>audit.stops),0);
- await page.waitForFunction(()=>audit.calls.some((c:any)=>c[0]==='dictationFinish'));assert.equal(await page.evaluate(()=>audit.stops),1,'the microphone closes on Done');
- await page.evaluate(()=>audit.say('final','spoken words'));await button('Dictate').waitFor();assert.equal(await box.inputValue(),'original spoken words draft');
- // Cancel and Esc put the box back as it was.
- const kept=await box.inputValue();await button('Dictate').click();await button('Stop dictation').waitFor();await page.evaluate(()=>audit.say('partial','discard me'));
- await button('Cancel dictation').click();assert.equal(await box.inputValue(),kept);assert.equal((await methods()).at(-1),'dictationCancel');
+ // Stopping keeps the microphone open a moment for the last word (Koan 2026-11-14), then closes it and asks for the text.
+ await button('Stop dictation').click();assert.equal((await methods()).includes('dictationFinish'),false,'not cut at the press');assert.equal(await page.evaluate(()=>audit.stops),0);
+ await finished(1);assert.equal(await page.evaluate(()=>audit.stops),1,'the microphone closes on the second press');
+ await page.evaluate(()=>audit.say('final','spoken words'));await button('Dictate').waitFor();assert.equal(await box.inputValue(),'original spoken words draft');assert.deepEqual(await sent(),[],'stopping with the microphone does not send');
+ // Esc puts the box back as it was.
+ const kept=await box.inputValue();await listen('discard me');
+ await box.focus();await page.keyboard.press('Escape');await button('Dictate').waitFor();assert.equal(await box.inputValue(),kept);assert.equal((await methods()).at(-1),'dictationCancel');
  await box.focus();await page.keyboard.press('Control+d');await button('Stop dictation').waitFor();await page.evaluate(()=>audit.say('partial','discard me too'));await page.keyboard.press('Escape');await button('Dictate').waitFor();assert.equal(await box.inputValue(),kept);
+ // Enter while listening: dictation finishes, the last words arrive, then the message goes and the box is empty.
+ await box.focus();await box.press('End');await listen('send');
+ await box.focus();await page.keyboard.press('Enter');assert.deepEqual(await sent(),[],'nothing goes before the last words');await finished(2);
+ await page.evaluate(()=>audit.say('final','send this'));await page.waitForFunction(()=>audit.sent.length===1);await button('Dictate').waitFor();
+ assert.deepEqual(await sent(),[kept+' send this'],'the message is the box with the final words');assert.equal(await box.inputValue(),'');
+ // Words that arrive late change nothing: before, the send arrow left dictation on and they came back into the box.
+ await page.evaluate(()=>audit.say('partial','ghost'));await page.waitForTimeout(200);assert.equal(await box.inputValue(),'','sent words do not come back');
+ // The send arrow while listening does the same as Enter.
+ await box.fill('typed');await box.press('End');await listen('and');
+ await button('Send').click();assert.equal((await sent()).length,1,'the arrow waits for the last words too');await finished(3);
+ await page.evaluate(()=>audit.say('final','and spoken'));await page.waitForFunction(()=>audit.sent.length===2);await button('Dictate').waitFor();
+ assert.equal((await sent())[1],'typed and spoken');assert.equal(await box.inputValue(),'');
+ // Shift+Enter finishes and leaves the words unsent.
+ await box.fill('keep');await box.press('End');await listen('these');
+ await box.focus();await page.keyboard.press('Shift+Enter');await finished(4);await page.evaluate(()=>audit.say('final','these words'));await button('Dictate').waitFor();
+ assert.equal(await box.inputValue(),'keep these words');assert.equal((await sent()).length,2,'Shift+Enter does not send');
+ // Enter, then the connection is lost: the words so far stay in the box and nothing is sent.
+ await box.press('End');await listen('more');await box.focus();await page.keyboard.press('Enter');
+ await page.evaluate(()=>audit.say('error','Dictation lost its connection.'));await page.getByRole('alert').filter({hasText:'Your words so far are in the message box.'}).waitFor();
+ assert.equal(await box.inputValue(),'keep these words more');assert.equal((await sent()).length,2,'a lost connection sends nothing');
  // Unmount while listening releases the microphone and tells the app.
  await button('Dictate').click();await button('Stop dictation').waitFor();const before=await page.evaluate(()=>audit.stops);await page.evaluate(()=>audit.unmount());
  assert.equal(await page.evaluate(()=>audit.stops),before+1);assert.equal((await methods()).at(-1),'dictationCancel');
@@ -56,5 +85,5 @@ try{
  // A lost worker keeps the words so far and says so.
  await button('Dictate').click();await button('Stop dictation').waitFor();await page.evaluate(()=>{audit.say('partial','so far');audit.say('error','Dictation lost its connection.');});
  await page.getByRole('alert').filter({hasText:'Your words so far are in the message box.'}).waitFor();assert.equal(await box.inputValue(),'original draft so far');
- console.log('PASS dictation lifecycle: live words at the cursor, Done, Cancel and Esc restore, microphone released on unmount and late permission, Claude\'s error wording, chat change cancels, lost worker keeps words.');
+ console.log('PASS dictation lifecycle: live words at the cursor, the microphone again keeps them unsent, Esc restores, Enter and the send arrow send after the last words and leave the box empty, Shift+Enter keeps them, a lost connection sends nothing, microphone released on unmount and late permission, Claude\'s error wording, chat change cancels, lost worker keeps words.');
 }finally{await app.close();}

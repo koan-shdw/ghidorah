@@ -69,9 +69,9 @@ main{display:flex;flex:1;min-width:0;flex-direction:column}
 .composer-box textarea::placeholder{color:var(--muted)}
 .composer-toolbar{display:flex;gap:10px;align-items:flex-end}
 .composer-tools{position:relative;display:flex;flex:1;min-width:0;align-items:center;flex-wrap:wrap;gap:var(--space-1)}
-.composer-tools>button{display:inline-grid;place-items:center;width:var(--h-lg);min-height:var(--h-lg);padding:0;margin:0;border:0;border-radius:var(--r);color:var(--muted)}
-.composer-tools>button:hover,.composer-tools>button[aria-expanded=true]{color:var(--text);background:var(--raised)}
-.composer-tools .sidebar-icon{width:var(--icon-lg);height:var(--icon-lg);flex:0 0 var(--icon-lg)}
+.composer-tools>button,.dictation-anchor>.dictation-trigger{display:inline-grid;place-items:center;width:var(--h-lg);min-height:var(--h-lg);padding:0;margin:0;border:0;border-radius:var(--r);color:var(--muted)}
+.composer-tools>button:hover,.composer-tools>button[aria-expanded=true],.dictation-anchor>.dictation-trigger:hover{color:var(--text);background:var(--raised)}
+.composer-tools .sidebar-icon,.dictation-anchor .sidebar-icon{width:var(--icon-lg);height:var(--icon-lg);flex:0 0 var(--icon-lg)}
 .composer-toolbar>.send{display:grid;place-items:center;flex:0 0 32px;width:32px;height:32px;padding:6px;margin:0;border-radius:var(--r-round);background:var(--text);color:var(--bg)}
 .composer-toolbar>.send:hover{background:var(--accent)}
 .composer-toolbar>.send .sidebar-icon{width:20px;height:20px}
@@ -468,10 +468,11 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .wizard-summary li .hint{flex:1;min-width:180px}
 .wizard h2:focus{outline:none}
 .dictation-trigger.recording{color:var(--danger)}
-.composer-tools>.dictation-trigger.connecting,.composer-tools>.dictation-trigger.finishing{color:var(--text);animation:dictation-wait 1s ease-in-out infinite alternate}
+/* The microphone sits beside the send arrow (Koan 2026-11-19); its settings menu opens above it, from the right. */
+.dictation-anchor{position:relative;display:inline-flex;flex:none}
+.dictation-anchor>.dictation-menu{left:auto;right:0}
+.dictation-anchor>.dictation-trigger.connecting,.dictation-anchor>.dictation-trigger.finishing{color:var(--text);animation:dictation-wait 1s ease-in-out infinite alternate}
 @keyframes dictation-wait{from{opacity:.45}to{opacity:1}}
-.composer-tools>.dictation-done{color:var(--text)}
-.composer-tools>.dictation-done:not(:disabled){background:var(--raised)}
 .dictation-error{font-size:var(--fs-meta);color:var(--danger);margin-left:6px}
 .dictation-error strong{font-weight:600}
 .dictation-error button{margin-left:6px;font-size:var(--fs-meta);padding:2px 8px;border:1px solid var(--line);border-radius:var(--r);color:var(--text)}
@@ -493,7 +494,7 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .model-row>.model-disclosure{width:var(--h);padding:0}
 /* The mic is red while it listens; the waves (dictation-waves.tsx) show your voice: bars in the bottom row beside the
    buttons, or a line across the box between your words and the buttons. They draw in the box's text colour. */
-.composer-tools>.dictation-trigger.recording{border-color:var(--danger);color:var(--danger);background:color-mix(in srgb,var(--danger) 7%,transparent)}
+.dictation-anchor>.dictation-trigger.recording{border-color:var(--danger);color:var(--danger);background:color-mix(in srgb,var(--danger) 7%,transparent)}
 .dictation-waves{display:block;color:var(--text);pointer-events:none}
 .composer-box.waves-bars .composer-tools{flex:0 1 auto}
 .composer-toolbar>.dictation-waves.bars{flex:1 1 60px;min-width:40px;height:var(--h-lg);align-self:center}
