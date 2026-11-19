@@ -50,7 +50,7 @@ export class Sidebar {
  }
  chat(action:string,args:any){
   const chat=this.root(args.chatId);let patch:Partial<Chat>;
-  if(action==='rename')patch={title:name(args.name)};
+  if(action==='rename')patch={title:name(args.name),named:'user'};
   else if(action==='pin'){if(typeof args.pinned!=='boolean')throw Error('Invalid pin state.');patch={pinned:args.pinned,...(args.pinned?{archived:false}:{})};}
   else if(action==='archive'){if(typeof args.archived!=='boolean')throw Error('Invalid archive state.');patch={archived:args.archived,...(args.archived?{pinned:false}:{})};}
   else if(action==='read'){if(typeof args.unread!=='boolean')throw Error('Invalid read state.');patch={unread:args.unread,readThrough:chatStamp(chat,this.store.all<Turn>('turn'))};}

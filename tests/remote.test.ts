@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
-import {readRemote,readInbound,parseRequest,remoteTurnId,gateChannel,GatewaySupervisor,RemoteDesk,replyFor,secretApproval,clip,topicName,type DeskDeps} from '../app/remote';
+import {readRemote,readInbound,parseRequest,remoteTurnId,gateChannel,GatewaySupervisor,RemoteDesk,replyFor,secretApproval,clip,topicName,topicLink,type DeskDeps} from '../app/remote';
 import {Store} from '../app/store';
-import {claimRemoteOutbox,enqueueRemote,recordRemoteReceipt,remotePrompt,type TopicRecord} from '../app/remote-outbox';
+import {chatPlace,claimRemoteOutbox,enqueueRemote,pruneRemoteOutbox,recordRemoteReceipt,remotePrompt,type TopicRecord} from '../app/remote-outbox';
+import {autoTitled,cleanName,fallbackName,planTopics,topicRetry,uniqueName} from '../app/remote-threads';
 
 test('only the owner\'s direct message is read; a code, Deny and the safe commands are told apart',()=>{
- assert.deepEqual(readRemote({enabled:true,owner:'4242',chatId:'c1'}),{enabled:true,owner:'4242',chatId:'c1',paused:false,topics:true,topicsSince:null,topicError:''});
+ assert.deepEqual(readRemote({enabled:true,owner:'4242',chatId:'c1'}),{enabled:true,owner:'4242',chatId:'c1',paused:false,topics:true,topicsSince:null,topicError:'',username:''});
+ assert.equal(readRemote({username:'ghidora_bot'}).username,'ghidora_bot');assert.equal(readRemote({username:'not a name'}).username,'');
  assert.equal(readRemote({owner:'0123'}).owner,'',"an id can't start with 0");
  const message={message_id:'17',chat_id:'4242',user_id:'4242',text:'hello'};
  assert.deepEqual(readInbound(message,'4242'),message);
@@ -54,8 +56,9 @@ test('a gateway that keeps stopping is restarted, then latched off after three e
  children[3].emit('exit',1);assert.equal(children.length,4,'an asked-for stop is not restarted');
 });
 
-function desk(overrides:Partial<DeskDeps>={}){
- const sent:string[]=[],threads:(string|undefined)[]=[],alerts:string[]=[],submitted:any[]=[],seen=new Set<string>();let settings={enabled:true,owner:'4242',chatId:null as string|null,paused:false,topics:true,topicsSince:null as number|null,topicError:''};
+// topics: one thread per chat is on, as it is unless he turns it off; `false` is the plain bot chat without threads.
+function desk(overrides:Partial<DeskDeps>={},topics=true){
+ const sent:string[]=[],threads:(string|undefined)[]=[],alerts:string[]=[],submitted:any[]=[],seen=new Set<string>();let settings={enabled:true,owner:'4242',chatId:null as string|null,paused:false,topics,topicsSince:null as number|null,topicError:'',username:''};
  const deps:DeskDeps={settings:()=>settings,save:patch=>{settings={...settings,...patch};},seen:id=>seen.has(id),done:id=>{seen.add(id);},send:(text,_deny,thread)=>{sent.push(text);threads.push(thread);},alert:(title,body)=>{alerts.push(title+': '+body);},
   chats:()=>[{id:'c2',title:'Second'},{id:'c1',title:'First'}],newChat:async()=>'c3',topicChat:thread=>thread==='55'?{id:'c1',title:'First'}:null,linkTopic:async()=>({id:'c9',title:'New chat'}),submit:async(id,chatId,text,thread)=>{submitted.push(thread?[id,chatId,text,thread]:[id,chatId,text]);},stop:async()=>{},status:()=>'Ready',
   waiting:()=>null,prompt:()=>false,code:async()=>'Approved.',deny:async()=>'Denied.',answer:async()=>'Answered.',...overrides};
@@ -70,8 +73,8 @@ test('Telegram Start shows help once without sending its connection payload to a
  await run.desk.receive({...from('2','/start'),user_id:'99',chat_id:'99'});assert.equal(run.sent.length,1);
 });
 
-test('a message becomes one turn in the chosen chat; a repeated delivery does nothing; strangers are ignored',async()=>{
- const run=desk();
+test('without threads, a message becomes one turn in the chosen chat; a repeated delivery does nothing; strangers are ignored',async()=>{
+ const run=desk({},false);
  await run.desk.receive(from('1','fix the build'));await run.desk.receive(from('1','fix the build'));
  assert.deepEqual(run.submitted,[['telegram-4242-1','c2','fix the build']]);assert.deepEqual(run.sent,['Sent to Second.']);assert.equal(run.alerts.length,1);
  await run.desk.receive({...from('2','hi'),user_id:'99',chat_id:'99'});assert.equal(run.submitted.length,1);
@@ -107,8 +110,11 @@ test("a message in a topic goes to that topic's chat and is answered there; an u
  assert.deepEqual(run.submitted,[['telegram-4242-1','c1','in the topic','55']]);assert.deepEqual([run.sent.at(-1),run.threads.at(-1)],['Sent to First.','55']);
  await run.desk.receive({...from('2','/status'),thread_id:'55'});assert.deepEqual([run.sent.at(-1),run.threads.at(-1)],['First: Ready','55']);
  await run.desk.receive({...from('3','a topic made in Telegram'),thread_id:'77'});assert.deepEqual(run.submitted.at(-1),['telegram-4242-3','c9','a topic made in Telegram','77']);
- await run.desk.receive(from('4','no topic'));assert.deepEqual([run.submitted.at(-1),run.threads.at(-1)],[['telegram-4242-4','c2','no topic'],undefined]);
- assert.equal(topicName({title:'Plan',pinned:true}),'📌 Plan');assert.equal(topicName({title:'  '}),'New chat');assert.equal(topicName({title:'x'.repeat(300)}).length,128);
+ // A text in the bot chat's main view starts a new chat; a command there is about the chosen chat, as before.
+ await run.desk.receive(from('4','no topic'));assert.deepEqual([run.submitted.at(-1),run.threads.at(-1)],[['telegram-4242-4','c3','no topic'],undefined]);
+ await run.desk.receive(from('5','/status'));assert.equal(run.sent.at(-1),'Second: Ready');
+ assert.equal(topicName({title:'Plan'}),'Plan');assert.equal(topicName({title:'Plan'},'⏳'),'⏳ Plan');assert.equal(topicName({title:'  '}),'New chat');assert.equal(topicName({title:'x'.repeat(300)}).length,128);
+ assert.equal(topicLink('ghidora_bot','55'),'https://t.me/ghidora_bot/55');assert.equal(topicLink('','55'),'');
 });
 
 // 2026-11-01: two messages typed in an existing topic arrived as replies and were refused as late answers.
@@ -116,7 +122,7 @@ test('a reply is a message; only a reply to an old question or approval is refus
  const run=desk({prompt:id=>id==='900'});
  await run.desk.receive({...from('1','typed in the topic'),thread_id:'55',reply_to_message_id:'300'});
  assert.deepEqual(run.submitted,[['telegram-4242-1','c1','typed in the topic','55']]);assert.deepEqual([run.sent.at(-1),run.threads.at(-1)],['Sent to First.','55']);
- await run.desk.receive({...from('2','a reply outside a topic'),reply_to_message_id:'301'});assert.deepEqual(run.submitted.at(-1),['telegram-4242-2','c2','a reply outside a topic']);
+ await run.desk.receive({...from('2','a reply outside a topic'),reply_to_message_id:'301'});assert.deepEqual(run.submitted.at(-1),['telegram-4242-2','c3','a reply outside a topic']);
  await run.desk.receive({...from('3','yes'),thread_id:'55',reply_to_message_id:'900'});
  assert.equal(run.submitted.length,2,'a late answer starts no task');assert.match(run.sent.at(-1)!,/no longer waiting for a reply/);
  const store=new Store(':memory:');
@@ -134,4 +140,56 @@ test("a row for a chat's topic waits for the topic, goes into it, and is dropped
   assert.deepEqual(claimRemoteOutbox(store,1,'4242'),[{seq:2,chat_id:'4242',text:'copied',thread_id:'55'}]);
   assert.deepEqual(claimRemoteOutbox(store,2,'4242'),[],'no topic for c2: the row is cancelled, not sent to the main chat');
   assert.equal(store.get<any>('remote-out','3').status,'cancelled');
+});
+
+// Koan 2026-11-19, version 3 of the Telegram mockup: one thread per chat, made with the chat's name.
+test('a chat gets its thread once it is named, the oldest used first; a gone chat loses its thread',()=>{
+ const chats=[{id:'new',title:'KOAN shader 3',used:300,named:true},{id:'old',title:'bodeverse archive',used:100,named:true},{id:'raw',title:'So I have a new idea for a shader for KOAN.live. T',used:200,named:false}];
+ assert.deepEqual(planTopics(chats,[],0),[{do:'plan',chatId:'old'},{do:'create',chatId:'old',name:'bodeverse archive'},{do:'plan',chatId:'raw'},{do:'plan',chatId:'new'},{do:'create',chatId:'new',name:'KOAN shader 3'}],'the unnamed chat waits for its name');
+ const topics:TopicRecord[]=[{id:'old',threadId:'55',name:'bodeverse archive',status:'ready',created:0},{id:'raw',name:'',status:'pending',created:0},{id:'new',name:'KOAN shader 3',status:'creating',created:0},
+  {id:'deleted',threadId:'60',name:'Testing',status:'ready',created:0},{id:'never',name:'',status:'pending',created:0},{id:'making',name:'x',status:'creating',created:0},{id:'going',threadId:'61',name:'y',status:'deleting',created:0}];
+ assert.deepEqual(planTopics(chats,topics,0),[{do:'delete',id:'deleted',thread:'60'},{do:'delete',id:'never'}],'nothing is made twice; a thread on its way out or in is left alone');
+ // The name follows the app's, with the chat's state in front when it has one.
+ assert.deepEqual(planTopics([{...chats[1],title:'Archive'}],topics.slice(0,1),0),[{do:'rename',chatId:'old',thread:'55',name:'Archive'}]);
+ assert.deepEqual(planTopics([chats[1]],topics.slice(0,1),0,()=>'⏳'),[{do:'rename',chatId:'old',thread:'55',name:'⏳ bodeverse archive'}]);
+ // A thread Telegram refused is tried again when its time comes.
+ const failed:TopicRecord={id:'old',name:'bodeverse archive',status:'failed',created:0,tries:2,retryAt:5000};
+ assert.deepEqual(planTopics([chats[1]],[failed],4999),[]);assert.deepEqual(planTopics([chats[1]],[failed],5000),[{do:'create',chatId:'old',name:'bodeverse archive'}]);
+ assert.deepEqual([1,2,3,4,9].map(tries=>topicRetry(tries,0)/60000),[1,3,9,27,30]);
+});
+
+test('a chat he has not named gets a short name; no two chats share one',()=>{
+ const first='So I have a new idea for a shader for KOAN.live. The idea is that it takes the depth map';
+ assert.equal(autoTitled({title:first.slice(0,55)},first),true);assert.equal(autoTitled({title:'New chat'},undefined),true);
+ assert.equal(autoTitled({title:'bodeverse archive'},first),false,'a name he typed');assert.equal(autoTitled({title:first.slice(0,55),named:'user'},first),false);assert.equal(autoTitled({title:'Fix (fork)'},'Fix'),false);
+ assert.equal(cleanName('"KOAN shader."\nIt is about a shader.'),'KOAN shader');assert.equal(cleanName('Name: **Depth map shader**'),'Depth map shader');
+ assert.equal(cleanName('A very long name that goes on and on past the limit'),'A very long name that goes');assert.equal(cleanName('  \n '),'');
+ assert.equal(fallbackName(first),'So I have a new idea for');assert.equal(fallbackName('???'),'New chat');
+ assert.equal(uniqueName('KOAN shader',['Testing','gAIt']),'KOAN shader');assert.equal(uniqueName('KOAN shader',['koan shader','KOAN shader 2']),'KOAN shader 3');
+});
+
+test("a row waits while its chat's thread is being made; a reply with no thread to be had goes to the main view",()=>{
+ const store=new Store(':memory:');
+ store.put<TopicRecord>('remote-topic',{id:'c1',name:'',status:'pending',created:0});
+ assert.deepEqual(chatPlace(store,'c1','9'),{topicChat:'c1',fallback:true});assert.deepEqual(chatPlace(store,'c2','9'),{thread_id:'9'});assert.deepEqual(chatPlace(store,'c2'),{});
+ enqueueRemote(store,'4242','the reply',undefined,false,chatPlace(store,'c1'));enqueueRemote(store,'4242','elsewhere');
+ assert.deepEqual(claimRemoteOutbox(store,0,'4242'),[{seq:2,chat_id:'4242',text:'elsewhere'}],'the later row goes first; the reply keeps waiting');
+ assert.deepEqual(claimRemoteOutbox(store,2,'4242'),[]);assert.equal(store.get<any>('remote-out','1').status,'pending');
+ store.update<TopicRecord>('remote-topic','c1',{status:'ready',threadId:'55'});
+ assert.deepEqual(claimRemoteOutbox(store,2,'4242'),[{seq:1,chat_id:'4242',text:'the reply',thread_id:'55'}],'handed over although a later row went before it');
+ store.update<TopicRecord>('remote-topic','c1',{status:'failed',threadId:undefined});
+ enqueueRemote(store,'4242','a second reply',undefined,false,chatPlace(store,'c1'));enqueueRemote(store,'4242','a copy of desktop work',undefined,false,{topicChat:'c1'});
+ assert.deepEqual(claimRemoteOutbox(store,0,'4242'),[{seq:3,chat_id:'4242',text:'a second reply'}]);
+ assert.deepEqual(claimRemoteOutbox(store,0,'4242'),[]);assert.equal(store.get<any>('remote-out','4').status,'cancelled');
+ // Buttons and sound travel with the row.
+ enqueueRemote(store,'4242','New chat: Plan',undefined,false,{notify:true,keys:[[{text:'Open Plan',url:'https://t.me/bot/55'}]]});
+ assert.deepEqual(claimRemoteOutbox(store,0,'4242'),[{seq:5,chat_id:'4242',text:'New chat: Plan',notify:true,keys:[[{text:'Open Plan',url:'https://t.me/bot/55'}]]}]);
+});
+
+test('old settled rows go; a question or approval the app sent is kept, and so is the newest row',()=>{
+ const store=new Store(':memory:');
+ enqueueRemote(store,'4242','Approval needed','a1',true);for(let n=0;n<6;n++)enqueueRemote(store,'4242','row '+n);
+ for(const seq of [1,2,3,4,5,6]){claimRemoteOutbox(store,0,'4242');recordRemoteReceipt(store,seq,true,String(900+seq));}
+ assert.equal(pruneRemoteOutbox(store,3),3);assert.deepEqual(store.all<any>('remote-out').map(row=>row.seq).sort(),[1,5,6,7]);
+ assert.equal(remotePrompt(store,'901'),true);assert.equal(enqueueRemote(store,'4242','next').seq,8,'the sequence carries on');
 });

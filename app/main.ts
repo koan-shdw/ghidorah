@@ -114,7 +114,7 @@ import {alwaysOn,claudeConnectorsOn,fixtureClaudeArgs,projectSettingsReview,trus
 import {defaultFolder,defaultModels,dockableJobChats,favouriteModels,repositoryStatus,routingSummaryHost,runAppWatch,savedAppRows,summaryHost,watchApp,watchHost,watchModel,watchRow} from './main/apps';
 import {availableModels,checkDispatch,connectedModels,deepseekModels,fixtureClaude,inputMismatch,loadInputCapabilities,recordRoute,unavailableMessage,videoModel} from './main/models';
 import {chatSelector,classifierActive,decidePick,decisionEngine,jevSettings,jevUrl,kevAddress,pickerConnected,pickerSettings,pickerStatus} from './main/pickers';
-import {featureInstalled,gatewayHome,launchGateway,remoteAlert,remoteBinding,remoteChats,remoteCode,remoteFallback,remoteInbound,remoteLinkTopic,remoteOutbox,remoteRow,remoteSave,remoteSend,remoteSent,remoteSettings,remoteShown,remoteTopicChat,settleRemote,telegramInstalled} from './main/remote';
+import {featureInstalled,gatewayHome,launchGateway,remoteAlert,remoteBinding,remoteChats,remoteCode,remoteFallback,remoteInbound,remoteLinkTopic,remoteOutbox,remotePlanTopic,remoteRow,remoteSave,remoteSend,remoteSent,remoteSettings,remoteShown,remoteTopicChat,settleRemote,telegramInstalled} from './main/remote';
 import {cronNext,wizardRow} from './main/routines';
 import {claudeScreenEnv,screenApps,screenContext,screenEscOn,screenServer,screenSettings,screenSettle,screenStep,screenStop,toolAccess,toolPaths} from './main/screen';
 import {openChatLink,openPage,pageUrl,previewTool_,publish,publishing,shareCheck,shareDeploy,shareDraft,shareSettings,shareSite,shareTest,shareView,shareWithClient,withOwner} from './main/sharing';
@@ -420,7 +420,7 @@ export const remoteDesk=new RemoteDesk({
   settings:()=>remoteSettings(),save:patch=>{remoteSave(patch);emit();},
   seen:id=>store.all<InRecord>('remote-in').some(row=>row.id===id&&['done','uncertain'].includes(row.status)),done:id=>finishRemoteInbound(store,id),send:(text,deny,thread)=>{remoteSend(text,deny,undefined,thread);},alert:remoteAlert,chats:remoteChats,newChat:()=>handlers.newChat({}),
   topicChat:remoteTopicChat,linkTopic:remoteLinkTopic,
-  submit:async(id,chatId,text,thread)=>{await submitTurn({id,chatId,text},{remote:{chatId:remoteSettings().owner,messageId:id,...(thread?{thread}:{})}});},
+  submit:async(id,chatId,text,thread)=>{if(!thread)remotePlanTopic(chatId);await submitTurn({id,chatId,text},{remote:{chatId:remoteSettings().owner,messageId:id,...(thread?{thread}:{})}});},
   stop:async chatId=>{await handlers.stop({chatId});},
   status:chatId=>{const turn=store.all<Turn>('turn').filter(turn=>turn.chatId===chatId&&!turn.parentTurnId).at(-1);return turn?(STATUS[turn.status]||turn.status)+(turn.text?': '+turn.text.slice(0,200):''):'Nothing sent yet.';},
   waiting:()=>{const kind=remoteShown()?.kind;return kind==='approval'||kind==='question'?kind:null;},prompt:id=>remotePrompt(store,id),code:remoteCode,
@@ -439,7 +439,7 @@ async function startRemote(){
   const test=process.env.TRISMEGISTUS_TEST_TELEGRAM_URL,base=namespace.startsWith('Trismegistus/Test/')&&test&&/^http:\/\/127\.0\.0\.1:\d+\/bot$/.test(test)?test:undefined;
   await fs.writeFile(path.join(home,'config.yaml'),JSON.stringify({platforms:{telegram:{enabled:true,extra:{preserve_message_boundaries:true,...(base?{base_url:base,base_file_url:base}:{})}}},plugins:{enabled:['trismegistus-gate']},
     auth:{adopt_external_logins:false},approvals:{mode:'manual',unattended_mode:'deny'},security:{redact_secrets:true,allow_lazy_installs:false},updates:{check:false}},null,2));
-  remoteChannel??=await gateChannel({inbound:remoteInbound,ready:()=>remoteGateway?.ready(),outbox:remoteOutbox,sent:remoteSent});
+  remoteChannel??=await gateChannel({inbound:remoteInbound,ready:info=>{if(info?.username&&info.username!==remoteSettings().username)remoteSave({username:info.username});remoteGateway?.ready();},outbox:remoteOutbox,sent:remoteSent});
   remoteGateway??=new GatewaySupervisor(launchGateway,child=>{child.stdin?.end();if(child.pid)void promisify(execFile)('taskkill',['/PID',String(child.pid),'/T','/F'],{windowsHide:true}).catch(()=>{});},()=>{remoteOn=!!remoteGateway?.running;applyAlwaysOn(false);emit();});
   if(!remoteSettings().enabled){remoteChannel?.close();remoteChannel=undefined;return;}remoteGateway.start();void drainRemoteInbox();
 }

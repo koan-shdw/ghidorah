@@ -16,7 +16,7 @@ import {connectedModels} from '../models';
 import type {Chat,Turn} from '../../types';
 import {alwaysOn} from '../accounts';
 import {dockableJobChats} from '../apps';
-import {remoteSave,remoteSettings} from '../remote';
+import {remoteRebuildTopics,remoteSave,remoteSettings} from '../remote';
 import {cronNext} from '../routines';
 import {screenApps,screenSettings} from '../screen';
 import {hasWork} from '../turns';
@@ -104,8 +104,11 @@ export const settingsHandlers:Record<string,(args:any)=>any>={
     else{remoteSave({enabled:false});remoteStop();}
     emit();
   },
-  // One topic per chat. Turning it on (again) starts from now and clears a topic error; older chats get none.
-  remoteTopics({on}){if(typeof on!=='boolean')throw Error('Invalid switch.');remoteSave({topics:on,topicError:'',topicsSince:on?Date.now():null});emit();},
+  // One thread per chat. Every chat with a message gets one; turning the switch clears a thread error.
+  remoteTopics({on}){if(typeof on!=='boolean')throw Error('Invalid switch.');remoteSave({topics:on,topicError:''});emit();},
+  // For a clean start, after he has cleared the bot's chat in Telegram: the threads the app knows are deleted there
+  // and one per chat is made again, the oldest used first.
+  remoteTopicsRebuild(){if(!remoteSettings().enabled||!remoteSettings().topics)throw Error('Turn Remote and "One topic per chat" on first.');remoteRebuildTopics();},
   remoteInstallCancel(){telegramInstall?.abort();},
   wakeInstallCancel(){wakeInstall?.abort();},
   async voiceFreeKey({key,useGemini,freeTierConfirmed}){

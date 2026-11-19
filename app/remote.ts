@@ -6,15 +6,19 @@ import {createServer,type IncomingMessage} from 'node:http';
 import {randomBytes} from 'node:crypto';
 import type {ChildProcess} from 'node:child_process';
 
-// topics: each new chat gets a topic in the owner's bot chat, from topicsSince on; topicError stops that until the
-// switch is turned off and on again.
-export interface RemoteSettings {enabled:boolean;owner:string;chatId:string|null;paused:boolean;topics:boolean;topicsSince:number|null;topicError:string}
+// topics: every chat with a message gets a thread in the owner's bot chat (Koan 2026-11-19; topicsSince is from the
+// time only new chats got one and is no longer read). topicError: why the last thread could not be made; it is tried
+// again by itself. username: the bot's, as Telegram reports it, for links to a thread.
+export interface RemoteSettings {enabled:boolean;owner:string;chatId:string|null;paused:boolean;topics:boolean;topicsSince:number|null;topicError:string;username:string}
 export function readRemote(row:any):RemoteSettings{
  return {enabled:row?.enabled===true,owner:typeof row?.owner==='string'&&/^[1-9]\d{0,19}$/.test(row.owner)?row.owner:'',chatId:typeof row?.chatId==='string'&&row.chatId?row.chatId:null,paused:row?.paused===true,
-  topics:row?.topics!==false,topicsSince:Number.isSafeInteger(row?.topicsSince)?row.topicsSince:null,topicError:typeof row?.topicError==='string'?row.topicError:''};
+  topics:row?.topics!==false,topicsSince:Number.isSafeInteger(row?.topicsSince)?row.topicsSince:null,topicError:typeof row?.topicError==='string'?row.topicError:'',username:typeof row?.username==='string'&&/^\w{3,40}$/.test(row.username)?row.username:''};
 }
-// A chat's topic name. Pinned chats lead with a pin, since a bot cannot pin or order topics. Telegram takes 128.
-export function topicName(chat:{title:string;pinned?:boolean}){return clip((chat.pinned?'📌 ':'')+(chat.title.trim()||'New chat'),128);}
+// A chat's thread name, as in the app. glyph: the chat's state, shown first; Telegram draws a name's first
+// character as the thread's round icon. Telegram takes 128.
+export function topicName(chat:{title:string},glyph=''){return clip((glyph?glyph+' ':'')+(chat.title.trim()||'New chat'),128);}
+/** The link Telegram opens a thread of the bot's chat with (Bot API 10.4). */
+export function topicLink(username:string,thread:string){return username&&thread?'https://t.me/'+username+'/'+thread:'';}
 
 // An owner's direct message as the gate plugin hands it over. Anything else is refused.
 export interface Inbound {message_id:string;chat_id:string;user_id:string;text:string;reply_to_message_id?:string;thread_id?:string}
@@ -51,9 +55,14 @@ export function remoteTurnId(owner:string,messageId:string){return 'telegram-'+o
 
 // The private channel the gate plugin talks to: POST /inbound, POST /ready, GET /outbox?after=n (held up to 25
 // seconds while empty), POST /sent. Each call carries the per-spawn token.
-// thread_id: the topic it goes to. op: make a topic named text (its receipt's message id is the topic's id), or rename one.
-export interface OutRow {seq:number;chat_id:string;text:string;deny?:boolean;approvalId?:string;thread_id?:string;op?:'topic'|'rename'}
-export async function gateChannel(handlers:{inbound:(value:any)=>Promise<void>;ready:()=>void;outbox:(after:number)=>OutRow[];sent:(seq:number,ok:boolean,messageId?:string)=>void}){
+// thread_id: the topic it goes to. op: make a topic named text (its receipt's message id is the topic's id), rename
+// one, or delete one with its messages. keys: buttons under the message, a link or a press handed back to the app.
+export interface Key {text:string;data?:string;url?:string;style?:'danger'|'success'|'primary'}
+// notify: with sound. Without it a message arrives silently: the gateway's Telegram adapter sends without sound
+// unless told otherwise (its "important" mode, the default).
+export interface OutRow {seq:number;chat_id:string;text:string;deny?:boolean;approvalId?:string;thread_id?:string;op?:'topic'|'rename'|'delete';notify?:boolean;keys?:Key[][]}
+// gone: Telegram answered that the thread no longer exists, so nothing was sent.
+export async function gateChannel(handlers:{inbound:(value:any)=>Promise<void>;ready:(info?:{username?:string})=>void;outbox:(after:number)=>OutRow[];sent:(seq:number,ok:boolean,messageId?:string,gone?:boolean)=>void}){
  let token=randomBytes(32).toString('hex');const waiting=new Set<()=>void>();
  const body=async(request:IncomingMessage)=>{const chunks:Buffer[]=[];let size=0;for await(const chunk of request){size+=chunk.length;if(size>32768)throw Error('Too large.');chunks.push(chunk);}return JSON.parse(Buffer.concat(chunks).toString('utf8')||'null');};
  const server=createServer(async(request,response)=>{
@@ -62,8 +71,8 @@ export async function gateChannel(handlers:{inbound:(value:any)=>Promise<void>;r
   const json=(value:unknown)=>response.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'}).end(JSON.stringify(value));
   try{
    if(request.method==='POST'&&url.pathname==='/inbound'){await handlers.inbound(await body(request));json({ok:true});return;}
-   if(request.method==='POST'&&url.pathname==='/ready'){await body(request);handlers.ready();json({ok:true});return;}
-   if(request.method==='POST'&&url.pathname==='/sent'){const value=await body(request);if(!Number.isSafeInteger(value?.seq)||value.seq<1||typeof value?.ok!=='boolean'||value.message_id!==undefined&&(typeof value.message_id!=='string'||!/^\d{1,20}$/.test(value.message_id)))throw Error('Invalid.');handlers.sent(value.seq,value.ok,value.message_id);json({ok:true});return;}
+   if(request.method==='POST'&&url.pathname==='/ready'){const value=await body(request);handlers.ready(typeof value?.username==='string'?{username:value.username}:undefined);json({ok:true});return;}
+   if(request.method==='POST'&&url.pathname==='/sent'){const value=await body(request);if(!Number.isSafeInteger(value?.seq)||value.seq<1||typeof value?.ok!=='boolean'||value.message_id!==undefined&&(typeof value.message_id!=='string'||!/^\d{1,20}$/.test(value.message_id)))throw Error('Invalid.');handlers.sent(value.seq,value.ok,value.message_id,value.gone===true);json({ok:true});return;}
    if(request.method==='GET'&&url.pathname==='/outbox'){
     const after=Number(url.searchParams.get('after')||0);if(!Number.isSafeInteger(after)||after<0)throw Error('Invalid.');
     let rows=handlers.outbox(after);
@@ -149,7 +158,10 @@ export class RemoteDesk {
  private async dispatch(message:Inbound,settings:RemoteSettings){
   // A message in a topic belongs to that topic's chat, and every answer goes back into the topic.
   const thread=message.thread_id,request=parseRequest(message.text),waiting=this.deps.waiting(),send=(text:string)=>this.deps.send(text,false,thread);
-  let chat=thread?this.deps.topicChat(thread):this.target();
+  // With one thread per chat, a text typed in the bot chat's main view starts a new chat (Koan 2026-11-19); a
+  // command there is about the chosen chat, as before.
+  const fresh=!thread&&settings.topics&&request.kind==='text';
+  let chat=thread?this.deps.topicChat(thread):fresh?null:this.target();
   // A code is an authentication step, not a task; it never reaches a chat or a log.
   if(request.kind==='code'){send(waiting==='approval'?await this.deps.code(request.code,message.reply_to_message_id):'No approval is waiting.');return;}
   if(request.kind==='deny'){send(waiting==='approval'?await this.deps.deny(message.reply_to_message_id,request.seq):'No approval is waiting.');return;}
@@ -162,6 +174,7 @@ export class RemoteDesk {
   // a message: Telegram sends what is typed in an existing topic as a reply (2026-11-01: two were refused here).
   if(message.reply_to_message_id&&this.deps.prompt(message.reply_to_message_id)){send('That message is no longer waiting for a reply. Send a new message to start a task.');return;}
   if(thread&&!chat)chat=await this.deps.linkTopic(thread);
+  if(fresh){const id=await this.deps.newChat();chat={id,title:'the new chat'};}
   if(!chat){send('There is no chat yet. Send /new to start one.');return;}
   try{await this.deps.submit(remoteTurnId(settings.owner,message.message_id),chat.id,request.text,thread);send('Sent to '+chat.title+'.');}
   catch(error){const reason=String(error).replace(/^Error: /,'').slice(0,300);this.deps.alert('Remote task failed',reason);send('Not sent: '+reason);}

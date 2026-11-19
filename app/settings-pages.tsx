@@ -102,7 +102,7 @@ export function BrowserSettings({state,call}:{state:Snapshot;call:Call}){
 // Remote (6a): your own Telegram bot reaches the app while you are away. The token goes to the vault and never
 // comes back to this window.
 export function RemoteSettings({state,call}:{state:Snapshot;call:Call}){
- const remote=state.remote,[pairing,setPairing]=React.useState<{secret:string;qr:string}|null>(null),[token,setToken]=React.useState(''),[owner,setOwner]=React.useState(remote?.owner||''),[error,setError]=React.useState('');
+ const remote=state.remote,[pairing,setPairing]=React.useState<{secret:string;qr:string}|null>(null),[token,setToken]=React.useState(''),[owner,setOwner]=React.useState(remote?.owner||''),[error,setError]=React.useState(''),[rebuild,setRebuild]=React.useState(false);
  const run=(method:string,args?:any)=>void call(method,args).then(()=>setError(''),failure=>setError(String(failure).replace(/^Error: /,'').replace(/^Error invoking remote method 'app': (?:Error: )?/,'')));
  const status=remote?.status==='running'?'Connected to Telegram.':remote?.status==='starting'?'Connecting to Telegram…':remote?.status==='failed'?remote.message:'Off.';
  return <section className="remote-settings"><h3>Remote</h3>
@@ -118,8 +118,11 @@ export function RemoteSettings({state,call}:{state:Snapshot;call:Call}){
   <p className="hint" role="status">{status}</p>
   {remote?.enabled&&<p className="hint">Messages go to {remote.target||'a new chat'}{remote.paused?', paused from Telegram':''}. Send /project on Telegram to switch.</p>}
   <div className="connection-field"><span>One topic per chat</span><Switch checked={remote?.topics!==false} ariaLabel="One topic per chat" label={remote?.topics!==false?'On':'Off'} onChange={()=>run('remoteTopics',{on:remote?.topics===false})}/></div>
-  <p className="hint">Each new chat gets its own topic in your bot chat, with your desktop messages and replies copied in. A message sent in a topic goes to its chat. Pinned chats start with 📌. Needs Threaded Mode, turned on for your bot in BotFather.</p>
+  <p className="hint">Every chat gets its own thread in your bot chat, named as in Ghidorah, with your desktop messages and replies copied in. A message sent in a thread goes to its chat; a message in the main view starts a new chat. A thread goes when its chat is deleted or archived. Needs Threaded Mode, turned on for your bot in BotFather.</p>
   {remote?.topicError&&<p className="hint" role="alert">{remote.topicError}</p>}
+  {rebuild?<div className="actions"><span className="hint">This deletes the threads in Telegram with their messages, then makes one per chat again. Your chats in Ghidorah stay as they are.</span><button onClick={()=>{run('remoteTopicsRebuild');setRebuild(false);}}>Make them again</button><button onClick={()=>setRebuild(false)}>Cancel</button></div>
+   :<div className="actions"><button disabled={!remote?.enabled||remote?.topics===false} onClick={()=>setRebuild(true)}>Make all threads again</button></div>}
+  <p className="hint">For a clean start: clear the bot’s chat in Telegram first. Ghidorah then makes the threads again, the oldest used first.</p>
   </SettingsCard><SettingsCard title="Code before risky actions">
   <p className="hint">Each approval asked from Telegram needs a fresh code from an authenticator app that makes counter-based codes: Google Authenticator, FreeOTP or Aegis. Microsoft Authenticator and Authy do not.</p>
   <div className="actions"><button onClick={()=>void call('remotePair').then(result=>{setPairing(result);setError('');},failure=>setError(String(failure)))}>{remote?.paired?'Pair again':'Pair an authenticator'}</button></div>
