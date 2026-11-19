@@ -30,6 +30,7 @@ import {availableModels,recordRoute,unavailableMessage,videoModel} from '../mode
 import {jevSettings} from '../pickers';
 import {changeProjectMode,projectFor,requireStableFolder,workingDirectory} from '../projects';
 import {remoteBinding} from '../remote';
+import {dropLimitCarry} from '../limit-carry';
 import {openPage,pageUrl} from '../sharing';
 import {pendingTurn} from '../../sidebar';
 import {replyRow,stopDeadline} from '../turns';
@@ -306,6 +307,8 @@ export const chatsHandlers:Record<string,(args:any)=>any>={
   async stop({chatId,turnId,reason='user-stop'}){
     if(!['user-stop','superseded-by-message','goal-pause'].includes(reason))throw Error('Invalid stop reason.');
     const owner=store.get<Chat>('chat',chatId);goals.pause(owner.parentChatId||chatId,'Stopped by you');
+    // His Stop also calls off the carry-on a usage limit left waiting for its reset.
+    if(reason==='user-stop')dropLimitCarry(owner.parentChatId||chatId);
     if(turnId){const group=store.get<Turn>('turn',turnId);if(group.chatId!==chatId||!group.jobs?.length)throw Error('This group belongs to another chat.');}
     // Stop's target is the reply that is running, never a waiting message: those keep their place and go out after
     // it, as in Claude Code, and each keeps its own remove button (TURN-REVIEW part 5).

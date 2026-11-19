@@ -125,6 +125,20 @@ async def _send_once(row):
         # The chat was deleted or archived in the app: its thread goes, with its messages.
         await adapter._bot.delete_forum_topic(chat_id=int(row['chat_id']), message_thread_id=int(thread))
         return {'ok': True}
+    if row.get('op') == 'edit':
+        # A card kept current: the app's own message gets its newer words and buttons.
+        try:
+            await adapter._bot.edit_message_text(chat_id=int(row['chat_id']), message_id=int(row['message_id']), text=row['text'], reply_markup=_keys(row.get('keys')))
+        except Exception as error:
+            words = str(error).lower()
+            if 'message to edit not found' in words or "message can't be edited" in words or 'message_id_invalid' in words:
+                return {'ok': False, 'gone': True}
+            if 'not modified' not in words:
+                raise
+        return {'ok': True}
+    if row.get('op') == 'pin':
+        await adapter._bot.pin_chat_message(chat_id=int(row['chat_id']), message_id=int(row['message_id']), disable_notification=True)
+        return {'ok': True}
     if row.get('op') == 'react':
         # The mark on his own message: the app has it, it is answered, it failed. No text takes the mark away.
         await adapter._bot.set_message_reaction(chat_id=int(row['chat_id']), message_id=int(row['message_id']), reaction=row['text'] or None)

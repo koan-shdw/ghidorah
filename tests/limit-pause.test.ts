@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {limitPause,limitReset,pausePatch,pauseText,resumeDue} from '../app/limit-pause';
+import {carryOnAt,carryOnText,limitPause,limitReset,limitStop,namedReset,pausePatch,pauseText,resetClock,resumeDue} from '../app/limit-pause';
 import type {Availability} from '../app/availability';
 import type {Turn} from '../app/types';
 
@@ -37,4 +37,34 @@ test('the wait ends at the reset time or when the limit lifts earlier; the text 
   const tomorrow=now+20*3600000;
   assert.equal(pauseText(tomorrow,now),'Paused until '+new Date(tomorrow).toLocaleDateString([],{weekday:'short'})+' '+time(tomorrow)+', limit. Resumes by itself');
   assert.deepEqual(Object.keys(pausePatch(later,now)).sort(),['activity','delivery','error','hold','preparation','resume','status','stopReason']);
+});
+
+// Ghidorah 4, job 5 (Koan 2026-11-19): work Claude runs by itself was ended by a limit and the chat sat until he
+// typed "continue". Read from his data: "You've hit your session limit · resets 2:50pm", with a block that has no end
+// time beside the right one.
+test('work a limit stopped is known by the supplier\'s words, and carries on once every limit on its model has reset',()=>{
+  assert.equal(limitStop(turn({status:'failed',error:"You've hit your session limit · resets 2:50pm"})),true);
+  assert.equal(limitStop(turn({status:'failed',error:null,text:'Reading the folders.\n\nYou\'ve hit your usage limit.'})),true,'the words can be the end of the reply');
+  assert.equal(limitStop(turn({status:'interrupted',error:'Usage limit reached · resets 11am'})),true);
+  assert.equal(limitStop(turn({status:'failed',error:'The command exited with code 1'})),false);
+  assert.equal(limitStop(turn({status:'completed',text:'You asked about the session limit.'})),false,'a finished reply that talks about limits is not a stop');
+  assert.equal(limitStop(turn({status:'stopped',error:"You've hit your session limit"})),false,'Stop is his');
+  // The time the refusal names is the next such time on the clock.
+  const at=(hour:number,minute:number,days=0)=>{const date=new Date(now);date.setDate(date.getDate()+days);date.setHours(hour,minute,0,0);return date.getTime();};
+  assert.equal(namedReset('hit your session limit · resets 2:50pm',now),at(14,50));
+  assert.equal(namedReset('resets 6:20am',now),at(6,20,1),'already past today: tomorrow');
+  assert.equal(namedReset('resets at 7pm',now),at(19,0));assert.equal(namedReset('resets 12:05am',now),at(0,5,1));
+  assert.equal(namedReset('resets soon',now),null);assert.equal(namedReset('resets 13:70pm',now),null);
+  // The block without an end time does not hide the limit that has one; the latest reset decides.
+  const blind=row({id:'claude-code:limit:claude-code:opus',key:'limit',scope:'claude-code:opus',resetAt:null}),weekly=row({id:'claude-code:rate:seven_day:account',key:'rate:seven_day',resetAt:later+3600000});
+  assert.equal(limitReset([blind,row()],'claude-code:opus',now),null,'the hole: the first block found has no end time');
+  assert.equal(carryOnAt([blind,row()],'claude-code:opus','',now),later);
+  assert.equal(carryOnAt([blind,row(),weekly],'claude-code:opus','',now),later+3600000);
+  assert.equal(carryOnAt([blind],'claude-code:opus','resets 2:50pm',now),at(14,50),'no end time on record: the time the refusal names');
+  assert.equal(carryOnAt([blind],'claude-code:opus','',now),null,'nothing known: nothing is promised');
+  assert.equal(carryOnAt([row()],'deepseek-flash','',now),null,'another supplier\'s limit');
+  assert.equal(carryOnAt([row({resetAt:now-1})],'claude-code:opus','',now),null);
+  assert.match(carryOnText(0),/^The usage limit that stopped this work has reset\. Carry on from where it stopped\.$/);
+  assert.match(carryOnText(1),/One agent was stopped by the limit before finishing: start it again/);assert.match(carryOnText(3),/3 agents were stopped .* start them again/);
+  assert.equal(resetClock(later,now),time(later));assert.equal(resetClock(now+20*3600000,now),new Date(now+20*3600000).toLocaleDateString([],{weekday:'short'})+' '+time(now+20*3600000));
 });

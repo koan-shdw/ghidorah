@@ -3,10 +3,12 @@ import featureWheels from '../../backend/feature-wheels.json';
 import {backend,claude,data,drainRemoteInbox,emit,handlers,namespace,pluginRuntime,remoteChannel,remoteDesk,remoteEpoch,remoteSecret,root,store} from '../main';
 import {modelLabel} from '../models';
 import {redactPastedKeys} from '../redaction';
-import {LiveFrame,OutRow,approvalPrompt,clip,draftId,draftText,markFor,parseRequest,readEvent,readInbound,readRemote,replyFor,replyShare,secretApproval,topicLink} from '../remote';
+import {Key,LiveFrame,OutRow,approvalPrompt,clip,draftId,draftText,markFor,parseRequest,readEvent,readInbound,readRemote,replyFor,replyShare,secretApproval,topicLink} from '../remote';
 import {RemoteCodeState,bindingDigest,checkCode} from '../remote-code';
 import {enqueueRemoteInbound} from '../remote-inbox';
-import {claimRemoteOutbox,enqueueRemote,enqueueRemoteReply,pruneRemoteOutbox,recordRemoteReceipt,recoverRemoteOutbox,type OutPlace,type OutRecord,type TopicRecord} from '../remote-outbox';
+import {cardReceipt,claimRemoteOutbox,enqueueRemote,enqueueRemoteReply,pruneRemoteOutbox,recordRemoteReceipt,recoverRemoteOutbox,setCard,type CardRecord,type OutPlace,type OutRecord,type TopicRecord} from '../remote-outbox';
+import {resetClock} from '../limit-pause';
+import {dropLimitCarry,limitCarries} from './limit-carry';
 import {NAME_SYSTEM,autoTitled,cleanName,fallbackName,planTopics,topicRetry,uniqueName,type TopicChat} from '../remote-threads';
 import type {Approval,Chat,Turn} from '../types';
 import {alwaysOn} from './accounts';
@@ -26,6 +28,7 @@ export function remoteOutbox(after:number):OutRow[]{return claimRemoteOutbox(sto
 export function remoteSent(seq:number,ok:boolean,messageId?:string,gone=false){
   const before=store.find<OutRecord>('remote-out',String(seq)),row=recordRemoteReceipt(store,seq,ok,messageId),shown=remoteShown();
   if(before?.status!=='sending')return;
+  cardReceipt(store,row.chat_id,row,gone);
   const topics=store.all<TopicRecord>('remote-topic');
   if(row.op==='topic'&&row.topicChat&&topics.some(topic=>topic.id===row.topicChat&&topic.status==='creating')){
     if(row.status==='sent'&&row.messageId){
@@ -51,7 +54,8 @@ export function remoteSent(seq:number,ok:boolean,messageId?:string,gone=false){
     const topic=topics.find(topic=>topic.threadId===row.thread_id&&topic.status==='ready');
     if(topic){
       store.update<TopicRecord>('remote-topic',topic.id,{status:'pending',threadId:undefined,name:''});
-      if(!row.op&&!row.approvalId){const {id,seq:old,status,messageId:sentId,thread_id,chat_id,text,deny,approvalId,...rest}=row;enqueueRemote(store,chat_id,text,undefined,false,{...rest,topicChat:topic.id,fallback:true});}
+      // A card is not sent again from here: its record is gone (cardReceipt), so its next change sends it anew.
+      if(!row.op&&!row.approvalId&&!row.card){const {id,seq:old,status,messageId:sentId,thread_id,chat_id,text,deny,approvalId,...rest}=row;enqueueRemote(store,chat_id,text,undefined,false,{...rest,topicChat:topic.id,fallback:true});}
     }
   }
   if(shown?.seq===seq&&row.approvalId===shown.approvalId){
@@ -250,7 +254,47 @@ export async function remoteEvent(value:unknown):Promise<{text?:string}>{
   }
   const [,action,arg]=/^gh:(\w+):?(.*)$/.exec(event.data)||[],chat=arg?store.find<Chat>('chat',arg):undefined;
   if(action==='stop'&&chat){await handlers.stop({chatId:chat.id});return {text:'Stopped.'};}
+  if(action==='drop'&&chat){const dropped=await dropHeld(chat.id);return {text:dropped?plural(dropped,'message')+' dropped.':'Not carrying on.'};}
   return {text:'That button is no longer in use.'};
+}
+// A card in a chat's thread, or in the bot chat's main view when no chat is given.
+function remoteCard(id:string,card:{text:string;keys?:Key[][]},chatId?:string,more:OutPlace={},final=false){
+  const owner=remoteSettings().owner;if(!owner)return false;
+  const changed=setCard(store,owner,id,{text:backend.scrubber.text(card.text),keys:card.keys},{...(chatId?{topicChat:chatId}:{}),...more},final);if(changed)remoteChannel?.notify();return changed;
+}
+// Held by the usage limit (Koan 2026-11-19, version 3 of the Telegram mockup): a chat whose messages or work a
+// limit holds says so in its thread, once, and keeps that card current: when the limit resets and what carries on
+// then. Before, a text held by the limit got "Sent to ..." and no other word.
+const heldUntil=new Map<string,number>();
+const plural=(count:number,word:string)=>count+' '+word+(count===1?'':'s');
+function heldMessages(chatId:string){return store.where<Turn>('turn','chatId',chatId).filter(turn=>turn.status==='queued'&&!turn.parentTurnId&&!turn.automatic);}
+function settleHolds(){
+  const settings=remoteSettings();if(!settings.enabled||!settings.topics||!settings.owner)return;
+  const now=Date.now(),held=new Map<string,{at:number;messages:number;agents:number;remote:boolean}>();
+  for(const turn of store.where<Turn>('turn','status','queued'))if(turn.resume&&turn.resume.at>now&&!turn.parentTurnId&&!turn.automatic&&!held.has(turn.chatId)){
+    const waiting=heldMessages(turn.chatId);held.set(turn.chatId,{at:Math.max(...waiting.map(row=>row.resume?.at||0)),messages:waiting.length,agents:0,remote:waiting.some(row=>!!row.remote)});
+  }
+  for(const row of limitCarries())if(row.at>now){const entry=held.get(row.id);held.set(row.id,{at:Math.max(entry?.at||0,row.at),messages:entry?.messages||0,agents:row.agents,remote:!!entry?.remote});}
+  const topics=new Set(store.all<TopicRecord>('remote-topic').filter(topic=>topic.status!=='failed'&&topic.status!=='deleting').map(topic=>topic.id));
+  for(const [chatId,entry] of held){
+    if(!topics.has(chatId))continue;
+    const what=entry.agents&&entry.messages?'The '+plural(entry.agents,'agent')+' and your '+plural(entry.messages,'message')+' carry on by themselves then.':entry.agents?'The '+plural(entry.agents,'agent')+' carr'+(entry.agents===1?'ies':'y')+' on by '+(entry.agents===1?'itself':'themselves')+' then.':entry.messages?'Your '+plural(entry.messages,'message')+' go'+(entry.messages===1?'es':'')+' in by '+(entry.messages===1?'itself':'themselves')+' then.':'The work carries on by itself then.';
+    heldUntil.set(chatId,entry.at);
+    remoteCard('hold:'+chatId,{text:'⏸ Stopped by the usage limit\nResets at '+resetClock(entry.at,now)+'.\n'+what,keys:[[{text:'Don’t carry on',data:'gh:drop:'+chatId,style:'danger'}]]},chatId,entry.remote?{notify:true}:{});
+  }
+  // A hold that is over says so on its card and loses its button.
+  for(const card of store.all<CardRecord>('remote-card'))if(card.id.startsWith('hold:')&&!held.has(card.id.slice(5))){
+    const chatId=card.id.slice(5),at=heldUntil.get(chatId);heldUntil.delete(chatId);
+    remoteCard(card.id,{text:at&&now>=at?'The limit reset at '+resetClock(at,now)+'. Carrying on.':'No longer held by the limit.'},chatId,{},true);
+  }
+}
+// "Don't carry on": the messages that wait in the chat are dropped, newest first, and so is the carry-on.
+async function dropHeld(chatId:string){
+  let dropped=0;
+  for(const turn of heldMessages(chatId).sort((a,b)=>b.created-a.created))try{await handlers.cancelQueued({id:turn.id});dropped++;if(turn.remote)remoteMark(remoteMessageId(turn),'');}catch{}
+  dropLimitCarry(chatId);heldUntil.delete(chatId);
+  remoteCard('hold:'+chatId,{text:'Not carrying on.'+(dropped?' '+plural(dropped,'message')+' dropped.':'')},chatId,{},true);
+  emit();return dropped;
 }
 const ENDED=['completed','partial','failed','stopped','interrupted'];
 // The Telegram message a remote turn came from: its id is the tail of the turn's id (remoteTurnId).
@@ -279,6 +323,7 @@ export function settleRemote(){
   settleTopicsSoon();
   settleApprovals();
   remoteLiveSoon();
+  try{settleHolds();}catch{}
   const reply=(turn:Turn)=>{
     if(!turn.remote||turn.remote.replied)return;
     const owner=turn.answeredIn&&turn.answeredIn!==turn.id?store.find<Turn>('turn',turn.answeredIn):undefined;

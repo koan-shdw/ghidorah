@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
 import {readRemote,readInbound,readEvent,parseRequest,remoteTurnId,gateChannel,GatewaySupervisor,RemoteDesk,replyFor,replyShare,markFor,draftId,draftText,secretApproval,clip,topicName,topicLink,type DeskDeps} from '../app/remote';
 import {Store} from '../app/store';
-import {chatPlace,claimRemoteOutbox,enqueueRemote,pruneRemoteOutbox,recordRemoteReceipt,remotePrompt,type TopicRecord} from '../app/remote-outbox';
+import {cardReceipt,chatPlace,claimRemoteOutbox,enqueueRemote,pruneRemoteOutbox,recordRemoteReceipt,remotePrompt,setCard,type CardRecord,type TopicRecord} from '../app/remote-outbox';
 import {autoTitled,cleanName,fallbackName,planTopics,topicRetry,uniqueName} from '../app/remote-threads';
 
 test('only the owner\'s direct message is read; a code, Deny and the safe commands are told apart',()=>{
@@ -231,6 +231,35 @@ test("a row waits while its chat's thread is being made; a reply with no thread 
  // Buttons and sound travel with the row.
  enqueueRemote(store,'4242','New chat: Plan',undefined,false,{notify:true,keys:[[{text:'Open Plan',url:'https://t.me/bot/55'}]]});
  assert.deepEqual(claimRemoteOutbox(store,0,'4242'),[{seq:5,chat_id:'4242',text:'New chat: Plan',notify:true,keys:[[{text:'Open Plan',url:'https://t.me/bot/55'}]]}]);
+});
+
+// A card is one message kept current by editing it: the hold by the usage limit, the plan, Home.
+test('a card is sent once, then edited; changes made while a row still waits are folded into it',()=>{
+ const store=new Store(':memory:'),hand=()=>claimRemoteOutbox(store,0,'4242'),receipt=(seq:number,ok=true,id?:string,gone=false)=>cardReceipt(store,'4242',recordRemoteReceipt(store,seq,ok,id),gone);
+ const card=()=>store.all<CardRecord>('remote-card').find(row=>row.id==='hold:c1');
+ const drop=[[{text:'Don’t carry on',data:'gh:drop:c1',style:'danger' as const}]];
+ assert.equal(setCard(store,'4242','hold:c1',{text:'Resets at 22:30. 1 message',keys:drop},{thread_id:'55'}),true);
+ assert.equal(setCard(store,'4242','hold:c1',{text:'Resets at 22:30. 1 message',keys:drop},{thread_id:'55'}),false,'nothing changed: nothing is sent');
+ assert.equal(setCard(store,'4242','hold:c1',{text:'Resets at 22:30. 2 messages',keys:drop},{thread_id:'55'}),true);
+ assert.deepEqual(hand(),[{seq:1,chat_id:'4242',text:'Resets at 22:30. 2 messages',thread_id:'55',keys:drop}],'the row that had not left took the newer words');
+ // A change while the first send is on its way: the receipt sees it and edits.
+ setCard(store,'4242','hold:c1',{text:'Resets at 22:30. 3 messages',keys:drop},{thread_id:'55'});assert.deepEqual(hand(),[]);
+ receipt(1,true,'900');assert.equal(card()!.messageId,'900');
+ assert.deepEqual(hand(),[{seq:2,chat_id:'4242',text:'Resets at 22:30. 3 messages',op:'edit',message_id:'900',keys:drop}]);receipt(2);
+ // Its last words: the buttons go and the record with them; the message stays.
+ assert.equal(setCard(store,'4242','hold:c1',{text:'The limit reset at 22:30. Carrying on.'},{thread_id:'55'},true),true);assert.equal(card(),undefined);
+ assert.deepEqual(hand(),[{seq:3,chat_id:'4242',text:'The limit reset at 22:30. Carrying on.',op:'edit',message_id:'900'}]);receipt(3);
+ assert.equal(setCard(store,'4242','hold:c1',{text:'x'},{},true),false,'last words for a card that is not there send nothing');
+ // A message that is gone in Telegram: the card is sent anew at its next change.
+ setCard(store,'4242','home',{text:'Ghidorah now · 1 working'});assert.equal(hand()[0].seq,4);cardReceipt(store,'4242',recordRemoteReceipt(store,4,true,'901'),false);
+ setCard(store,'4242','home',{text:'Ghidorah now · 2 working'});assert.equal(hand()[0].op,'edit');cardReceipt(store,'4242',recordRemoteReceipt(store,5,false),true);
+ assert.equal(store.all<CardRecord>('remote-card').length,0);
+ assert.equal(setCard(store,'4242','home',{text:'Ghidorah now · 2 working'}),true);assert.deepEqual(hand(),[{seq:6,chat_id:'4242',text:'Ghidorah now · 2 working'}]);
+ // A card for a chat whose thread could not be made is dropped with its row, and made again later.
+ store.put<TopicRecord>('remote-topic',{id:'c9',name:'x',status:'failed',created:0});
+ setCard(store,'4242','hold:c9',{text:'Held'},{topicChat:'c9'});assert.deepEqual(hand(),[]);
+ store.update<TopicRecord>('remote-topic','c9',{status:'ready',threadId:'77'});
+ assert.equal(setCard(store,'4242','hold:c9',{text:'Held, 2'},{topicChat:'c9'}),true);assert.deepEqual(hand(),[{seq:8,chat_id:'4242',text:'Held, 2',thread_id:'77'}]);
 });
 
 test('old settled rows go; a question or approval the app sent is kept, and so is the newest row',()=>{

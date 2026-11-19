@@ -60,8 +60,9 @@ export function remoteTurnId(owner:string,messageId:string){return 'telegram-'+o
 export interface Key {text:string;data?:string;url?:string;style?:'danger'|'success'|'primary'}
 // notify: with sound. Without it a message arrives silently: the gateway's Telegram adapter sends without sound
 // unless told otherwise (its "important" mode, the default).
-// op 'react': the mark on his message `message_id`; text is the emoji, '' takes the mark away.
-export interface OutRow {seq:number;chat_id:string;text:string;deny?:boolean;approvalId?:string;thread_id?:string;op?:'topic'|'rename'|'delete'|'react';message_id?:string;notify?:boolean;keys?:Key[][]}
+// op 'react': the mark on his message `message_id`; text is the emoji, '' takes the mark away. op 'edit': the
+// app's own message `message_id` gets this text and these buttons. op 'pin': that message is pinned.
+export interface OutRow {seq:number;chat_id:string;text:string;deny?:boolean;approvalId?:string;thread_id?:string;op?:'topic'|'rename'|'delete'|'react'|'edit'|'pin';message_id?:string;notify?:boolean;keys?:Key[][]}
 // A reply as it is written (Bot API sendMessageDraft): each frame replaces the one before it and nothing of it is
 // kept; the finished reply still goes out as a message. done: the reply ended. stop: what a Stop button under it
 // hands back, for a bot chat that cannot show Telegram's own.

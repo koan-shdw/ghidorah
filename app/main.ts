@@ -112,6 +112,7 @@ import artFonts from '../third-party/taag/fonts.json';
 import type {Project,Chat,Turn,Approval,ToolCall,Mode,CodexConnection,ClaudeConnection,ModelPrice,Snapshot,SideAnswer} from './types';
 import {alwaysOn,claudeConnectorsOn,fixtureClaudeArgs,projectSettingsReview,sendNowDefault,trustRecord} from './main/accounts';
 import {sendsNow} from './send-now';
+import {carryTimes,settleLimitCarry} from './main/limit-carry';
 import {defaultFolder,defaultModels,dockableJobChats,favouriteModels,repositoryStatus,routingSummaryHost,runAppWatch,savedAppRows,summaryHost,watchApp,watchHost,watchModel,watchRow} from './main/apps';
 import {availableModels,checkDispatch,connectedModels,deepseekModels,fixtureClaude,inputMismatch,loadInputCapabilities,recordRoute,unavailableMessage,videoModel} from './main/models';
 import {chatSelector,classifierActive,decidePick,decisionEngine,jevSettings,jevUrl,kevAddress,pickerConnected,pickerSettings,pickerStatus} from './main/pickers';
@@ -810,11 +811,13 @@ export function emit(){
   goals?.schedule();
   if(!store||!backend)return;
   screenSettle();askPrices();
+  // Work a usage limit stopped (agents, turns Claude started itself) is noted here and carries on at the reset.
+  settleLimitCarry();
   settleRemote();
   for(const chatId of settleParallel(store)){const id=commandTurns.get(chatId);if(id&&['completed','partial','failed','stopped','interrupted'].includes(store.get<Turn>('turn',id).status)){commandTurns.delete(chatId);wake(chatId);}}
   wakeWaiting();
   // Resume after the usage limit (Koan 2026-11-09): messages paused by a limit wake at their reset time too.
-  const resets=[...health.rows().filter(row=>row.blocked&&row.reason==='limit'&&row.resetAt!==null&&row.resetAt>Date.now()).map(row=>row.resetAt!),...store.where<Turn>('turn','status','queued').filter(turn=>turn.resume&&turn.resume.at>Date.now()).map(turn=>turn.resume!.at)];
+  const resets=[...health.rows().filter(row=>row.blocked&&row.reason==='limit'&&row.resetAt!==null&&row.resetAt>Date.now()).map(row=>row.resetAt!),...store.where<Turn>('turn','status','queued').filter(turn=>turn.resume&&turn.resume.at>Date.now()).map(turn=>turn.resume!.at),...carryTimes()];
   const next=resets.length?Math.min(...resets):null;
   if(next!==scheduledReset){clearTimeout(resetTimer);scheduledReset=next;if(next!==null){resetTimer=setTimeout(()=>{scheduledReset=null;emit();},Math.min(next-Date.now()+10,2147483647));resetTimer.unref();}}
   if(updateTimer)return;updateTimer=setTimeout(()=>{updateTimer=null;if(!quitting)workNotifications?.scan(alwaysOn().desktopNotifications,notificationChatVisible,showWorkNotice,()=>{if(alwaysOn().questionSound&&!namespace.startsWith('Trismegistus/Test/'))shell.beep();});let shared:ReturnType<typeof snapshot>|undefined;const light=()=>shared??=snapshot({tools:false});for(const w of BrowserWindow.getAllWindows())if(!w.isDestroyed()&&!closingWindows.has(w)){if(w===voicesWindow){const voices=voicesView(),text=JSON.stringify(voices);if(text!==voicesSent){voicesSent=text;sendState(w,{voices});}continue;}const job=[...jobWindows].find(([,window])=>window===w)?.[0];const chat=[...chatWindows].find(([,window])=>window===w)?.[0];const workspace=[...workspaceWindows.values()].find(entry=>entry.window===w);if(w===win)sendMainState(w,light());else if(workspace||job||chat)sendState(w,workspace?workspaceWindowState(workspace,light()):job?.startsWith('agent:')?agentSnapshot(job.slice(6),light()):job?jobSnapshot(job,light()):chatSnapshot(chat!,light()));}},32);

@@ -1,21 +1,26 @@
 import type {Store} from './store';
-import type {OutRow} from './remote';
+import type {Key,OutRow} from './remote';
 import type {Turn} from './types';
 
 // topicChat: send into that chat's topic, looked up as the row is handed over, after the topic is made.
 // fallback: with no topic to be had, the row goes to the bot chat's main view instead of being dropped.
-export interface OutRecord extends OutRow {id:string;status:'pending'|'sending'|'sent'|'uncertain'|'cancelled';messageId?:string;topicChat?:string;fallback?:boolean}
+// card: the card this row sends or edits (setCard).
+export interface OutRecord extends OutRow {id:string;status:'pending'|'sending'|'sent'|'uncertain'|'cancelled';messageId?:string;topicChat?:string;fallback?:boolean;card?:string}
+// A card: one message of the app's that is kept current by editing it (a hold, the plan, Home). seq: the row that
+// sends it, until Telegram has given the message its id.
+// final: these are its last words; once they are on the message the record goes.
+export interface CardRecord {id:string;text:string;keys?:Key[][];seq?:number;messageId?:string;final?:boolean}
 // A chat's thread in the owner's bot chat. pending: planned, waiting for the chat's name. creating: its row is out.
 // failed: Telegram refused it; tried again at retryAt. deleting: its chat is gone and the thread is being removed.
 export interface TopicRecord {id:string;threadId?:string;name:string;status:'pending'|'creating'|'ready'|'failed'|'deleting';created:number;tries?:number;retryAt?:number}
-export type OutPlace={thread_id?:string;topicChat?:string;op?:OutRow['op'];fallback?:boolean;notify?:boolean;keys?:OutRow['keys'];message_id?:string};
+export type OutPlace={thread_id?:string;topicChat?:string;op?:OutRow['op'];fallback?:boolean;notify?:boolean;keys?:OutRow['keys'];message_id?:string;card?:string};
 export function enqueueRemote(store:Store,owner:string,text:string,approvalId?:string,deny=false,place:OutPlace={}){
  if(!/^[1-9]\d{0,19}$/.test(owner))throw Error('Invalid Telegram owner.');
  // ponytail: linear history scan; pruneRemoteOutbox keeps the history short.
  const seq=store.all<OutRecord>('remote-out').reduce((max,row)=>Math.max(max,row.seq),0)+1;
  if(!Number.isSafeInteger(seq))throw Error('Remote message sequence exhausted.');
- const {thread_id,topicChat,op,fallback,notify,keys,message_id}=place;
- return store.put<OutRecord>('remote-out',{id:String(seq),seq,chat_id:owner,text,status:'pending',...(approvalId?{approvalId}:{}),...(deny?{deny:true}:{}),...(thread_id?{thread_id}:{}),...(topicChat?{topicChat}:{}),...(op?{op}:{}),...(fallback?{fallback:true}:{}),...(notify?{notify:true}:{}),...(keys?.length?{keys}:{}),...(message_id?{message_id}:{})});
+ const {thread_id,topicChat,op,fallback,notify,keys,message_id,card}=place;
+ return store.put<OutRecord>('remote-out',{id:String(seq),seq,chat_id:owner,text,status:'pending',...(approvalId?{approvalId}:{}),...(deny?{deny:true}:{}),...(thread_id?{thread_id}:{}),...(topicChat?{topicChat}:{}),...(op?{op}:{}),...(fallback?{fallback:true}:{}),...(notify?{notify:true}:{}),...(keys?.length?{keys}:{}),...(message_id?{message_id}:{}),...(card?{card}:{})});
 }
 // `after` is no longer read: a row's own status says whether it was handed over, and a row that waits for its
 // chat's thread must not be passed by for good when a later row goes first.
@@ -34,7 +39,7 @@ export function claimRemoteOutbox(store:Store,_after:number,owner:string):OutRow
    }
    // Persist uncertainty before handing a message to the network. A restart must never send it again blindly.
    store.update<OutRecord>('remote-out',row.id,{status:'sending'});
-   const {id,status,messageId,topicChat,fallback,...message}=row;return [{...message,...(thread?{thread_id:thread}:{})}];
+   const {id,status,messageId,topicChat,fallback,card,...message}=row;return [{...message,...(thread?{thread_id:thread}:{})}];
   }
   return [];
  });
@@ -55,6 +60,37 @@ export function recordRemoteReceipt(store:Store,seq:number,ok:boolean,messageId?
 export function remotePrompt(store:Store,messageId:string){return store.all<OutRecord>('remote-out').some(row=>!!row.approvalId&&row.messageId===messageId);}
 export function recoverRemoteOutbox(store:Store){
  return store.transaction(()=>store.all<OutRecord>('remote-out').filter(row=>row.status==='sending').map(row=>store.update<OutRecord>('remote-out',row.id,{status:'uncertain'})));
+}
+// Cards. setCard sends the card the first time and edits it when its text or buttons change; changes made while an
+// edit still waits are folded into that edit, so a card that changes often costs one call, not many. final: the
+// card's last words (its buttons go); the record is then forgotten, the message stays where it is.
+const sameKeys=(a?:Key[][],b?:Key[][])=>JSON.stringify(a||[])===JSON.stringify(b||[]);
+export function setCard(store:Store,owner:string,id:string,card:{text:string;keys?:Key[][]},place:OutPlace={},final=false){
+ return store.transaction(()=>{
+  const old=store.all<CardRecord>('remote-card').find(row=>row.id===id),keys=final?undefined:card.keys,next:CardRecord={id,text:card.text,...(keys?.length?{keys}:{})};
+  const send=()=>{const row=enqueueRemote(store,owner,card.text,undefined,false,{...place,keys,card:id});store.put<CardRecord>('remote-card',{...next,seq:row.seq});return true;};
+  if(!old)return final?false:send();
+  const keep=()=>{if(final)store.remove('remote-card',id);else store.put<CardRecord>('remote-card',{...next,...(old.seq?{seq:old.seq}:{}),...(old.messageId?{messageId:old.messageId}:{})});};
+  if(old.text===card.text&&sameKeys(old.keys,keys)){if(final)store.remove('remote-card',id);return false;}
+  const rows=store.all<OutRecord>('remote-out').filter(row=>row.card===id),waiting=rows.find(row=>row.status==='pending');
+  // A row of the card's that has not left yet takes the newer words with it.
+  if(waiting){store.put<OutRecord>('remote-out',{...waiting,text:card.text,keys:keys?.length?keys:undefined});keep();return true;}
+  if(old.messageId){enqueueRemote(store,owner,card.text,undefined,false,{op:'edit',message_id:old.messageId,keys,card:id});keep();return true;}
+  // Its first send is on its way: the receipt sees the newer words and edits (cardReceipt).
+  if(rows.some(row=>row.seq===old.seq&&row.status==='sending')){store.put<CardRecord>('remote-card',{...next,seq:old.seq,...(final?{final:true}:{})});return true;}
+  // Its send was lost (cancelled, or never confirmed): the card is made again, unless these were its last words.
+  if(final){store.remove('remote-card',id);return false;}
+  return send();
+ });
+}
+/** What a card's row became. gone: the message no longer exists, so the card is sent anew when it is next set. */
+export function cardReceipt(store:Store,owner:string,row:OutRecord,gone:boolean){
+ if(!row.card)return;
+ const card=store.all<CardRecord>('remote-card').find(item=>item.id===row.card);if(!card)return;
+ if(row.status!=='sent'){if(gone||!row.op)store.remove('remote-card',card.id);return;}
+ if(row.op||!row.messageId)return;
+ if(card.text!==row.text||!sameKeys(card.keys,row.keys))enqueueRemote(store,owner,card.text,undefined,false,{op:'edit',message_id:row.messageId,keys:card.keys,card:card.id});
+ if(card.final)store.remove('remote-card',card.id);else store.put<CardRecord>('remote-card',{...card,messageId:row.messageId,seq:undefined});
 }
 /** Where a message about a chat goes: its thread when it has one or is getting one, else where the message came from. */
 export function chatPlace(store:Store,chatId:string,thread?:string):OutPlace{

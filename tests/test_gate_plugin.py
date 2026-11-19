@@ -253,6 +253,15 @@ def test_a_thread_is_deleted_a_text_is_marked_and_buttons_and_sound_travel():
     assert bot.calls == [('delete_forum_topic', {'chat_id': 4242, 'message_thread_id': 55}),
                          ('set_message_reaction', {'chat_id': 4242, 'message_id': 1017, 'reaction': '👀'}),
                          ('set_message_reaction', {'chat_id': 4242, 'message_id': 1017, 'reaction': None})]
+    # A card kept current: an edit that changes nothing is fine, a message that is gone is said to be gone.
+    assert asyncio.run(gate._send({'seq': 7, 'chat_id': '4242', 'text': 'Resets at 22:30.', 'op': 'edit', 'message_id': '901'})) == {'ok': True}
+    assert bot.calls[-1] == ('edit_message_text', {'chat_id': 4242, 'message_id': 901, 'text': 'Resets at 22:30.', 'reply_markup': None})
+    bot.refuse['edit_message_text'] = [Exception('Bad Request: message is not modified'), Exception('Bad Request: message to edit not found')]
+    assert asyncio.run(gate._send({'seq': 8, 'chat_id': '4242', 'text': 'Resets at 22:30.', 'op': 'edit', 'message_id': '901'})) == {'ok': True}
+    assert asyncio.run(gate._send({'seq': 9, 'chat_id': '4242', 'text': 'Resets at 22:30.', 'op': 'edit', 'message_id': '901'})) == {'ok': False, 'gone': True}
+    assert asyncio.run(gate._send({'seq': 10, 'chat_id': '4242', 'text': '', 'op': 'pin', 'message_id': '901'})) == {'ok': True}
+    assert bot.calls[-1] == ('pin_chat_message', {'chat_id': 4242, 'message_id': 901, 'disable_notification': True})
+    del bot.calls[3:]
     # A plain reply goes through the adapter, without sound unless the row asks for it.
     asyncio.run(gate._send({'seq': 4, 'chat_id': '4242', 'text': 'copy', 'thread_id': '55'}))
     asyncio.run(gate._send({'seq': 5, 'chat_id': '4242', 'text': 'done', 'thread_id': '55', 'notify': True}))

@@ -116,7 +116,7 @@ export function goalHold(chatId:string){
   if(coordination.pending().some(action=>ids.includes(store.get<Turn>('turn',action.job).chatId)))return 'Inspect uncertain actions before continuing the goal.';
   return null;
 }
-export async function submitTurn({id,chatId,text,selected,models,goalRun}:any,source?:Pick<Turn,'remote'|'routine'|'voice'|'handoff'>,signal?:AbortSignal){
+export async function submitTurn({id,chatId,text,selected,models,goalRun}:any,source?:Pick<Turn,'remote'|'routine'|'voice'|'handoff'|'carried'>,signal?:AbortSignal){
     const checkHandoff=()=>{signal?.throwIfAborted();if(source?.handoff&&!source.handoff.push&&projectFor(store.get<Chat>('chat',source.handoff.sourceChatId)).mode==='plan')throw Error('Plan mode permits inspection and proposals only.');if(source?.handoff&&store.get<Chat>('chat',chatId).archived)throw Error('Restore the destination chat before sending a task.');};
     checkHandoff();
     requireStableFolder();
