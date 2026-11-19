@@ -234,5 +234,8 @@
     "Send now: a message sent while a reply runs waits in a dashed bubble. Send now on it, or Ctrl+Enter, stops the reply and sends it. A Send now switch in the chat bar makes that what Enter does, and Settings › General sets it for new chats.",
     "The Workspace panel opens on sections: folder and branch, context, plan, changed files, saved outputs, agents and background work. Files, Changes, Terminal and Preview open from its Tools rows or the title bar, with a way back. The tabs are gone.",
     "Kimi K3.1's thinking levels show as low, high and max."
+  ]},
+  {"version":"0.1.46","date":"2026-11-19","notes":[
+    "Subscriptions: the list at the top of the page is gone. A row with no price has a small amber mark and a box to type the price into, in the row itself. A price that is there is clicked to change it, and a limit that is nearly used up has the same mark."
   ]}
 ]
