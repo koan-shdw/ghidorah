@@ -10,10 +10,12 @@ import type {ChildProcess} from 'node:child_process';
 // time only new chats got one and is no longer read). topicError: why the last thread could not be made; it is tried
 // again by itself. username: the bot's, as Telegram reports it, for links to a thread.
 // stateIcon: a chat's state leads its thread's name (working, needs him, held); off, names stay plain.
-export interface RemoteSettings {enabled:boolean;owner:string;chatId:string|null;paused:boolean;topics:boolean;topicsSince:number|null;topicError:string;username:string;stateIcon:boolean}
+// approveBy: how an approval asked from Telegram is given. 'code': a fresh code from his authenticator, as it has
+// been. 'button': Approve and Deny under the message, no code; his to turn on (Settings, Remote).
+export interface RemoteSettings {enabled:boolean;owner:string;chatId:string|null;paused:boolean;topics:boolean;topicsSince:number|null;topicError:string;username:string;stateIcon:boolean;approveBy:'code'|'button'}
 export function readRemote(row:any):RemoteSettings{
  return {enabled:row?.enabled===true,owner:typeof row?.owner==='string'&&/^[1-9]\d{0,19}$/.test(row.owner)?row.owner:'',chatId:typeof row?.chatId==='string'&&row.chatId?row.chatId:null,paused:row?.paused===true,
-  topics:row?.topics!==false,topicsSince:Number.isSafeInteger(row?.topicsSince)?row.topicsSince:null,topicError:typeof row?.topicError==='string'?row.topicError:'',username:typeof row?.username==='string'&&/^\w{3,40}$/.test(row.username)?row.username:'',stateIcon:row?.stateIcon!==false};
+  topics:row?.topics!==false,topicsSince:Number.isSafeInteger(row?.topicsSince)?row.topicsSince:null,topicError:typeof row?.topicError==='string'?row.topicError:'',username:typeof row?.username==='string'&&/^\w{3,40}$/.test(row.username)?row.username:'',stateIcon:row?.stateIcon!==false,approveBy:row?.approveBy==='button'?'button':'code'};
 }
 // A chat's thread name, as in the app. glyph: the chat's state, shown first; Telegram draws a name's first
 // character as the thread's round icon. Telegram takes 128.
@@ -22,14 +24,25 @@ export function topicName(chat:{title:string},glyph=''){return clip((glyph?glyph
 export function topicLink(username:string,thread:string){return username&&thread?'https://t.me/'+username+'/'+thread:'';}
 
 // An owner's direct message as the gate plugin hands it over. Anything else is refused.
-export interface Inbound {message_id:string;chat_id:string;user_id:string;text:string;reply_to_message_id?:string;thread_id?:string}
+// media: a voice note, photo or file he sent, as the file the gateway saved on this PC; its words are the caption.
+export interface Media {path:string;kind:'voice'|'photo'|'file';name?:string}
+export interface Inbound {message_id:string;chat_id:string;user_id:string;text:string;reply_to_message_id?:string;thread_id?:string;media?:Media[]}
 export function readInbound(value:any,owner:string):Inbound|null{
  if(!owner||!value||typeof value!=='object')return null;
  const {message_id,chat_id,user_id,text,reply_to_message_id,thread_id}=value;
  if(thread_id!==undefined&&(typeof thread_id!=='string'||!/^\d{1,20}$/.test(thread_id)))return null;
  if(typeof message_id!=='string'||!/^\d{1,20}$/.test(message_id)||chat_id!==owner||user_id!==owner||typeof text!=='string'||text.length>8000)return null;
  if(reply_to_message_id!==undefined&&(typeof reply_to_message_id!=='string'||!/^\d{1,20}$/.test(reply_to_message_id)))return null;
- return {message_id,chat_id,user_id,text,...(reply_to_message_id?{reply_to_message_id}:{}),...(thread_id?{thread_id}:{})};
+ let media:Media[]|undefined;
+ if(value.media!==undefined){
+  if(!Array.isArray(value.media)||!value.media.length||value.media.length>10)return null;
+  media=[];
+  for(const item of value.media){
+   if(!item||typeof item.path!=='string'||!item.path||item.path.length>600||!['voice','photo','file'].includes(item.kind)||item.name!==undefined&&(typeof item.name!=='string'||!item.name||item.name.length>240||/[\\/\x00-\x1f]/.test(item.name)))return null;
+   media.push({path:item.path,kind:item.kind,...(item.name?{name:item.name}:{})});
+  }
+ }
+ return {message_id,chat_id,user_id,text,...(reply_to_message_id?{reply_to_message_id}:{}),...(thread_id?{thread_id}:{}),...(media?{media}:{})};
 }
 
 // What a message asks for. A code or Deny answers the approval shown; slash commands are the gate's safe list.
@@ -67,7 +80,8 @@ export interface OutRow {seq:number;chat_id:string;text:string;deny?:boolean;app
 // A reply as it is written (Bot API sendMessageDraft): each frame replaces the one before it and nothing of it is
 // kept; the finished reply still goes out as a message. done: the reply ended. stop: what a Stop button under it
 // hands back, for a bot chat that cannot show Telegram's own.
-export interface LiveFrame {n:number;chat_id:string;thread_id?:string;draft_id:number;text:string;done?:boolean;stop?:string}
+// agents: what a "Stop the agents" button beside it hands back, while agents work for the chat.
+export interface LiveFrame {n:number;chat_id:string;thread_id?:string;draft_id:number;text:string;done?:boolean;stop?:string;agents?:string}
 /** A draft's id: the same for one answer from its first frame to its last, never zero. */
 export function draftId(key:string){let hash=0;for(const char of key)hash=(hash*31+char.charCodeAt(0))|0;return Math.abs(hash)%2147483646+1;}
 /** What a draft shows of a long reply: its end. Telegram takes 4,096 characters. */
@@ -164,7 +178,9 @@ export interface DeskDeps {
  newChat():Promise<string>;
  topicChat(thread:string):{id:string;title:string}|null;    // the chat a topic belongs to
  linkTopic(thread:string):Promise<{id:string;title:string}>; // a new chat for a topic made in Telegram
- submit(id:string,chatId:string,text:string,thread?:string):Promise<void>;
+ submit(id:string,chatId:string,text:string,thread?:string,attachments?:{name:string}[]):Promise<void>;
+ hear(file:string):Promise<string>;          // a voice note's words, through the listening model on this PC
+ attach(chatId:string,media:Media[]):Promise<{name:string}[]>; // his photos and files, saved as the chat's attachments
  stop(chatId:string):Promise<void>;
  status(chatId:string):string;
  waiting():'approval'|'question'|null;       // what the message shown to the owner waits for
@@ -195,9 +211,10 @@ export class RemoteDesk {
   if(request.kind==='code'){send(waiting==='approval'?await this.deps.code(request.code,message.reply_to_message_id):'No approval is waiting.');return;}
   if(request.kind==='deny'){send(waiting==='approval'?await this.deps.deny(message.reply_to_message_id,request.seq):'No approval is waiting.');return;}
   if(request.kind==='command'){await this.command(request.name,request.arg,chat,send);return;}
-  this.deps.alert('Remote task',request.text.slice(0,140));
+  const media=message.media||[],notes=media.filter(item=>item.kind==='voice'),files=media.filter(item=>item.kind!=='voice');
+  this.deps.alert('Remote task',request.text.slice(0,140)||(notes.length?'Voice note':files.some(item=>item.kind==='photo')?'Photo':'File'));
   if(settings.paused){send('Remote messages are paused. Send /pause off to resume.');return;}
-  if(waiting==='question'){send(await this.deps.answer(request.text,message.reply_to_message_id));return;}
+  if(waiting==='question'&&!media.length){send(await this.deps.answer(request.text,message.reply_to_message_id));return;}
   if(waiting==='approval'){send('Reply with the code for the approval shown, or Deny.');return;}
   // Only a reply to an old question or approval is refused, so a late answer never starts a task. Any other reply is
   // a message: Telegram sends what is typed in an existing topic as a reply (2026-11-01: two were refused here).
@@ -206,7 +223,15 @@ export class RemoteDesk {
   if(fresh){const id=await this.deps.newChat();chat={id,title:'the new chat'};}
   if(!chat){send('There is no chat yet. Send /new to start one.');return;}
   // The mark on his text says the app has it (Koan 2026-11-19). Without threads the words still name the chat.
-  try{await this.deps.submit(remoteTurnId(settings.owner,message.message_id),chat.id,request.text,thread);this.deps.mark(message.message_id,MARK.taken);if(!settings.topics)send('Sent to '+chat.title+'.');}
+  // A voice note becomes his message, and he is shown what was heard. A photo or a file goes in as an attachment of
+  // that message, and he is told its name (version 3 of the Telegram mockup).
+  try{
+   let text=request.text;
+   for(const note of notes){const heard=(await this.deps.hear(note.path)).trim();if(!heard)throw Error('Nothing was heard in the voice note.');send('Heard: “'+clip(heard,3500)+'”');text=(text?text+'\n\n':'')+heard;}
+   const attachments=files.length?await this.deps.attach(chat.id,files):undefined;
+   if(attachments?.length)send('Added to the chat: '+attachments.map(item=>item.name).join(', '));
+   await this.deps.submit(remoteTurnId(settings.owner,message.message_id),chat.id,text,thread,attachments);this.deps.mark(message.message_id,MARK.taken);if(!settings.topics)send('Sent to '+chat.title+'.');
+  }
   catch(error){const reason=String(error).replace(/^Error: /,'').slice(0,300);this.deps.alert('Remote task failed',reason);this.deps.mark(message.message_id,MARK.failed);send('Not sent: '+reason);}
  }
  private async command(name:string,arg:string,chat:{id:string;title:string}|null,send:(text:string)=>void){

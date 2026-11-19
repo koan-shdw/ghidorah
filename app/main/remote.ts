@@ -1,17 +1,20 @@
 // remote: moved out of app/main.ts unchanged (SPLIT-PLAN); module state stays in main.ts.
 import featureWheels from '../../backend/feature-wheels.json';
-import {backend,claude,data,drainRemoteInbox,emit,handlers,namespace,pluginRuntime,remoteChannel,remoteDesk,remoteEpoch,remoteSecret,root,store} from '../main';
+import {backend,background,claude,data,drainRemoteInbox,emit,handlers,namespace,native,pluginRuntime,remoteChannel,remoteDesk,remoteEpoch,remoteSecret,root,store} from '../main';
 import {modelLabel} from '../models';
 import {redactPastedKeys} from '../redaction';
-import {AWAY_SECONDS,ChatState,GLYPH,GlyphMemory,HomeRow,Key,LiveFrame,OutRow,approvalPrompt,clip,draftId,draftText,homeCard,markFor,parseRequest,planCard,readEvent,readInbound,readRemote,replyFor,replyShare,secretApproval,settledGlyph,sounds,topicLink} from '../remote';
-import {planSteps} from '../activity';
+import {AWAY_SECONDS,ChatState,GLYPH,GlyphMemory,HomeRow,Key,LiveFrame,Media,OutRow,approvalPrompt,clip,draftId,draftText,homeCard,markFor,parseRequest,planCard,readEvent,readInbound,readRemote,replyFor,replyShare,secretApproval,settledGlyph,sounds,topicLink} from '../remote';
+import {activeAgents,planSteps} from '../activity';
 import {RemoteCodeState,bindingDigest,checkCode} from '../remote-code';
 import {enqueueRemoteInbound} from '../remote-inbox';
 import {cardReceipt,claimRemoteOutbox,enqueueRemote,enqueueRemoteReply,pruneRemoteOutbox,recordRemoteReceipt,recoverRemoteOutbox,setCard,type CardRecord,type OutPlace,type OutRecord,type TopicRecord} from '../remote-outbox';
 import {resetClock} from '../limit-pause';
 import {dropLimitCarry,limitCarries} from './limit-carry';
 import {NAME_SYSTEM,autoTitled,cleanName,fallbackName,planTopics,topicRetry,uniqueName,type TopicChat} from '../remote-threads';
-import type {Approval,Chat,ToolCall,Turn} from '../types';
+import type {Approval,Attachment,Chat,ToolCall,Turn} from '../types';
+import {saveAttachment} from '../attachments';
+import {speechReady,voiceSettings} from './voice';
+import fs from 'node:fs/promises';
 import {alwaysOn} from './accounts';
 import {contextCompletion,sideModel} from './context';
 import {Notification,powerMonitor} from 'electron';
@@ -66,8 +69,34 @@ export function remoteSent(seq:number,ok:boolean,messageId?:string,gone=false){
     else if(row.status==='uncertain'||!row.messageId){store.put('settings',{...shown,id:'remote-shown',kind:'desktop'});remoteAlert('Remote approval delivery unconfirmed','Review the pending approval on the desktop.');}
   }
 }
+// A file the gate hands over is read only from the gateway's own folder, where its Telegram adapter saved it.
+function gatewayFile(file:string){
+  const full=path.resolve(file),home=path.resolve(gatewayHome())+path.sep;
+  return full.toLowerCase().startsWith(home.toLowerCase())?full:null;
+}
+// A voice note's words, through the listening model on this PC (Settings, Voice). The online listening engines
+// take live sound only, so a voice note needs the local one.
+export async function remoteHear(file:string){
+  const full=gatewayFile(file);if(!full)throw Error('That voice note is not one the gateway saved.');
+  if(!speechReady())throw Error('A voice note needs the listening model on the PC. Install it in Settings, Voice.');
+  const result=await backend.host('transcribe',{file:full,model:voiceSettings().sttModel,runtime:pluginRuntime()});
+  return redactPastedKeys(backend.scrubber.text(String(result?.text||'')));
+}
+// His photos and files become attachments of the message they came with, saved and checked as a file attached on
+// the PC is. A video is not taken: it needs a model picked for it on the PC.
+export async function remoteAttach(chatId:string,media:Media[]){
+  const items:Attachment[]=[];
+  for(const item of media){
+    const full=gatewayFile(item.path);if(!full)throw Error('That file is not one the gateway saved.');
+    const name=(item.name||path.basename(full)).replace(/[\\/\x00-\x1f]/g,'_').slice(0,240);
+    items.push(await saveAttachment(path.join(data,'attachments'),chatId,name,new Uint8Array(await fs.readFile(full)),async source=>{const prepared=await backend.host('attachment_prepare',{file:source,name});if(prepared.kind==='video')throw Error('A video cannot be sent in from Telegram. Attach it on the PC.');return prepared;},
+      text=>{if(backend.scrubber.text(text)!==text||redactPastedKeys(text)!==text)throw Error('This file contains a credential. Remove it before sending.');}));
+  }
+  return items;
+}
 export async function remoteInbound(value:unknown){
   const message=readInbound(value,remoteSettings().owner);if(!message||!remoteSettings().enabled)return;
+  if(message.media?.some(item=>!gatewayFile(item.path)))return;
   if(parseRequest(message.text).kind==='code'){await remoteDesk.receive(message);return;}
   if(backend.scrubber.text(message.text)!==message.text||redactPastedKeys(message.text)!==message.text){remoteSend('This looks like an API key. Save it in Settings.',false,undefined,message.thread_id);return;}
   enqueueRemoteInbound(store,message);void drainRemoteInbox();
@@ -113,11 +142,14 @@ export function settleApprovals(){
   const next=store.all<Approval>('approval').find(row=>row.status==='pending'&&remote.has(row.turnId));if(!next)return;
   if(next.method!=='clarify'&&secretApproval(next.params)){void handlers.approve({id:next.id,choice:'deny'}).catch(()=>{});remoteSend('Refused: a message from Telegram cannot open the protected credentials. Use the desktop.',false,undefined,store.get<Turn>('turn',next.turnId).remote?.thread);remoteAlert('Remote task blocked','Protected credentials were refused.');return;}
   const question=next.method==='clarify',description=String(question?(next.params?.question||next.params?.questions?.[0]?.question||'The AI has a question.'):(next.params?.description||next.params?.command||'An action needs your approval.'));
-  const kind=description.length>3600||question&&next.params?.questions?.length>1||!question&&!remoteSecret?'desktop':question?'question':'approval';
+  // By button (his switch in Settings, Remote) an approval needs no paired authenticator; by code it does.
+  const byButton=remoteSettings().approveBy==='button';
+  const kind=description.length>3600||question&&next.params?.questions?.length>1||!question&&!remoteSecret&&!byButton?'desktop':question?'question':'approval';
   store.transaction(()=>{
-    const text=kind==='desktop'?'An approval is waiting on the desktop. Open the app to review it.':question?'Question:\n'+description+'\n\nReply to this message with your answer.':approvalPrompt(description);
-    const row=remoteSend(text,kind==='approval',next.id,store.get<Turn>('turn',next.turnId).remote?.thread,{notify:loud('needs')});
-    store.put('settings',{id:'remote-shown',approvalId:next.id,kind,digest:bindingDigest(remoteBinding(next)),at:Date.now(),seq:row?.seq});
+    const digest=bindingDigest(remoteBinding(next)),buttons=kind==='approval'&&byButton;
+    const text=kind==='desktop'?'An approval is waiting on the desktop. Open the app to review it.':question?'Question:\n'+description+'\n\nReply to this message with your answer.':buttons?'Approval needed:\n'+clip(description.trim(),3600):approvalPrompt(description);
+    const row=remoteSend(text,kind==='approval'&&!buttons,next.id,store.get<Turn>('turn',next.turnId).remote?.thread,{notify:loud('needs'),...(buttons?{keys:[[{text:'Approve',data:'gh:ok:'+digest.slice(0,24),style:'success'},{text:'Deny',data:'gh:no:'+digest.slice(0,24),style:'danger'}]]}:{})});
+    store.put('settings',{id:'remote-shown',approvalId:next.id,kind,digest,at:Date.now(),seq:row?.seq});
   });
 }
 export function remoteChats(){return store.all<Chat>('chat').filter(chat=>!chat.archived&&!chat.parentChatId).sort((a,b)=>(b.updated??b.created??0)-(a.updated??a.created??0)).map(({id,title})=>({id,title}));}
@@ -203,7 +235,9 @@ function settlePlans(now:number){
     working.add(turn.id);
     if(now-(planAt.get(turn.id)||0)<3000)continue;
     planAt.set(turn.id,now);const steps=chatPlan(turn);
-    if(steps?.length)remoteCard('plan:'+turn.id,{text:planCard(steps)},turn.chatId);
+    // While agents work for the chat the plan carries "Stop the agents": the reply itself goes on.
+    const agents=store.where<Turn>('turn','chatId',turn.chatId).some(row=>row.automatic?.kind==='agent'&&(row.status==='running'||row.status==='waiting'));
+    if(steps?.length)remoteCard('plan:'+turn.id,{text:planCard(steps),...(agents?{keys:[[{text:'Stop the agents',data:'gh:agents:'+turn.chatId}]]}:{})},turn.chatId);
   }
   for(const card of store.all<CardRecord>('remote-card'))if(card.id.startsWith('plan:')&&!working.has(card.id.slice(5))){
     const turn=store.find<Turn>('turn',card.id.slice(5)),steps=turn?chatPlan(turn):null;planAt.delete(card.id.slice(5));
@@ -299,7 +333,7 @@ function settleLive(){
       const start=joined.reduce((max,row)=>Math.max(max,row.readAt?.text||0),0),written=draftText(turn.text.slice(start)),text=agents?(agents===1?'1 agent':agents+' agents')+' running'+(written?'\n\n'+written:''):written,draft=draftId(turn.id+':'+joined.length),old=liveFrames.get(turn.chatId);
       writing.add(turn.chatId);
       if(old&&!old.done&&old.draft_id===draft&&old.text===text&&now-old.at<20000)continue;
-      liveFrames.set(turn.chatId,{n:++liveSeq,chat_id:settings.owner,thread_id:thread,draft_id:draft,text,stop:'gh:stop:'+turn.chatId,at:now});changed=true;
+      liveFrames.set(turn.chatId,{n:++liveSeq,chat_id:settings.owner,thread_id:thread,draft_id:draft,text,stop:'gh:stop:'+turn.chatId,...(agents?{agents:'gh:agents:'+turn.chatId}:{}),at:now});changed=true;
     }
   }
   for(const [chatId,frame] of liveFrames)if(!writing.has(chatId)){
@@ -322,6 +356,28 @@ export async function remoteEvent(value:unknown):Promise<{text?:string}>{
   if(action==='new')return {text:'Type your first message here. It starts a new chat.'};
   if(action==='stop'&&chat){await handlers.stop({chatId:chat.id});return {text:'Stopped.'};}
   if(action==='drop'&&chat){const dropped=await dropHeld(chat.id);return {text:dropped?plural(dropped,'message')+' dropped.':'Not carrying on.'};}
+  // "Stop the agents": each agent at work for the chat is stopped as its stop square in the app does; the reply goes on.
+  if(action==='agents'&&chat){
+    const turns=['running','waiting'].flatMap(status=>store.where<Turn>('turn','status',status));let stopped=0;
+    for(const agent of activeAgents({chats:store.all<Chat>('chat'),jobChats:[],turns,approvals:store.all<Approval>('approval'),background:[...(background?.rows()||[]),...(native?.rows()||[])]},chat.id))if(agent.stopId&&!agent.stopping)try{await handlers.backgroundStop({id:agent.stopId});stopped++;}catch{}
+    return {text:stopped?plural(stopped,'agent')+' stopped.':'No agent is running.'};
+  }
+  // Approve and Deny under an approval (Settings, Remote, "Approve with a button"). The press is bound to the
+  // approval shown, as a code is: a changed or answered approval refuses it.
+  if(action==='ok'||action==='no'){
+    const shown=remoteShown(),gone={text:'That approval is no longer waiting.'};
+    if(shown?.kind!=='approval'||!arg||!shown.digest.startsWith(arg))return gone;
+    const approval=store.all<Approval>('approval').find(row=>row.id===shown.approvalId);
+    if(!approval||approval.status!=='pending'){store.remove('settings','remote-shown');return gone;}
+    if(action==='ok'&&remoteSettings().approveBy!=='button')return {text:'Reply to the message with the code from your authenticator.'};
+    if(bindingDigest(remoteBinding(approval))!==shown.digest){store.remove('settings','remote-shown');emit();return {text:'The approval changed. It is shown again.'};}
+    store.remove('settings','remote-shown');
+    try{await handlers.approve({id:approval.id,choice:action==='ok'?'once':'deny',...(action==='ok'?{expectedRemote:{digest:shown.digest,epoch:remoteEpoch}}:{})});}finally{emit();}
+    // The message loses its buttons and keeps what he chose.
+    const asked=shown.seq?store.find<OutRecord>('remote-out',String(shown.seq)):undefined;
+    if(asked&&shown.messageId){enqueueRemote(store,asked.chat_id,asked.text+'\n\nYou '+(action==='ok'?'approved':'denied')+' · '+resetClock(Date.now()),undefined,false,{op:'edit',message_id:shown.messageId});remoteChannel?.notify();}
+    return {text:action==='ok'?'Approved.':'Denied.'};
+  }
   return {text:'That button is no longer in use.'};
 }
 // Whether a message of this kind arrives with sound now (remote.ts `sounds`): never while he is at the PC, which

@@ -192,6 +192,42 @@ def test_topics_are_made_renamed_and_carried_both_ways():
                      ('send', '4242', 'reply', {'thread_id': '55'})]
 
 
+def test_a_voice_note_a_photo_and_a_file_are_handed_over_as_the_files_the_adapter_saved():
+    import gate_channel
+    gate = load_gate()
+    server, seen = app_server()
+    sent = []
+
+    async def send(chat_id, text, reply_to=None, metadata=None):
+        sent.append(text)
+        return SimpleNamespace(success=True)
+
+    gate._adapter = SimpleNamespace(send=send)
+
+    def media(kind, paths, text='', name=None):
+        item = event('4242', text)
+        item.message_type, item.media_urls = SimpleNamespace(value=kind), paths
+        item.raw_message = SimpleNamespace(document=SimpleNamespace(file_name=name) if name else None)
+        return item
+
+    try:
+        gate_channel.configure('http://127.0.0.1:%d/' % server.server_address[1], TOKEN, '4242')
+        asyncio.run(gate.gate(event=media('voice', ['C:/g/cache/audio/note.ogg'])))
+        assert seen[-1][2] == {'message_id': '77', 'chat_id': '4242', 'user_id': '4242', 'text': '', 'media': [{'path': 'C:/g/cache/audio/note.ogg', 'kind': 'voice'}]}
+        asyncio.run(gate.gate(event=media('photo', ['C:/g/cache/images/1.jpg'], ' use this as the cover ')))
+        assert seen[-1][2]['text'] == 'use this as the cover' and seen[-1][2]['media'] == [{'path': 'C:/g/cache/images/1.jpg', 'kind': 'photo'}]
+        asyncio.run(gate.gate(event=media('document', ['C:/g/cache/docs/x.pdf'], name='brief.pdf')))
+        assert seen[-1][2]['media'] == [{'path': 'C:/g/cache/docs/x.pdf', 'kind': 'file', 'name': 'brief.pdf'}]
+        count = len(seen)
+        # A sticker or a video is not handed over, and a message with neither words nor a file is refused.
+        asyncio.run(gate.gate(event=media('sticker', ['C:/g/cache/s.webp'])))
+        asyncio.run(gate.gate(event=media('video', ['C:/g/cache/v.mp4'])))
+        assert len(seen) == count and sent == ['Send a text of up to 8,000 characters, a voice note, a photo or a file.'] * 2
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def telegram_stub():
     """Stand-ins for the python-telegram-bot names the gate uses, so these tests need no Telegram package."""
     import types

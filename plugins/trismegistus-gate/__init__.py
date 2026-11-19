@@ -49,6 +49,19 @@ def _keys(rows):
         for key in row] for row in rows])
 
 
+def _media(event):
+    """A voice note, photo or file he sent, as the files the adapter saved on this PC. The app reads them from there;
+    a sticker, a location and a video are not handed over."""
+    kind = str(getattr(getattr(event, 'message_type', None), 'value', '') or '').lower()
+    kind = {'voice': 'voice', 'photo': 'photo', 'document': 'file', 'audio': 'file'}.get(kind)
+    paths = [path for path in (getattr(event, 'media_urls', None) or []) if isinstance(path, str) and path][:10]
+    if not kind or not paths:
+        return []
+    name = getattr(getattr(getattr(event, 'raw_message', None), 'document', None), 'file_name', None)
+    named = isinstance(name, str) and name and len(paths) == 1 and len(name) <= 240 and not any(char in name for char in '\\/')
+    return [{'path': path, 'kind': kind, **({'name': name} if named else {})} for path in paths]
+
+
 def _owner_dm(source, owner):
     platform = getattr(getattr(source, 'platform', None), 'value', None)
     return (platform == 'telegram' and getattr(source, 'chat_type', None) == 'dm' and not getattr(source, 'is_bot', False)
@@ -63,8 +76,9 @@ async def gate(event=None, gateway=None, session_store=None, **_):
         # A topic of the owner's bot chat: one per app chat. Answers go back into the same topic.
         topic = _topic(event.source)
         text = (event.text or '').strip()
-        if not text or len(text) > 8000:
-            await _send({'chat_id': settings['owner'], 'text': 'Send a text message of up to 8,000 characters.', 'thread_id': topic})
+        media = _media(event)
+        if (not text and not media) or len(text) > 8000:
+            await _send({'chat_id': settings['owner'], 'text': 'Send a text of up to 8,000 characters, a voice note, a photo or a file.', 'thread_id': topic})
             return {'action': 'skip', 'reason': 'invalid text length'}
         command = text[1:].split(maxsplit=1)[0].split('@', 1)[0].lower() if text.startswith('/') and len(text) > 1 else ''
         if command and command not in ALLOWED:
@@ -75,7 +89,8 @@ async def gate(event=None, gateway=None, session_store=None, **_):
         await asyncio.to_thread(_call, '/inbound', {'message_id': str(event.message_id), 'chat_id': settings['owner'],
                                                    'user_id': settings['owner'], 'text': text,
                                                    **({'reply_to_message_id': str(reply_to)} if reply_to else {}),
-                                                   **({'thread_id': topic} if topic else {})})
+                                                   **({'thread_id': topic} if topic else {}),
+                                                   **({'media': media} if media else {})})
     except Exception as error:
         logger.warning('Ghidorah gate could not hand a message to the app: %s', type(error).__name__)
         try:
@@ -226,7 +241,10 @@ async def _draft(frame):
             logger.info('Ghidorah gate: drafts are refused here, a message edited in place is used instead: %s', type(error).__name__)
         _no_draft.add(key)
     text = frame['text'] or '…'
-    keys = _keys([[{'text': 'Stop', 'data': frame['stop'], 'style': 'danger'}]]) if frame.get('stop') else None
+    row = [{'text': 'Stop', 'data': frame['stop'], 'style': 'danger'}] if frame.get('stop') else []
+    if frame.get('agents'):
+        row.append({'text': 'Stop the agents', 'data': frame['agents']})
+    keys = _keys([row]) if row else None
     if preview and preview['draft'] != frame['draft_id']:
         _previews.pop(key, None)
         await bot.delete_message(chat_id=chat, message_id=preview['id'])

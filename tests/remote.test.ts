@@ -7,8 +7,8 @@ import {cardReceipt,chatPlace,claimRemoteOutbox,enqueueRemote,enqueueRemoteReply
 import {autoTitled,cleanName,fallbackName,planTopics,topicRetry,uniqueName} from '../app/remote-threads';
 
 test('only the owner\'s direct message is read; a code, Deny and the safe commands are told apart',()=>{
- assert.deepEqual(readRemote({enabled:true,owner:'4242',chatId:'c1'}),{enabled:true,owner:'4242',chatId:'c1',paused:false,topics:true,topicsSince:null,topicError:'',username:'',stateIcon:true});
- assert.equal(readRemote({stateIcon:false}).stateIcon,false);
+ assert.deepEqual(readRemote({enabled:true,owner:'4242',chatId:'c1'}),{enabled:true,owner:'4242',chatId:'c1',paused:false,topics:true,topicsSince:null,topicError:'',username:'',stateIcon:true,approveBy:'code'});
+ assert.equal(readRemote({stateIcon:false}).stateIcon,false);assert.equal(readRemote({approveBy:'button'}).approveBy,'button');assert.equal(readRemote({approveBy:'anything'}).approveBy,'code','approval stays by code unless he turns the button on');
  assert.equal(readRemote({username:'ghidora_bot'}).username,'ghidora_bot');assert.equal(readRemote({username:'not a name'}).username,'');
  assert.equal(readRemote({owner:'0123'}).owner,'',"an id can't start with 0");
  const message={message_id:'17',chat_id:'4242',user_id:'4242',text:'hello'};
@@ -79,10 +79,11 @@ test('a gateway that keeps stopping is restarted, then latched off after three e
 
 // topics: one thread per chat is on, as it is unless he turns it off; `false` is the plain bot chat without threads.
 function desk(overrides:Partial<DeskDeps>={},topics=true){
- const sent:string[]=[],threads:(string|undefined)[]=[],alerts:string[]=[],submitted:any[]=[],seen=new Set<string>();let settings={enabled:true,owner:'4242',chatId:null as string|null,paused:false,topics,topicsSince:null as number|null,topicError:'',username:'',stateIcon:true};
+ const sent:string[]=[],threads:(string|undefined)[]=[],alerts:string[]=[],submitted:any[]=[],seen=new Set<string>();let settings={enabled:true,owner:'4242',chatId:null as string|null,paused:false,topics,topicsSince:null as number|null,topicError:'',username:'',stateIcon:true,approveBy:'code' as 'code'|'button'};
  const marks:string[][]=[];
  const deps:DeskDeps={settings:()=>settings,save:patch=>{settings={...settings,...patch};},seen:id=>seen.has(id),done:id=>{seen.add(id);},send:(text,_deny,thread)=>{sent.push(text);threads.push(thread);},mark:(id,emoji)=>{marks.push([id,emoji]);},alert:(title,body)=>{alerts.push(title+': '+body);},
-  chats:()=>[{id:'c2',title:'Second'},{id:'c1',title:'First'}],newChat:async()=>'c3',topicChat:thread=>thread==='55'?{id:'c1',title:'First'}:null,linkTopic:async()=>({id:'c9',title:'New chat'}),submit:async(id,chatId,text,thread)=>{submitted.push(thread?[id,chatId,text,thread]:[id,chatId,text]);},stop:async()=>{},status:()=>'Ready',
+  chats:()=>[{id:'c2',title:'Second'},{id:'c1',title:'First'}],newChat:async()=>'c3',topicChat:thread=>thread==='55'?{id:'c1',title:'First'}:null,linkTopic:async()=>({id:'c9',title:'New chat'}),submit:async(id,chatId,text,thread,attachments)=>{submitted.push([id,chatId,text,...(thread?[thread]:[]),...(attachments?.length?[attachments.map(item=>item.name)]:[])]);},stop:async()=>{},status:()=>'Ready',
+  hear:async file=>file.endsWith('quiet.ogg')?'  ':'Are you using agents like instructed?',attach:async(_chatId,media)=>media.map(item=>({name:item.name||'IMG_2041.jpg'})),
   waiting:()=>null,prompt:()=>false,code:async()=>'Approved.',deny:async()=>'Denied.',answer:async()=>'Answered.',...overrides};
  return {desk:new RemoteDesk(deps),sent,threads,alerts,submitted,marks,settings:()=>settings};
 }
@@ -116,6 +117,25 @@ test('while an approval is shown, only a code or Deny answers it; a code never r
  await run.desk.receive(from('3','Deny'));assert.equal(denied,1);
  assert.deepEqual(run.submitted,[]);assert.equal(run.alerts.length,1,'the code is not a task');
  const idle=desk();await idle.desk.receive(from('1','123456'));assert.equal(idle.sent.at(-1),'No approval is waiting.');
+});
+
+// Version 3 of the Telegram mockup: a voice note or a photo goes into the chat.
+test('a voice note becomes his message and he is shown what was heard; a photo or a file goes in as an attachment',async()=>{
+ const run=desk(),voice=(path:string)=>({path,kind:'voice' as const});
+ await run.desk.receive({...from('1',''),thread_id:'55',media:[voice('C:/g/cache/note.ogg')]});
+ assert.deepEqual(run.sent,['Heard: “Are you using agents like instructed?”']);assert.deepEqual(run.threads,['55']);
+ assert.deepEqual(run.submitted,[['telegram-4242-1','c1','Are you using agents like instructed?','55']]);assert.deepEqual(run.marks,[['1','👀']]);assert.equal(run.alerts.at(-1),'Remote task: Voice note');
+ await run.desk.receive({...from('2','use this as the cover'),thread_id:'55',media:[{path:'C:/g/cache/1.jpg',kind:'photo'},{path:'C:/g/cache/brief.pdf',kind:'file',name:'brief.pdf'}]});
+ assert.equal(run.sent.at(-1),'Added to the chat: IMG_2041.jpg, brief.pdf');
+ assert.deepEqual(run.submitted.at(-1),['telegram-4242-2','c1','use this as the cover','55',['IMG_2041.jpg','brief.pdf']]);
+ // A photo with no words is a message too; one sent in the main view starts a new chat, as a text does.
+ await run.desk.receive({...from('3',''),media:[{path:'C:/g/cache/2.jpg',kind:'photo'}]});assert.deepEqual(run.submitted.at(-1),['telegram-4242-3','c3','',['IMG_2041.jpg']]);
+ // Nothing heard: nothing is sent on, and he is told.
+ await run.desk.receive({...from('4',''),thread_id:'55',media:[voice('C:/g/cache/quiet.ogg')]});
+ assert.equal(run.submitted.length,3);assert.deepEqual(run.marks.at(-1),['4','👎']);assert.equal(run.sent.at(-1),'Not sent: Nothing was heard in the voice note.');
+ const message={message_id:'17',chat_id:'4242',user_id:'4242',text:''};
+ assert.deepEqual(readInbound({...message,media:[{path:'C:/g/cache/note.ogg',kind:'voice'}]},'4242')?.media,[{path:'C:/g/cache/note.ogg',kind:'voice'}]);
+ for(const bad of [[],[{path:'',kind:'voice'}],[{path:'x',kind:'video'}],[{path:'x',kind:'file',name:'a/b.pdf'}],Array.from({length:11},()=>({path:'x',kind:'photo'})),'x'])assert.equal(readInbound({...message,media:bad},'4242'),null);
 });
 
 test('a message that cannot be sent on gets the failed mark and the reason',async()=>{

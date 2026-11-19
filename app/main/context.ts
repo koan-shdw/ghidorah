@@ -116,7 +116,8 @@ export function goalHold(chatId:string){
   if(coordination.pending().some(action=>ids.includes(store.get<Turn>('turn',action.job).chatId)))return 'Inspect uncertain actions before continuing the goal.';
   return null;
 }
-export async function submitTurn({id,chatId,text,selected,models,goalRun}:any,source?:Pick<Turn,'remote'|'routine'|'voice'|'handoff'|'carried'>,signal?:AbortSignal){
+// source.attachments: the files a message from Telegram brought with it; they are its own, never the chat's tray.
+export async function submitTurn({id,chatId,text,selected,models,goalRun}:any,source?:Pick<Turn,'remote'|'routine'|'voice'|'handoff'|'carried'|'attachments'>,signal?:AbortSignal){
     const checkHandoff=()=>{signal?.throwIfAborted();if(source?.handoff&&!source.handoff.push&&projectFor(store.get<Chat>('chat',source.handoff.sourceChatId)).mode==='plan')throw Error('Plan mode permits inspection and proposals only.');if(source?.handoff&&store.get<Chat>('chat',chatId).archived)throw Error('Restore the destination chat before sending a task.');};
     checkHandoff();
     requireStableFolder();
@@ -137,7 +138,7 @@ export async function submitTurn({id,chatId,text,selected,models,goalRun}:any,so
     }
     if(backend.scrubber.text(text)!==text || redactPastedKeys(text)!==text)throw Error('This looks like an API key. Save it in Settings.');
     const existing=store.all<Turn>('turn').find(turn=>turn.id===id);if(existing){if(existing.chatId!==chatId||existing.prompt!==text)throw Error('Message ID was already used.');return id;}if(store.all<{id:string;chatId:string}>('turn-removed').some(row=>row.id===id)){if(store.get<{chatId:string}>('turn-removed',id).chatId!==chatId)throw Error('Message ID was already used.');return id;}
-    if(!text.trim()&&(source||!store.get<Chat>('chat',chatId).attachments?.length))throw Error('Add a message or attachment.');
+    if(!text.trim()&&!source?.attachments?.length&&(source||!store.get<Chat>('chat',chatId).attachments?.length))throw Error('Add a message or attachment.');
     if(/^\/compact(?:\s|$)/i.test(text.trim())){
       const chat=sidebar.root(chatId);if(chat.sideSourceId)throw Error('Keep this side chat before compacting.');
       if(chat.attachments?.length)throw Error('Send or remove attachments before /compact.');

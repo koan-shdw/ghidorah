@@ -116,7 +116,7 @@ import {carryTimes,settleLimitCarry} from './main/limit-carry';
 import {defaultFolder,defaultModels,dockableJobChats,favouriteModels,repositoryStatus,routingSummaryHost,runAppWatch,savedAppRows,summaryHost,watchApp,watchHost,watchModel,watchRow} from './main/apps';
 import {availableModels,checkDispatch,connectedModels,deepseekModels,fixtureClaude,inputMismatch,loadInputCapabilities,recordRoute,unavailableMessage,videoModel} from './main/models';
 import {chatSelector,classifierActive,decidePick,decisionEngine,jevSettings,jevUrl,kevAddress,pickerConnected,pickerSettings,pickerStatus} from './main/pickers';
-import {featureInstalled,gatewayHome,launchGateway,remoteAlert,remoteBinding,remoteChats,remoteCode,remoteFallback,remoteEvent,remoteInbound,remoteLinkTopic,remoteLive,remoteLiveSoon,remoteMark,remoteOutbox,remotePlanTopic,remoteRow,remoteSave,remoteSend,remoteSent,remoteSettings,remoteShown,remoteTopicChat,settleRemote,telegramInstalled} from './main/remote';
+import {featureInstalled,gatewayHome,launchGateway,remoteAlert,remoteBinding,remoteChats,remoteCode,remoteFallback,remoteAttach,remoteEvent,remoteHear,remoteInbound,remoteLinkTopic,remoteLive,remoteLiveSoon,remoteMark,remoteOutbox,remotePlanTopic,remoteRow,remoteSave,remoteSend,remoteSent,remoteSettings,remoteShown,remoteTopicChat,settleRemote,telegramInstalled} from './main/remote';
 import {cronNext,wizardRow} from './main/routines';
 import {claudeScreenEnv,screenApps,screenContext,screenEscOn,screenServer,screenSettings,screenSettle,screenStep,screenStop,toolAccess,toolPaths} from './main/screen';
 import {openChatLink,openPage,pageUrl,previewTool_,publish,publishing,shareCheck,shareDeploy,shareDraft,shareSettings,shareSite,shareTest,shareView,shareWithClient,withOwner} from './main/sharing';
@@ -424,10 +424,11 @@ export const remoteDesk=new RemoteDesk({
   topicChat:remoteTopicChat,linkTopic:remoteLinkTopic,
   // A text sent while the chat works reaches the model at once, as one typed in the app does: it is read at the
   // reply's next step and answered there. The chat's Send now switch counts here too: on, the text stops the reply.
-  submit:async(id,chatId,text,thread)=>{
+  hear:remoteHear,attach:remoteAttach,
+  submit:async(id,chatId,text,thread,attachments)=>{
     if(!thread)remotePlanTopic(chatId);
     const running=replyRow(chatId),chat=store.get<Chat>('chat',chatId);
-    await submitTurn({id,chatId,text},{remote:{chatId:remoteSettings().owner,messageId:id,...(thread?{thread}:{})}});
+    await submitTurn({id,chatId,text},{remote:{chatId:remoteSettings().owner,messageId:id,...(thread?{thread}:{})},...(attachments?.length?{attachments:attachments as import('./types').Attachment[]}:{})});
     if(running&&sendsNow(text,true,chat.sendNow??sendNowDefault(),false)&&replyRow(chatId)===running)await handlers.stop({chatId,reason:'superseded-by-message'});
   },
   stop:async chatId=>{await handlers.stop({chatId});},
