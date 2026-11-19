@@ -97,10 +97,11 @@ export function chatPlace(store:Store,chatId:string,thread?:string):OutPlace{
  const topic=store.all<TopicRecord>('remote-topic').find(row=>row.id===chatId);
  return topic?{topicChat:chatId,fallback:true}:thread?{thread_id:thread}:{};
 }
-export function enqueueRemoteReply(store:Store,turnId:string,text:string,notify=false){
+// topics: one thread per chat is on. Off, a reply goes back where its message came from, as it always did.
+export function enqueueRemoteReply(store:Store,turnId:string,text:string,notify=false,topics=true){
  return store.transaction(()=>{
   const turn=store.get<Turn>('turn',turnId);if(!turn.remote||turn.remote.replied)return;
-  const row=enqueueRemote(store,turn.remote.chatId,text,undefined,false,{...chatPlace(store,turn.chatId,turn.remote.thread),notify});
+  const row=enqueueRemote(store,turn.remote.chatId,text,undefined,false,{...(topics?chatPlace(store,turn.chatId,turn.remote.thread):turn.remote.thread?{thread_id:turn.remote.thread}:{}),notify});
   store.update<Turn>('turn',turnId,{remote:{...turn.remote,replied:true}});return row;
  });
 }

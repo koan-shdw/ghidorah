@@ -469,7 +469,7 @@ export function settleRemote(){
     const share=owner?replyShare(owner,turn.id,joined):joined.length?replyShare(turn,turn.id,joined):null,label=(row:Turn)=>modelLabel(row.model,claude.models);
     const text=share===null?models.map(job=>replyFor(job,label(job))).join('\n\n'):turn.status!=='completed'&&turn.status!=='partial'?replyFor(turn,label(turn)):share?share+'\n\n'+label(owner||turn):'';
     // An empty share sends nothing: the answer is in the message beside it, and the mark says it is answered.
-    if(text)enqueueRemoteReply(store,turn.id,backend.scrubber.text(text+(turn.remote.fallback?'\nThe picker was unsure; an available model answered.':'')),loud('ended'));
+    if(text)enqueueRemoteReply(store,turn.id,backend.scrubber.text(text+(turn.remote.fallback?'\nThe picker was unsure; an available model answered.':'')),loud('ended'),remoteSettings().topics);
     else store.update<Turn>('turn',turn.id,{remote:{...turn.remote,replied:true}});
     remoteMark(remoteMessageId(turn),markFor(turn.status));remoteChannel?.notify();
     if(turn.status!=='completed')remoteAlert('Remote task '+(turn.status==='stopped'?'stopped':'failed'),turn.error||turn.prompt);
