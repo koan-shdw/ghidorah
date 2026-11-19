@@ -3,14 +3,15 @@ import featureWheels from '../../backend/feature-wheels.json';
 import {backend,claude,data,drainRemoteInbox,emit,handlers,namespace,pluginRuntime,remoteChannel,remoteDesk,remoteEpoch,remoteSecret,root,store} from '../main';
 import {modelLabel} from '../models';
 import {redactPastedKeys} from '../redaction';
-import {AWAY_SECONDS,Key,LiveFrame,OutRow,approvalPrompt,clip,draftId,draftText,markFor,parseRequest,readEvent,readInbound,readRemote,replyFor,replyShare,secretApproval,sounds,topicLink} from '../remote';
+import {AWAY_SECONDS,ChatState,GLYPH,GlyphMemory,HomeRow,Key,LiveFrame,OutRow,approvalPrompt,clip,draftId,draftText,homeCard,markFor,parseRequest,planCard,readEvent,readInbound,readRemote,replyFor,replyShare,secretApproval,settledGlyph,sounds,topicLink} from '../remote';
+import {planSteps} from '../activity';
 import {RemoteCodeState,bindingDigest,checkCode} from '../remote-code';
 import {enqueueRemoteInbound} from '../remote-inbox';
 import {cardReceipt,claimRemoteOutbox,enqueueRemote,enqueueRemoteReply,pruneRemoteOutbox,recordRemoteReceipt,recoverRemoteOutbox,setCard,type CardRecord,type OutPlace,type OutRecord,type TopicRecord} from '../remote-outbox';
 import {resetClock} from '../limit-pause';
 import {dropLimitCarry,limitCarries} from './limit-carry';
 import {NAME_SYSTEM,autoTitled,cleanName,fallbackName,planTopics,topicRetry,uniqueName,type TopicChat} from '../remote-threads';
-import type {Approval,Chat,Turn} from '../types';
+import type {Approval,Chat,ToolCall,Turn} from '../types';
 import {alwaysOn} from './accounts';
 import {contextCompletion,sideModel} from './context';
 import {Notification,powerMonitor} from 'electron';
@@ -29,6 +30,8 @@ export function remoteSent(seq:number,ok:boolean,messageId?:string,gone=false){
   const before=store.find<OutRecord>('remote-out',String(seq)),row=recordRemoteReceipt(store,seq,ok,messageId),shown=remoteShown();
   if(before?.status!=='sending')return;
   cardReceipt(store,row.chat_id,row,gone);
+  // Home is pinned once it exists, so it stays on top of the bot chat's main view.
+  if(row.card==='home'&&!row.op&&row.status==='sent'&&row.messageId)enqueueRemote(store,row.chat_id,'',undefined,false,{op:'pin',message_id:row.messageId});
   const topics=store.all<TopicRecord>('remote-topic');
   if(row.op==='topic'&&row.topicChat&&topics.some(topic=>topic.id===row.topicChat&&topic.status==='creating')){
     if(row.status==='sent'&&row.messageId){
@@ -153,8 +156,60 @@ export function remoteRebuildTopics(){
 const topicChats=()=>store.all<Chat>('chat').filter(chat=>!chat.archived&&!chat.parentChatId&&!chat.sideSourceId);
 // The message a chat started with: his own, never one the app or an agent sent.
 const firstMessage=(chatId:string)=>store.where<Turn>('turn','chatId',chatId).filter(turn=>!turn.parentTurnId&&!turn.automatic&&!turn.contextSnapshot).sort((a,b)=>a.created-b.created)[0] as Turn|undefined;
-// The state mark that leads a chat's thread name; none until the state is drawn (part 6 of the build).
-function topicGlyph(_chatId:string){return '';}
+// What each chat is doing, for its thread's icon and for Home: it needs him (an approval or a question waits), it
+// works, or the usage limit holds it. A chat that does none of these is not listed.
+function chatStates(now=Date.now()){
+  const states=new Map<string,{state:ChatState;agents:number;until?:number}>(),rootOf=(chatId:string)=>{const chat=store.find<Chat>('chat',chatId);return chat?.parentChatId||chat?.id;};
+  for(const status of ['dispatching','running','waiting','stopping'])for(const turn of store.where<Turn>('turn','status',status)){
+    if(turn.delivery==='sent')continue;                       // a message waiting to be read is not work
+    const root=rootOf(turn.chatId);if(!root)continue;
+    const entry=states.get(root)||{state:'working' as ChatState,agents:0};if(turn.automatic?.kind==='agent')entry.agents++;states.set(root,entry);
+  }
+  for(const [chatId,hold] of chatHolds(now))if(!states.has(chatId))states.set(chatId,{state:'held',agents:0,until:hold.at});
+  for(const approval of store.all<Approval>('approval'))if(approval.status==='pending'){const root=rootOf(approval.chatId);if(root)states.set(root,{agents:states.get(root)?.agents||0,state:'needs'});}
+  return states;
+}
+// The state mark that leads a chat's thread name, once it has settled (remote.ts settledGlyph).
+const glyphs=new Map<string,GlyphMemory>();
+function topicGlyph(chatId:string){return glyphs.get(chatId)?.shown||'';}
+// Home (Koan 2026-11-19, version 3 of the mockup): one message in the bot chat's main view, pinned and kept current:
+// what works, what needs him, what the limit holds, the limit itself, and a link to each of those threads.
+let homeAt=0;
+function limitLine(now:number){
+  const windows=claude?.windows||[],row=windows.find(item=>/session|5/i.test(item.label))||windows[0];if(!row||typeof row.usedPercent!=='number')return '';
+  const at=row.resetAt?Date.parse(row.resetAt):NaN;
+  return 'Limit '+Math.round(row.usedPercent)+'% used'+(Number.isFinite(at)&&at>now?', resets '+resetClock(at,now):'');
+}
+function settleHome(states:ReturnType<typeof chatStates>,now:number){
+  const threads=new Map(store.all<TopicRecord>('remote-topic').filter(topic=>topic.status==='ready'&&topic.threadId).map(topic=>[topic.id,topic.threadId!])),rows:HomeRow[]=[];
+  for(const [chatId,entry] of states){const chat=store.find<Chat>('chat',chatId);if(chat&&!chat.archived&&!chat.sideSourceId)rows.push({state:entry.state,title:chat.title,agents:entry.agents,...(entry.until?{until:resetClock(entry.until,now)}:{}),...(threads.has(chatId)?{thread:threads.get(chatId)}:{})});}
+  const card=homeCard(rows,limitLine(now),remoteSettings().username),old=store.all<CardRecord>('remote-card').find(row=>row.id==='home');
+  if(old&&old.text===backend.scrubber.text(card.text)&&JSON.stringify(old.keys||[])===JSON.stringify(card.keys))return;
+  // At most one change in five seconds: a busy minute must not become a stream of edits.
+  if(now-homeAt<5000){settleTopicsSoon();return;}
+  homeAt=now;remoteCard('home',card);
+}
+// The plan (version 3 of the mockup): a reply's steps as a checklist in its thread, kept current while it works and
+// left as it stood when it ends. The same steps as the checklist at the top of the reply in the app (planSteps).
+const planAt=new Map<string,number>();
+function chatPlan(turn:Turn){
+  const earlier=()=>store.whereIn<ToolCall>('tool','turnId',store.where<Turn>('turn','chatId',turn.chatId).filter(row=>row.created<turn.created).map(row=>row.id));
+  return planSteps(store.where<ToolCall>('tool','turnId',turn.id),earlier);
+}
+function settlePlans(now:number){
+  const threads=new Set(store.all<TopicRecord>('remote-topic').filter(topic=>topic.status==='ready').map(topic=>topic.id)),working=new Set<string>();
+  for(const status of ['running','waiting','stopping'])for(const turn of store.where<Turn>('turn','status',status)){
+    if(turn.parentTurnId||turn.automatic||turn.answeredIn||turn.delivery==='sent'||!threads.has(turn.chatId))continue;
+    working.add(turn.id);
+    if(now-(planAt.get(turn.id)||0)<3000)continue;
+    planAt.set(turn.id,now);const steps=chatPlan(turn);
+    if(steps?.length)remoteCard('plan:'+turn.id,{text:planCard(steps)},turn.chatId);
+  }
+  for(const card of store.all<CardRecord>('remote-card'))if(card.id.startsWith('plan:')&&!working.has(card.id.slice(5))){
+    const turn=store.find<Turn>('turn',card.id.slice(5)),steps=turn?chatPlan(turn):null;planAt.delete(card.id.slice(5));
+    remoteCard(card.id,{text:steps?.length?planCard(steps,true):card.text},turn?.chatId,{},true);
+  }
+}
 // A chat he has not named gets a short name, written by a fast model from its first message, one chat at a time,
 // the oldest used first; the sidebar shows the same name (his calls of 2026-11-19). A chat he named, or one whose
 // title the app made for a purpose (a goal, a fork, a handover), is marked as named and left alone.
@@ -185,9 +240,17 @@ function settleTopics(){
   const records=store.all<TopicRecord>('remote-topic'),known=new Set(records.map(row=>row.id)),chats:TopicChat[]=[];
   // A chat gets its thread with its first message, never before.
   for(const chat of topicChats())if(known.has(chat.id)||firstMessage(chat.id))chats.push({id:chat.id,title:chat.title,used:chat.updated??chat.created??0,named:!!chat.named});
-  let queued=false;
+  // Each chat's state: the mark on its thread once it has held for a moment, and Home.
+  const now=Date.now(),states=chatStates(now);let queued=false,unsettled=false;
+  for(const chat of chats){
+    const state=settings.stateIcon?states.get(chat.id)?.state:undefined,memory=settledGlyph(glyphs.get(chat.id),state?GLYPH[state]:'',now);
+    if(memory.shown||memory.want)glyphs.set(chat.id,memory);else glyphs.delete(chat.id);
+    if(memory.shown!==memory.want)unsettled=true;
+  }
+  try{settleHome(states,now);settlePlans(now);}catch{}
+  if(unsettled)settleTopicsSoon();
   store.transaction(()=>{
-    for(const step of planTopics(chats,records,Date.now(),topicGlyph)){
+    for(const step of planTopics(chats,records,now,topicGlyph)){
       if(step.do==='plan')store.put<TopicRecord>('remote-topic',{id:step.chatId,name:'',status:'pending',created:store.find<Chat>('chat',step.chatId)?.created??0});
       else if(step.do==='create'){store.update<TopicRecord>('remote-topic',step.chatId,{name:step.name,status:'creating'});enqueueRemote(store,settings.owner,step.name,undefined,false,{op:'topic',topicChat:step.chatId});queued=true;}
       else if(step.do==='rename'){store.update<TopicRecord>('remote-topic',step.chatId,{name:step.name});enqueueRemote(store,settings.owner,step.name,undefined,false,{op:'rename',thread_id:step.thread});queued=true;}
@@ -231,7 +294,9 @@ function settleLive(){
       if(turn.parentTurnId||turn.automatic||turn.answeredIn||turn.delivery==='sent')continue;
       const thread=threads.get(turn.chatId),joined=readIn(turn);if(!thread||!turn.remote&&!joined.length)continue;
       // What it has written since the last text from Telegram it read: that is the answer he is waiting for.
-      const start=joined.reduce((max,row)=>Math.max(max,row.readAt?.text||0),0),text=draftText(turn.text.slice(start)),draft=draftId(turn.id+':'+joined.length),old=liveFrames.get(turn.chatId);
+      // Agents at work for the chat lead the draft as one line, so a quiet stretch of the reply is not read as a stop.
+      const agents=store.where<Turn>('turn','chatId',turn.chatId).filter(row=>row.automatic?.kind==='agent'&&(row.status==='running'||row.status==='waiting')).length;
+      const start=joined.reduce((max,row)=>Math.max(max,row.readAt?.text||0),0),written=draftText(turn.text.slice(start)),text=agents?(agents===1?'1 agent':agents+' agents')+' running'+(written?'\n\n'+written:''):written,draft=draftId(turn.id+':'+joined.length),old=liveFrames.get(turn.chatId);
       writing.add(turn.chatId);
       if(old&&!old.done&&old.draft_id===draft&&old.text===text&&now-old.at<20000)continue;
       liveFrames.set(turn.chatId,{n:++liveSeq,chat_id:settings.owner,thread_id:thread,draft_id:draft,text,stop:'gh:stop:'+turn.chatId,at:now});changed=true;
@@ -253,6 +318,8 @@ export async function remoteEvent(value:unknown):Promise<{text?:string}>{
     return {};
   }
   const [,action,arg]=/^gh:(\w+):?(.*)$/.exec(event.data)||[],chat=arg?store.find<Chat>('chat',arg):undefined;
+  // A chat gets its thread with its first message, so "New chat" says how to start one.
+  if(action==='new')return {text:'Type your first message here. It starts a new chat.'};
   if(action==='stop'&&chat){await handlers.stop({chatId:chat.id});return {text:'Stopped.'};}
   if(action==='drop'&&chat){const dropped=await dropHeld(chat.id);return {text:dropped?plural(dropped,'message')+' dropped.':'Not carrying on.'};}
   return {text:'That button is no longer in use.'};
@@ -275,13 +342,18 @@ function remoteCard(id:string,card:{text:string;keys?:Key[][]},chatId?:string,mo
 const heldUntil=new Map<string,number>();
 const plural=(count:number,word:string)=>count+' '+word+(count===1?'':'s');
 function heldMessages(chatId:string){return store.where<Turn>('turn','chatId',chatId).filter(turn=>turn.status==='queued'&&!turn.parentTurnId&&!turn.automatic);}
-function settleHolds(){
-  const settings=remoteSettings();if(!settings.enabled||!settings.topics||!settings.owner)return;
-  const now=Date.now(),held=new Map<string,{at:number;messages:number;agents:number;remote:boolean}>();
+// The chats the usage limit holds: until when, how many messages of his wait, how many agents it stopped.
+function chatHolds(now=Date.now()){
+  const held=new Map<string,{at:number;messages:number;agents:number;remote:boolean}>();
   for(const turn of store.where<Turn>('turn','status','queued'))if(turn.resume&&turn.resume.at>now&&!turn.parentTurnId&&!turn.automatic&&!held.has(turn.chatId)){
     const waiting=heldMessages(turn.chatId);held.set(turn.chatId,{at:Math.max(...waiting.map(row=>row.resume?.at||0)),messages:waiting.length,agents:0,remote:waiting.some(row=>!!row.remote)});
   }
   for(const row of limitCarries())if(row.at>now){const entry=held.get(row.id);held.set(row.id,{at:Math.max(entry?.at||0,row.at),messages:entry?.messages||0,agents:row.agents,remote:!!entry?.remote});}
+  return held;
+}
+function settleHolds(){
+  const settings=remoteSettings();if(!settings.enabled||!settings.topics||!settings.owner)return;
+  const now=Date.now(),held=chatHolds(now);
   const topics=new Set(store.all<TopicRecord>('remote-topic').filter(topic=>topic.status!=='failed'&&topic.status!=='deleting').map(topic=>topic.id));
   for(const [chatId,entry] of held){
     if(!topics.has(chatId))continue;

@@ -106,6 +106,9 @@ export const settingsHandlers:Record<string,(args:any)=>any>={
   },
   // One thread per chat. Every chat with a message gets one; turning the switch clears a thread error.
   remoteTopics({on}){if(typeof on!=='boolean')throw Error('Invalid switch.');remoteSave({topics:on,topicError:''});emit();},
+  // A chat's state as the first mark of its thread's name, which Telegram draws as the thread's icon. Off, the
+  // names go back to plain at the next pass.
+  remoteStateIcon({on}){if(typeof on!=='boolean')throw Error('Invalid switch.');remoteSave({stateIcon:on});emit();},
   // For a clean start, after he has cleared the bot's chat in Telegram: the threads the app knows are deleted there
   // and one per chat is made again, the oldest used first.
   remoteTopicsRebuild(){if(!remoteSettings().enabled||!remoteSettings().topics)throw Error('Turn Remote and "One topic per chat" on first.');remoteRebuildTopics();},

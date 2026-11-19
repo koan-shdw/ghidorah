@@ -9,10 +9,11 @@ import type {ChildProcess} from 'node:child_process';
 // topics: every chat with a message gets a thread in the owner's bot chat (Koan 2026-11-19; topicsSince is from the
 // time only new chats got one and is no longer read). topicError: why the last thread could not be made; it is tried
 // again by itself. username: the bot's, as Telegram reports it, for links to a thread.
-export interface RemoteSettings {enabled:boolean;owner:string;chatId:string|null;paused:boolean;topics:boolean;topicsSince:number|null;topicError:string;username:string}
+// stateIcon: a chat's state leads its thread's name (working, needs him, held); off, names stay plain.
+export interface RemoteSettings {enabled:boolean;owner:string;chatId:string|null;paused:boolean;topics:boolean;topicsSince:number|null;topicError:string;username:string;stateIcon:boolean}
 export function readRemote(row:any):RemoteSettings{
  return {enabled:row?.enabled===true,owner:typeof row?.owner==='string'&&/^[1-9]\d{0,19}$/.test(row.owner)?row.owner:'',chatId:typeof row?.chatId==='string'&&row.chatId?row.chatId:null,paused:row?.paused===true,
-  topics:row?.topics!==false,topicsSince:Number.isSafeInteger(row?.topicsSince)?row.topicsSince:null,topicError:typeof row?.topicError==='string'?row.topicError:'',username:typeof row?.username==='string'&&/^\w{3,40}$/.test(row.username)?row.username:''};
+  topics:row?.topics!==false,topicsSince:Number.isSafeInteger(row?.topicsSince)?row.topicsSince:null,topicError:typeof row?.topicError==='string'?row.topicError:'',username:typeof row?.username==='string'&&/^\w{3,40}$/.test(row.username)?row.username:'',stateIcon:row?.stateIcon!==false};
 }
 // A chat's thread name, as in the app. glyph: the chat's state, shown first; Telegram draws a name's first
 // character as the thread's round icon. Telegram takes 128.
@@ -228,6 +229,35 @@ export class RemoteDesk {
 
 // A chat's state in words, for /status.
 export const STATUS:Record<string,string>={queued:'Queued',dispatching:'Starting',running:'Working',waiting:'Waiting for approval',stopping:'Stopping',completed:'Completed','needs-model':'Choosing a model',failed:'Failed',stopped:'Stopped',interrupted:'Interrupted',partial:'Partly done'};
+// A chat's state as Telegram shows it (Koan 2026-11-19, version 3 of the mockup): the mark that leads its thread's
+// name, which Telegram draws as the thread's round icon, and its line in the Home message.
+export type ChatState='working'|'needs'|'held';
+export const GLYPH:Record<ChatState,string>={working:'⏳',needs:'❗',held:'⏸'};
+export interface HomeRow {state:ChatState;title:string;agents:number;until?:string;thread?:string}
+/** The Home message: what runs, what waits for him, what the limit holds, and the limit itself. Its first line is
+ * what Telegram shows in the pinned bar. */
+export function homeCard(rows:HomeRow[],limit:string,username:string):{text:string;keys:Key[][]}{
+ const count=(state:ChatState)=>rows.filter(row=>row.state===state).length,parts=[count('working')&&count('working')+' working',count('needs')&&count('needs')+(count('needs')===1?' needs you':' need you'),count('held')&&count('held')+' held'].filter(Boolean);
+ const order:ChatState[]=['needs','working','held'],sorted=[...rows].sort((a,b)=>order.indexOf(a.state)-order.indexOf(b.state)).slice(0,12);
+ const line=(row:HomeRow)=>GLYPH[row.state]+' '+clip(row.title,60)+' · '+(row.state==='needs'?'needs you':row.state==='held'?'held'+(row.until?' until '+row.until:''):'working')+(row.agents?', '+row.agents+(row.agents===1?' agent':' agents'):'');
+ const links=sorted.filter(row=>row.thread&&username).slice(0,6).map(row=>({text:clip(row.title,28),url:topicLink(username,row.thread!)}));
+ return {text:['Ghidorah now · '+(parts.length?parts.join(', '):'nothing running'),...sorted.map(line),...(limit?['· '+limit]:[])].join('\n'),
+  keys:[...Array.from({length:Math.ceil(links.length/2)},(_,index)=>links.slice(index*2,index*2+2)),[{text:'New chat',data:'gh:new',style:'primary'}]]};
+}
+/** A reply's plan as a checklist. done: the reply has ended, so the heading says how far it got. */
+export function planCard(steps:{content:string;status:string}[],done=false){
+ const kept=steps.filter(step=>step.status!=='cancelled'),finished=kept.filter(step=>step.status==='completed').length;
+ return clip((done?'Plan · '+finished+' of '+kept.length+(kept.length===1?' step':' steps')+' done':'Plan')+'\n'+kept.slice(0,40).map(step=>(step.status==='completed'?'✓ ':step.status==='in_progress'?'▸ ':'· ')+clip(step.content.replace(/\s+/g,' ').trim(),160)).join('\n')+(kept.length>40?'\n… and '+(kept.length-40)+' more':''),3900);
+}
+// The state mark changes only once the state has held for a moment, and never twice in quick succession for one
+// chat: a reply that ends and starts again must not rename its thread each time. "Needs you" shows at once.
+export interface GlyphMemory {shown:string;want:string;since:number;changed:number}
+export function settledGlyph(memory:GlyphMemory|undefined,want:string,now:number,hold=4000,gap=15000):GlyphMemory{
+ const next:GlyphMemory=memory?{...memory}:{shown:'',want:'',since:now,changed:Number.NEGATIVE_INFINITY};
+ if(next.want!==want){next.want=want;next.since=now;}
+ if(next.shown!==want&&(want===GLYPH.needs||now-next.since>=hold)&&(want===GLYPH.needs||now-next.changed>=gap)){next.shown=want;next.changed=now;}
+ return next;
+}
 // Sound (Koan 2026-11-19): a message from the app arrives without sound, unless work has ended or it needs him,
 // and never while he is at the PC. ended: a finished reply, to a text from Telegram or to desktop work copied in.
 // needs: an approval, a question, a hold on a text he sent. note: everything else (a line that says where a chat's

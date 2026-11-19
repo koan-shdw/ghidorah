@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
-import {AWAY_SECONDS,sounds,readRemote,readInbound,readEvent,parseRequest,remoteTurnId,gateChannel,GatewaySupervisor,RemoteDesk,replyFor,replyShare,markFor,draftId,draftText,secretApproval,clip,topicName,topicLink,type DeskDeps} from '../app/remote';
+import {AWAY_SECONDS,GLYPH,homeCard,planCard,settledGlyph,sounds,readRemote,readInbound,readEvent,parseRequest,remoteTurnId,gateChannel,GatewaySupervisor,RemoteDesk,replyFor,replyShare,markFor,draftId,draftText,secretApproval,clip,topicName,topicLink,type DeskDeps} from '../app/remote';
 import {Store} from '../app/store';
 import {cardReceipt,chatPlace,claimRemoteOutbox,enqueueRemote,enqueueRemoteReply,pruneRemoteOutbox,recordRemoteReceipt,remotePrompt,setCard,type CardRecord,type TopicRecord} from '../app/remote-outbox';
 import {autoTitled,cleanName,fallbackName,planTopics,topicRetry,uniqueName} from '../app/remote-threads';
 
 test('only the owner\'s direct message is read; a code, Deny and the safe commands are told apart',()=>{
- assert.deepEqual(readRemote({enabled:true,owner:'4242',chatId:'c1'}),{enabled:true,owner:'4242',chatId:'c1',paused:false,topics:true,topicsSince:null,topicError:'',username:''});
+ assert.deepEqual(readRemote({enabled:true,owner:'4242',chatId:'c1'}),{enabled:true,owner:'4242',chatId:'c1',paused:false,topics:true,topicsSince:null,topicError:'',username:'',stateIcon:true});
+ assert.equal(readRemote({stateIcon:false}).stateIcon,false);
  assert.equal(readRemote({username:'ghidora_bot'}).username,'ghidora_bot');assert.equal(readRemote({username:'not a name'}).username,'');
  assert.equal(readRemote({owner:'0123'}).owner,'',"an id can't start with 0");
  const message={message_id:'17',chat_id:'4242',user_id:'4242',text:'hello'};
@@ -78,7 +79,7 @@ test('a gateway that keeps stopping is restarted, then latched off after three e
 
 // topics: one thread per chat is on, as it is unless he turns it off; `false` is the plain bot chat without threads.
 function desk(overrides:Partial<DeskDeps>={},topics=true){
- const sent:string[]=[],threads:(string|undefined)[]=[],alerts:string[]=[],submitted:any[]=[],seen=new Set<string>();let settings={enabled:true,owner:'4242',chatId:null as string|null,paused:false,topics,topicsSince:null as number|null,topicError:'',username:''};
+ const sent:string[]=[],threads:(string|undefined)[]=[],alerts:string[]=[],submitted:any[]=[],seen=new Set<string>();let settings={enabled:true,owner:'4242',chatId:null as string|null,paused:false,topics,topicsSince:null as number|null,topicError:'',username:'',stateIcon:true};
  const marks:string[][]=[];
  const deps:DeskDeps={settings:()=>settings,save:patch=>{settings={...settings,...patch};},seen:id=>seen.has(id),done:id=>{seen.add(id);},send:(text,_deny,thread)=>{sent.push(text);threads.push(thread);},mark:(id,emoji)=>{marks.push([id,emoji]);},alert:(title,body)=>{alerts.push(title+': '+body);},
   chats:()=>[{id:'c2',title:'Second'},{id:'c1',title:'First'}],newChat:async()=>'c3',topicChat:thread=>thread==='55'?{id:'c1',title:'First'}:null,linkTopic:async()=>({id:'c9',title:'New chat'}),submit:async(id,chatId,text,thread)=>{submitted.push(thread?[id,chatId,text,thread]:[id,chatId,text]);},stop:async()=>{},status:()=>'Ready',
@@ -231,6 +232,35 @@ test("a row waits while its chat's thread is being made; a reply with no thread 
  // Buttons and sound travel with the row.
  enqueueRemote(store,'4242','New chat: Plan',undefined,false,{notify:true,keys:[[{text:'Open Plan',url:'https://t.me/bot/55'}]]});
  assert.deepEqual(claimRemoteOutbox(store,0,'4242'),[{seq:5,chat_id:'4242',text:'New chat: Plan',notify:true,keys:[[{text:'Open Plan',url:'https://t.me/bot/55'}]]}]);
+});
+
+// Version 3 of the Telegram mockup: the chat's state on its thread's icon, Home, the plan as a checklist.
+test('Home lists what needs him, what works and what is held, with a link to each thread',()=>{
+ const card=homeCard([{state:'working',title:'bodeverse archive',agents:3,thread:'2625'},{state:'needs',title:'KOAN shader 2',agents:0,thread:'2630'},{state:'held',title:'gAIt',agents:0,until:'22:30'}],'Limit 61% used, resets 22:30','ghidora_bot');
+ assert.equal(card.text,'Ghidorah now · 1 working, 1 needs you, 1 held\n❗ KOAN shader 2 · needs you\n⏳ bodeverse archive · working, 3 agents\n⏸ gAIt · held until 22:30\n· Limit 61% used, resets 22:30');
+ assert.deepEqual(card.keys,[[{text:'KOAN shader 2',url:'https://t.me/ghidora_bot/2630'},{text:'bodeverse archive',url:'https://t.me/ghidora_bot/2625'}],[{text:'New chat',data:'gh:new',style:'primary'}]],'a chat without a thread yet has no link');
+ const idle=homeCard([],'','');assert.equal(idle.text,'Ghidorah now · nothing running');assert.deepEqual(idle.keys,[[{text:'New chat',data:'gh:new',style:'primary'}]]);
+ assert.equal(homeCard([{state:'needs',title:'a',agents:0},{state:'needs',title:'b',agents:1}],'','').text,'Ghidorah now · 2 need you\n❗ a · needs you\n❗ b · needs you, 1 agent');
+});
+
+test('the plan is a checklist; a dropped step is left out and a finished reply says how far it got',()=>{
+ const steps=[{content:'Read the overview',status:'completed'},{content:'Start three\n  Opus readers',status:'completed'},{content:'Collect what they save',status:'in_progress'},{content:'Write the index',status:'pending'},{content:'Dropped',status:'cancelled'}];
+ assert.equal(planCard(steps),'Plan\n✓ Read the overview\n✓ Start three Opus readers\n▸ Collect what they save\n· Write the index');
+ assert.equal(planCard(steps,true).split('\n')[0],'Plan · 2 of 4 steps done');
+ const many=planCard(Array.from({length:45},(_,index)=>({content:'Step '+index,status:'pending'})));assert.equal(many.split('\n').length,42);assert.match(many,/… and 5 more$/);
+});
+
+test("a chat's state mark waits until the state has held, and does not flap; needing him shows at once",()=>{
+ let memory=settledGlyph(undefined,'⏳',0);assert.equal(memory.shown,'','working for a moment is not yet shown');
+ memory=settledGlyph(memory,'⏳',3999);assert.equal(memory.shown,'');
+ memory=settledGlyph(memory,'⏳',4000);assert.equal(memory.shown,'⏳');
+ // The reply ends and the next starts within seconds: the mark stays.
+ memory=settledGlyph(memory,'',5000);memory=settledGlyph(memory,'⏳',6000);memory=settledGlyph(memory,'⏳',12000);assert.equal(memory.shown,'⏳');assert.equal(memory.changed,4000,'no rename happened');
+ // It ends for good: the mark goes once that has held and the last change is long enough ago.
+ memory=settledGlyph(memory,'',13000);memory=settledGlyph(memory,'',17000);assert.equal(memory.shown,'⏳','too soon after the last change');
+ memory=settledGlyph(memory,'',19000);assert.equal(memory.shown,'');
+ memory=settledGlyph(memory,'❗',19500);assert.equal(memory.shown,'❗','an approval waits: at once');
+ assert.deepEqual([GLYPH.working,GLYPH.needs,GLYPH.held],['⏳','❗','⏸']);
 });
 
 test('a message sounds only when work has ended or it needs him, and never while he is at the PC',()=>{
