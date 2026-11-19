@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
-import {readRemote,readInbound,readEvent,parseRequest,remoteTurnId,gateChannel,GatewaySupervisor,RemoteDesk,replyFor,replyShare,markFor,draftId,draftText,secretApproval,clip,topicName,topicLink,type DeskDeps} from '../app/remote';
+import {AWAY_SECONDS,sounds,readRemote,readInbound,readEvent,parseRequest,remoteTurnId,gateChannel,GatewaySupervisor,RemoteDesk,replyFor,replyShare,markFor,draftId,draftText,secretApproval,clip,topicName,topicLink,type DeskDeps} from '../app/remote';
 import {Store} from '../app/store';
-import {cardReceipt,chatPlace,claimRemoteOutbox,enqueueRemote,pruneRemoteOutbox,recordRemoteReceipt,remotePrompt,setCard,type CardRecord,type TopicRecord} from '../app/remote-outbox';
+import {cardReceipt,chatPlace,claimRemoteOutbox,enqueueRemote,enqueueRemoteReply,pruneRemoteOutbox,recordRemoteReceipt,remotePrompt,setCard,type CardRecord,type TopicRecord} from '../app/remote-outbox';
 import {autoTitled,cleanName,fallbackName,planTopics,topicRetry,uniqueName} from '../app/remote-threads';
 
 test('only the owner\'s direct message is read; a code, Deny and the safe commands are told apart',()=>{
@@ -231,6 +231,17 @@ test("a row waits while its chat's thread is being made; a reply with no thread 
  // Buttons and sound travel with the row.
  enqueueRemote(store,'4242','New chat: Plan',undefined,false,{notify:true,keys:[[{text:'Open Plan',url:'https://t.me/bot/55'}]]});
  assert.deepEqual(claimRemoteOutbox(store,0,'4242'),[{seq:5,chat_id:'4242',text:'New chat: Plan',notify:true,keys:[[{text:'Open Plan',url:'https://t.me/bot/55'}]]}]);
+});
+
+test('a message sounds only when work has ended or it needs him, and never while he is at the PC',()=>{
+ assert.deepEqual([sounds('ended',AWAY_SECONDS),sounds('needs',AWAY_SECONDS+900),sounds('note',AWAY_SECONDS+900)],[true,true,false]);
+ assert.deepEqual([sounds('ended',AWAY_SECONDS-1),sounds('needs',0),sounds('note',0)],[false,false,false],'a key press or a mouse move in the last five minutes: he is at the PC');
+ // The reply to a text carries the sound with it; a row without it arrives silently.
+ const store=new Store(':memory:');
+ store.put<any>('turn',{id:'telegram-4242-7',chatId:'c1',prompt:'hi',text:'Done.',reasoning:'',status:'completed',model:'m',error:null,usage:null,created:1,remote:{chatId:'4242',messageId:'telegram-4242-7',thread:'55'}});
+ enqueueRemoteReply(store,'telegram-4242-7','Done.\n\nFable 5.2',true);
+ assert.deepEqual(claimRemoteOutbox(store,0,'4242'),[{seq:1,chat_id:'4242',text:'Done.\n\nFable 5.2',thread_id:'55',notify:true}]);
+ assert.equal(store.get<any>('turn','telegram-4242-7').remote.replied,true);assert.equal(enqueueRemoteReply(store,'telegram-4242-7','again',true),undefined,'a reply goes once');
 });
 
 // A card is one message kept current by editing it: the hold by the usage limit, the plan, Home.

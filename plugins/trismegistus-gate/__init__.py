@@ -154,6 +154,7 @@ async def _send_once(row):
         from telegram import ReplyKeyboardMarkup
         message = await adapter._bot.send_message(chat_id=int(row['chat_id']), text=row['text'],
                                         reply_markup=ReplyKeyboardMarkup([['Deny #' + str(row['seq'])]], resize_keyboard=True, one_time_keyboard=True),
+                                        disable_notification=not row.get('notify'),
                                         **({'message_thread_id': int(thread)} if thread else {}))
         return {'ok': True, 'message_id': str(message.message_id)}
     # The adapter sends without sound unless `notify` is set (its "important" mode, the default).

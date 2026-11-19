@@ -3,7 +3,7 @@ import featureWheels from '../../backend/feature-wheels.json';
 import {backend,claude,data,drainRemoteInbox,emit,handlers,namespace,pluginRuntime,remoteChannel,remoteDesk,remoteEpoch,remoteSecret,root,store} from '../main';
 import {modelLabel} from '../models';
 import {redactPastedKeys} from '../redaction';
-import {Key,LiveFrame,OutRow,approvalPrompt,clip,draftId,draftText,markFor,parseRequest,readEvent,readInbound,readRemote,replyFor,replyShare,secretApproval,topicLink} from '../remote';
+import {AWAY_SECONDS,Key,LiveFrame,OutRow,approvalPrompt,clip,draftId,draftText,markFor,parseRequest,readEvent,readInbound,readRemote,replyFor,replyShare,secretApproval,sounds,topicLink} from '../remote';
 import {RemoteCodeState,bindingDigest,checkCode} from '../remote-code';
 import {enqueueRemoteInbound} from '../remote-inbox';
 import {cardReceipt,claimRemoteOutbox,enqueueRemote,enqueueRemoteReply,pruneRemoteOutbox,recordRemoteReceipt,recoverRemoteOutbox,setCard,type CardRecord,type OutPlace,type OutRecord,type TopicRecord} from '../remote-outbox';
@@ -13,7 +13,7 @@ import {NAME_SYSTEM,autoTitled,cleanName,fallbackName,planTopics,topicRetry,uniq
 import type {Approval,Chat,Turn} from '../types';
 import {alwaysOn} from './accounts';
 import {contextCompletion,sideModel} from './context';
-import {Notification} from 'electron';
+import {Notification,powerMonitor} from 'electron';
 import {ChildProcess,spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import path from 'node:path';
@@ -113,7 +113,7 @@ export function settleApprovals(){
   const kind=description.length>3600||question&&next.params?.questions?.length>1||!question&&!remoteSecret?'desktop':question?'question':'approval';
   store.transaction(()=>{
     const text=kind==='desktop'?'An approval is waiting on the desktop. Open the app to review it.':question?'Question:\n'+description+'\n\nReply to this message with your answer.':approvalPrompt(description);
-    const row=remoteSend(text,kind==='approval',next.id,store.get<Turn>('turn',next.turnId).remote?.thread);
+    const row=remoteSend(text,kind==='approval',next.id,store.get<Turn>('turn',next.turnId).remote?.thread,{notify:loud('needs')});
     store.put('settings',{id:'remote-shown',approvalId:next.id,kind,digest:bindingDigest(remoteBinding(next)),at:Date.now(),seq:row?.seq});
   });
 }
@@ -257,6 +257,13 @@ export async function remoteEvent(value:unknown):Promise<{text?:string}>{
   if(action==='drop'&&chat){const dropped=await dropHeld(chat.id);return {text:dropped?plural(dropped,'message')+' dropped.':'Not carrying on.'};}
   return {text:'That button is no longer in use.'};
 }
+// Whether a message of this kind arrives with sound now (remote.ts `sounds`): never while he is at the PC, which
+// is read from how long it has had no key press or mouse move. A test copy is always away, so tests see the rule.
+function loud(kind:'ended'|'needs'){
+  let idle=AWAY_SECONDS;
+  if(!namespace.startsWith('Trismegistus/Test/'))try{idle=powerMonitor.getSystemIdleTime();}catch{}
+  return sounds(kind,idle);
+}
 // A card in a chat's thread, or in the bot chat's main view when no chat is given.
 function remoteCard(id:string,card:{text:string;keys?:Key[][]},chatId?:string,more:OutPlace={},final=false){
   const owner=remoteSettings().owner;if(!owner)return false;
@@ -280,7 +287,7 @@ function settleHolds(){
     if(!topics.has(chatId))continue;
     const what=entry.agents&&entry.messages?'The '+plural(entry.agents,'agent')+' and your '+plural(entry.messages,'message')+' carry on by themselves then.':entry.agents?'The '+plural(entry.agents,'agent')+' carr'+(entry.agents===1?'ies':'y')+' on by '+(entry.agents===1?'itself':'themselves')+' then.':entry.messages?'Your '+plural(entry.messages,'message')+' go'+(entry.messages===1?'es':'')+' in by '+(entry.messages===1?'itself':'themselves')+' then.':'The work carries on by itself then.';
     heldUntil.set(chatId,entry.at);
-    remoteCard('hold:'+chatId,{text:'⏸ Stopped by the usage limit\nResets at '+resetClock(entry.at,now)+'.\n'+what,keys:[[{text:'Don’t carry on',data:'gh:drop:'+chatId,style:'danger'}]]},chatId,entry.remote?{notify:true}:{});
+    remoteCard('hold:'+chatId,{text:'⏸ Stopped by the usage limit\nResets at '+resetClock(entry.at,now)+'.\n'+what,keys:[[{text:'Don’t carry on',data:'gh:drop:'+chatId,style:'danger'}]]},chatId,entry.remote&&loud('needs')?{notify:true}:{});
   }
   // A hold that is over says so on its card and loses its button.
   for(const card of store.all<CardRecord>('remote-card'))if(card.id.startsWith('hold:')&&!held.has(card.id.slice(5))){
@@ -312,7 +319,9 @@ function copyDesktopTurn(turn:Turn){
   if(!owner||copied?.includes(turn.id))return false;
   const models=turn.jobs?.length?turn.jobs.map(id=>store.get<Turn>('turn',id)).filter(job=>!job.automatic):[turn],joined=readIn(turn);
   const text='🖥 '+clip(turn.prompt.trim(),600)+'\n\n'+models.map(job=>replyFor(job===turn&&joined.length?{...job,text:replyShare(turn,turn.id,joined)||'…'}:job,modelLabel(job.model,claude.models))).join('\n\n');
-  enqueueRemote(store,owner,backend.scrubber.text(text),undefined,false,{topicChat:turn.chatId});
+  // A copy arrives without sound while he is at the PC, where he has just read it; work that ends after he has
+  // left it does sound.
+  enqueueRemote(store,owner,backend.scrubber.text(text),undefined,false,{topicChat:turn.chatId,notify:loud('ended')});
   store.put('settings',{id:'remote-copied',ids:[...(copied||[]).slice(-49),turn.id]});
   return true;
 }
@@ -332,7 +341,7 @@ export function settleRemote(){
     const share=owner?replyShare(owner,turn.id,joined):joined.length?replyShare(turn,turn.id,joined):null,label=(row:Turn)=>modelLabel(row.model,claude.models);
     const text=share===null?models.map(job=>replyFor(job,label(job))).join('\n\n'):turn.status!=='completed'&&turn.status!=='partial'?replyFor(turn,label(turn)):share?share+'\n\n'+label(owner||turn):'';
     // An empty share sends nothing: the answer is in the message beside it, and the mark says it is answered.
-    if(text)enqueueRemoteReply(store,turn.id,backend.scrubber.text(text+(turn.remote.fallback?'\nThe picker was unsure; an available model answered.':'')));
+    if(text)enqueueRemoteReply(store,turn.id,backend.scrubber.text(text+(turn.remote.fallback?'\nThe picker was unsure; an available model answered.':'')),loud('ended'));
     else store.update<Turn>('turn',turn.id,{remote:{...turn.remote,replied:true}});
     remoteMark(remoteMessageId(turn),markFor(turn.status));remoteChannel?.notify();
     if(turn.status!=='completed')remoteAlert('Remote task '+(turn.status==='stopped'?'stopped':'failed'),turn.error||turn.prompt);

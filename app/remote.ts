@@ -228,6 +228,12 @@ export class RemoteDesk {
 
 // A chat's state in words, for /status.
 export const STATUS:Record<string,string>={queued:'Queued',dispatching:'Starting',running:'Working',waiting:'Waiting for approval',stopping:'Stopping',completed:'Completed','needs-model':'Choosing a model',failed:'Failed',stopped:'Stopped',interrupted:'Interrupted',partial:'Partly done'};
+// Sound (Koan 2026-11-19): a message from the app arrives without sound, unless work has ended or it needs him,
+// and never while he is at the PC. ended: a finished reply, to a text from Telegram or to desktop work copied in.
+// needs: an approval, a question, a hold on a text he sent. note: everything else (a line that says where a chat's
+// thread is, a card that only informs). idleSeconds: how long the PC has had no key press or mouse move.
+export const AWAY_SECONDS=300;
+export function sounds(kind:'ended'|'needs'|'note',idleSeconds:number){return kind!=='note'&&idleSeconds>=AWAY_SECONDS;}
 // The marks on his own messages, each one of Telegram's reactions: the app has it, it is answered, it failed.
 export const MARK={taken:'👀',done:'👍',failed:'👎',none:''};
 export function markFor(status:string){return status==='completed'||status==='partial'?MARK.done:status==='stopped'?MARK.none:MARK.failed;}
