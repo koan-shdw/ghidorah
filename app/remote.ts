@@ -62,8 +62,26 @@ export interface Key {text:string;data?:string;url?:string;style?:'danger'|'succ
 // unless told otherwise (its "important" mode, the default).
 // op 'react': the mark on his message `message_id`; text is the emoji, '' takes the mark away.
 export interface OutRow {seq:number;chat_id:string;text:string;deny?:boolean;approvalId?:string;thread_id?:string;op?:'topic'|'rename'|'delete'|'react';message_id?:string;notify?:boolean;keys?:Key[][]}
-// gone: Telegram answered that the thread no longer exists, so nothing was sent.
-export async function gateChannel(handlers:{inbound:(value:any)=>Promise<void>;ready:(info?:{username?:string})=>void;outbox:(after:number)=>OutRow[];sent:(seq:number,ok:boolean,messageId?:string,gone?:boolean)=>void}){
+// A reply as it is written (Bot API sendMessageDraft): each frame replaces the one before it and nothing of it is
+// kept; the finished reply still goes out as a message. done: the reply ended. stop: what a Stop button under it
+// hands back, for a bot chat that cannot show Telegram's own.
+export interface LiveFrame {n:number;chat_id:string;thread_id?:string;draft_id:number;text:string;done?:boolean;stop?:string}
+/** A draft's id: the same for one answer from its first frame to its last, never zero. */
+export function draftId(key:string){let hash=0;for(const char of key)hash=(hash*31+char.charCodeAt(0))|0;return Math.abs(hash)%2147483646+1;}
+/** What a draft shows of a long reply: its end. Telegram takes 4,096 characters. */
+export function draftText(text:string,limit=3800){const trimmed=text.trim();return trimmed.length<=limit?trimmed:'…'+trimmed.slice(trimmed.length-limit+1);}
+// A button pressed under one of the app's messages, or Telegram's own Stop on a draft, as the gate hands it over.
+export type RemoteEvent={type:'button';data:string;message_id?:string;thread_id?:string}|{type:'stopped';draft_id:number;thread_id?:string};
+export function readEvent(value:any):RemoteEvent|null{
+ if(!value||typeof value!=='object')return null;
+ const thread=value.thread_id===undefined?{}:typeof value.thread_id==='string'&&/^\d{1,20}$/.test(value.thread_id)?{thread_id:value.thread_id as string}:null;if(!thread)return null;
+ if(value.type==='stopped'&&Number.isSafeInteger(value.draft_id))return {type:'stopped',draft_id:value.draft_id,...thread};
+ if(value.type==='button'&&typeof value.data==='string'&&/^gh:[\w:-]{1,61}$/.test(value.data)&&(value.message_id===undefined||typeof value.message_id==='string'&&/^\d{1,20}$/.test(value.message_id)))return {type:'button',data:value.data,...(value.message_id?{message_id:value.message_id}:{}),...thread};
+ return null;
+}
+// gone: Telegram answered that the thread no longer exists, so nothing was sent. live: the drafts newer than `after`.
+// event: a button press or a Stop; its answer's text is shown to him as Telegram's small notice.
+export async function gateChannel(handlers:{inbound:(value:any)=>Promise<void>;ready:(info?:{username?:string})=>void;outbox:(after:number)=>OutRow[];sent:(seq:number,ok:boolean,messageId?:string,gone?:boolean)=>void;live?:(after:number)=>LiveFrame[];event?:(value:any)=>Promise<{text?:string}|void>}){
  let token=randomBytes(32).toString('hex');const waiting=new Set<()=>void>();
  const body=async(request:IncomingMessage)=>{const chunks:Buffer[]=[];let size=0;for await(const chunk of request){size+=chunk.length;if(size>32768)throw Error('Too large.');chunks.push(chunk);}return JSON.parse(Buffer.concat(chunks).toString('utf8')||'null');};
  const server=createServer(async(request,response)=>{
@@ -80,6 +98,13 @@ export async function gateChannel(handlers:{inbound:(value:any)=>Promise<void>;r
     if(!rows.length){await new Promise<void>(resolve=>{const done=()=>{clearTimeout(timer);waiting.delete(done);response.removeListener('close',done);resolve();},timer=setTimeout(done,25000);waiting.add(done);response.once('close',done);});rows=handlers.outbox(after);}
     json(rows);return;
    }
+   if(request.method==='GET'&&url.pathname==='/live'){
+    const after=Number(url.searchParams.get('after')||0);if(!Number.isSafeInteger(after)||after<0)throw Error('Invalid.');
+    let rows=handlers.live?.(after)||[];
+    if(!rows.length){await new Promise<void>(resolve=>{const done=()=>{clearTimeout(timer);waiting.delete(done);response.removeListener('close',done);resolve();},timer=setTimeout(done,25000);waiting.add(done);response.once('close',done);});rows=handlers.live?.(after)||[];}
+    json(rows);return;
+   }
+   if(request.method==='POST'&&url.pathname==='/event'){const answer=await handlers.event?.(await body(request));json({ok:true,...(typeof answer?.text==='string'?{text:answer.text.slice(0,180)}:{})});return;}
    response.writeHead(404).end();
   }catch{if(!response.headersSent)response.writeHead(400).end();}
  });

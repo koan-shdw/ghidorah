@@ -3,7 +3,7 @@ import featureWheels from '../../backend/feature-wheels.json';
 import {backend,claude,data,drainRemoteInbox,emit,handlers,namespace,pluginRuntime,remoteChannel,remoteDesk,remoteEpoch,remoteSecret,root,store} from '../main';
 import {modelLabel} from '../models';
 import {redactPastedKeys} from '../redaction';
-import {OutRow,approvalPrompt,clip,markFor,parseRequest,readInbound,readRemote,replyFor,replyShare,secretApproval,topicLink} from '../remote';
+import {LiveFrame,OutRow,approvalPrompt,clip,draftId,draftText,markFor,parseRequest,readEvent,readInbound,readRemote,replyFor,replyShare,secretApproval,topicLink} from '../remote';
 import {RemoteCodeState,bindingDigest,checkCode} from '../remote-code';
 import {enqueueRemoteInbound} from '../remote-inbox';
 import {claimRemoteOutbox,enqueueRemote,enqueueRemoteReply,pruneRemoteOutbox,recordRemoteReceipt,recoverRemoteOutbox,type OutPlace,type OutRecord,type TopicRecord} from '../remote-outbox';
@@ -208,6 +208,50 @@ function settleTopics(){
   if(queued)remoteChannel?.notify();
   void nameNext();
 }
+// Live (Koan 2026-11-19, version 3 of the Telegram mockup): the answer to a text from Telegram shows in its thread
+// while it is written, as a draft that each frame replaces, with Stop. Frames are kept in memory only: a lost one
+// costs nothing, the finished reply goes out as a message either way. A draft lasts 30 seconds in Telegram, so an
+// unchanged one is said again after 20.
+const liveFrames=new Map<string,LiveFrame&{at:number}>();let liveSeq=0,liveTimer:NodeJS.Timeout|undefined,liveLast=0;
+export function remoteLive(after:number):LiveFrame[]{return [...liveFrames.values()].filter(frame=>frame.n>after).sort((a,b)=>a.n-b.n).map(({at,...frame})=>frame);}
+export function remoteLiveSoon(){
+  if(liveTimer||!liveFrames.size&&!remoteSettings().enabled)return;
+  liveTimer=setTimeout(()=>{liveTimer=undefined;liveLast=Date.now();try{settleLive();}catch{}},Math.max(50,1200-(Date.now()-liveLast)));liveTimer.unref?.();
+}
+function settleLive(){
+  const settings=remoteSettings(),now=Date.now(),writing=new Set<string>();let changed=false;
+  if(settings.enabled&&settings.topics&&settings.owner){
+    const threads=new Map(store.all<TopicRecord>('remote-topic').filter(topic=>topic.status==='ready'&&topic.threadId).map(topic=>[topic.id,topic.threadId!]));
+    for(const status of ['dispatching','running','waiting','stopping'])for(const turn of store.where<Turn>('turn','status',status)){
+      // The reply itself, never a message that waits to be read by it.
+      if(turn.parentTurnId||turn.automatic||turn.answeredIn||turn.delivery==='sent')continue;
+      const thread=threads.get(turn.chatId),joined=readIn(turn);if(!thread||!turn.remote&&!joined.length)continue;
+      // What it has written since the last text from Telegram it read: that is the answer he is waiting for.
+      const start=joined.reduce((max,row)=>Math.max(max,row.readAt?.text||0),0),text=draftText(turn.text.slice(start)),draft=draftId(turn.id+':'+joined.length),old=liveFrames.get(turn.chatId);
+      writing.add(turn.chatId);
+      if(old&&!old.done&&old.draft_id===draft&&old.text===text&&now-old.at<20000)continue;
+      liveFrames.set(turn.chatId,{n:++liveSeq,chat_id:settings.owner,thread_id:thread,draft_id:draft,text,stop:'gh:stop:'+turn.chatId,at:now});changed=true;
+    }
+  }
+  for(const [chatId,frame] of liveFrames)if(!writing.has(chatId)){
+    if(!frame.done){liveFrames.set(chatId,{...frame,n:++liveSeq,text:'',done:true,at:now});changed=true;}
+    else if(now-frame.at>60000)liveFrames.delete(chatId);
+  }
+  if(changed)remoteChannel?.notify();
+  if(writing.size)remoteLiveSoon();
+}
+// A button under one of the app's messages, or Telegram's own Stop on a draft. The gate hands over only the owner's.
+export async function remoteEvent(value:unknown):Promise<{text?:string}>{
+  const event=readEvent(value);if(!event||!remoteSettings().enabled)return {};
+  if(event.type==='stopped'){
+    const chatId=[...liveFrames].find(([,frame])=>frame.draft_id===event.draft_id&&!frame.done)?.[0]||(event.thread_id?remoteTopicChat(event.thread_id)?.id:undefined);
+    if(chatId)await handlers.stop({chatId});
+    return {};
+  }
+  const [,action,arg]=/^gh:(\w+):?(.*)$/.exec(event.data)||[],chat=arg?store.find<Chat>('chat',arg):undefined;
+  if(action==='stop'&&chat){await handlers.stop({chatId:chat.id});return {text:'Stopped.'};}
+  return {text:'That button is no longer in use.'};
+}
 const ENDED=['completed','partial','failed','stopped','interrupted'];
 // The Telegram message a remote turn came from: its id is the tail of the turn's id (remoteTurnId).
 export function remoteMessageId(turn:Pick<Turn,'id'>){return /^telegram-\d+-(\d+)$/.exec(turn.id)?.[1];}
@@ -234,6 +278,7 @@ function copyDesktopTurn(turn:Turn){
 export function settleRemote(){
   settleTopicsSoon();
   settleApprovals();
+  remoteLiveSoon();
   const reply=(turn:Turn)=>{
     if(!turn.remote||turn.remote.replied)return;
     const owner=turn.answeredIn&&turn.answeredIn!==turn.id?store.find<Turn>('turn',turn.answeredIn):undefined;

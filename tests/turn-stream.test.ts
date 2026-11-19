@@ -19,9 +19,11 @@ test('stream transport coalesces updates and sends only turns already visible in
  const code=source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='emitStream')!.getText(source);
  const sent:any[]=[];const window=(id:string)=>({isDestroyed:()=>false,webContents:{send:(channel:string,rows:unknown)=>sent.push({id,channel,rows})}}),main=window('main'),child=window('child'),unrelated=window('other');
  const rows=new Map<string,Partial<Turn>>([['one',{id:'one',status:'running',text:'First',reasoning:''}],['two',{id:'two',status:'running',text:'Second',reasoning:''}]]);
- const environment={store:{get:(_:string,id:string)=>rows.get(id)},BrowserWindow:{getAllWindows:()=>[main,child,unrelated]},streamWindows:new WeakMap([[main,new Set(['one','two'])],[child,new Set(['one'])]]),streamTurns:new Set(),closingWindows:new Set(),setTimeout};
+ // remoteLiveSoon: a reply being written also shows in its Telegram thread; counted here, tested in remote.test.ts.
+ let live=0;
+ const environment={store:{get:(_:string,id:string)=>rows.get(id)},BrowserWindow:{getAllWindows:()=>[main,child,unrelated]},streamWindows:new WeakMap([[main,new Set(['one','two'])],[child,new Set(['one'])]]),streamTurns:new Set(),closingWindows:new Set(),setTimeout,remoteLiveSoon:()=>{live++;}};
  const emit=new Function(...Object.keys(environment),'let streamTimer;'+ts.transpile(code,{target:ts.ScriptTarget.ES2022})+';return emitStream;')(...Object.values(environment));
- emit('one');emit('one');emit('two');rows.get('one')!.text='Latest';t.mock.timers.tick(50);
+ emit('one');emit('one');emit('two');rows.get('one')!.text='Latest';t.mock.timers.tick(50);assert.equal(live,3,'every update asks for a Telegram frame; that side paces itself');
  const first={id:'one',text:'Latest',reasoning:'',activity:undefined,stageSince:undefined,lastActivity:undefined},second={...first,id:'two',text:'Second'};
  assert.deepEqual(sent,[{id:'main',channel:'turn-stream',rows:[first,second]},{id:'child',channel:'turn-stream',rows:[first]}]);
  sent.length=0;emit('one');rows.get('one')!.status='completed';t.mock.timers.tick(50);assert.equal(sent.length,0);

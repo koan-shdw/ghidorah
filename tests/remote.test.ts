@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
-import {readRemote,readInbound,parseRequest,remoteTurnId,gateChannel,GatewaySupervisor,RemoteDesk,replyFor,replyShare,markFor,secretApproval,clip,topicName,topicLink,type DeskDeps} from '../app/remote';
+import {readRemote,readInbound,readEvent,parseRequest,remoteTurnId,gateChannel,GatewaySupervisor,RemoteDesk,replyFor,replyShare,markFor,draftId,draftText,secretApproval,clip,topicName,topicLink,type DeskDeps} from '../app/remote';
 import {Store} from '../app/store';
 import {chatPlace,claimRemoteOutbox,enqueueRemote,pruneRemoteOutbox,recordRemoteReceipt,remotePrompt,type TopicRecord} from '../app/remote-outbox';
 import {autoTitled,cleanName,fallbackName,planTopics,topicRetry,uniqueName} from '../app/remote-threads';
@@ -38,6 +38,26 @@ test('the channel answers only its token; the outbox waits for a row, then hands
   assert.equal((await call('/sent',{seq:1,ok:true})).status,200);assert.deepEqual(sent,[[1,true]]);
   assert.equal((await call('/sent',{seq:'1',ok:true})).status,400);
  }finally{channel.close();}
+});
+
+// Live (Koan 2026-11-19): the reply shows in its thread while it is written, with Stop.
+test('draft frames wait on the channel like rows; a press or a Stop is handed over and answered',async()=>{
+ let frames:any[]=[];const events:any[]=[];
+ const channel=await gateChannel({inbound:async()=>{},ready:()=>{},outbox:()=>[],sent:()=>{},live:after=>frames.filter(frame=>frame.n>after),event:async value=>{events.push(value);return {text:'Stopped.'};}});
+ const call=(path:string,body?:unknown)=>fetch(channel.connection.url+path.replace(/^\//,''),{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+channel.connection.token},body:body===undefined?undefined:JSON.stringify(body)});
+ try{
+  const waiting=call('/live?after=0').then(response=>response.json());
+  await new Promise(resolve=>setTimeout(resolve,100));frames=[{n:1,chat_id:'4242',thread_id:'55',draft_id:7,text:'Yes, agents',stop:'gh:stop:c1'}];channel.notify();
+  assert.deepEqual(await waiting,frames);
+  assert.deepEqual(await (await call('/event',{type:'button',data:'gh:stop:c1'})).json(),{ok:true,text:'Stopped.'});assert.deepEqual(events,[{type:'button',data:'gh:stop:c1'}]);
+  assert.equal((await call('/live?after=x')).status,400);
+ }finally{channel.close();}
+ assert.deepEqual(readEvent({type:'stopped',draft_id:7,thread_id:'55'}),{type:'stopped',draft_id:7,thread_id:'55'});
+ assert.deepEqual(readEvent({type:'button',data:'gh:stop:3f0c8d2e-1b7a-4c55-9d1e-6a2b4c8e0f11',message_id:'900'}),{type:'button',data:'gh:stop:3f0c8d2e-1b7a-4c55-9d1e-6a2b4c8e0f11',message_id:'900'});
+ for(const bad of [null,{type:'stopped',draft_id:'7'},{type:'button',data:'ea:once:1'},{type:'button',data:'gh:stop:c1',thread_id:55},{type:'button',data:'gh:'+'x'.repeat(70)},{type:'other'}])assert.equal(readEvent(bad),null);
+ // One answer keeps one draft id from its first frame to its last; a long reply shows its end.
+ assert.equal(draftId('t1:0'),draftId('t1:0'));assert.notEqual(draftId('t1:0'),draftId('t1:1'));assert.ok(draftId('')>0&&Number.isSafeInteger(draftId('telegram-4242-1017:2')));
+ assert.equal(draftText('  short  '),'short');const long=draftText('a'.repeat(3000)+'b'.repeat(3000));assert.equal(long.length,3800);assert.ok(long.startsWith('…')&&long.endsWith('b'));
 });
 
 class FakeChild extends EventEmitter{stderr=new EventEmitter();pid=1;}

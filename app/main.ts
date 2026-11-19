@@ -110,11 +110,12 @@ import {redactPastedKeys} from './redaction';
 import {webTools,researchTool} from './web-research';
 import artFonts from '../third-party/taag/fonts.json';
 import type {Project,Chat,Turn,Approval,ToolCall,Mode,CodexConnection,ClaudeConnection,ModelPrice,Snapshot,SideAnswer} from './types';
-import {alwaysOn,claudeConnectorsOn,fixtureClaudeArgs,projectSettingsReview,trustRecord} from './main/accounts';
+import {alwaysOn,claudeConnectorsOn,fixtureClaudeArgs,projectSettingsReview,sendNowDefault,trustRecord} from './main/accounts';
+import {sendsNow} from './send-now';
 import {defaultFolder,defaultModels,dockableJobChats,favouriteModels,repositoryStatus,routingSummaryHost,runAppWatch,savedAppRows,summaryHost,watchApp,watchHost,watchModel,watchRow} from './main/apps';
 import {availableModels,checkDispatch,connectedModels,deepseekModels,fixtureClaude,inputMismatch,loadInputCapabilities,recordRoute,unavailableMessage,videoModel} from './main/models';
 import {chatSelector,classifierActive,decidePick,decisionEngine,jevSettings,jevUrl,kevAddress,pickerConnected,pickerSettings,pickerStatus} from './main/pickers';
-import {featureInstalled,gatewayHome,launchGateway,remoteAlert,remoteBinding,remoteChats,remoteCode,remoteFallback,remoteInbound,remoteLinkTopic,remoteMark,remoteOutbox,remotePlanTopic,remoteRow,remoteSave,remoteSend,remoteSent,remoteSettings,remoteShown,remoteTopicChat,settleRemote,telegramInstalled} from './main/remote';
+import {featureInstalled,gatewayHome,launchGateway,remoteAlert,remoteBinding,remoteChats,remoteCode,remoteFallback,remoteEvent,remoteInbound,remoteLinkTopic,remoteLive,remoteLiveSoon,remoteMark,remoteOutbox,remotePlanTopic,remoteRow,remoteSave,remoteSend,remoteSent,remoteSettings,remoteShown,remoteTopicChat,settleRemote,telegramInstalled} from './main/remote';
 import {cronNext,wizardRow} from './main/routines';
 import {claudeScreenEnv,screenApps,screenContext,screenEscOn,screenServer,screenSettings,screenSettle,screenStep,screenStop,toolAccess,toolPaths} from './main/screen';
 import {openChatLink,openPage,pageUrl,previewTool_,publish,publishing,shareCheck,shareDeploy,shareDraft,shareSettings,shareSite,shareTest,shareView,shareWithClient,withOwner} from './main/sharing';
@@ -420,7 +421,14 @@ export const remoteDesk=new RemoteDesk({
   settings:()=>remoteSettings(),save:patch=>{remoteSave(patch);emit();},
   seen:id=>store.all<InRecord>('remote-in').some(row=>row.id===id&&['done','uncertain'].includes(row.status)),done:id=>finishRemoteInbound(store,id),send:(text,deny,thread)=>{remoteSend(text,deny,undefined,thread);},mark:remoteMark,alert:remoteAlert,chats:remoteChats,newChat:()=>handlers.newChat({}),
   topicChat:remoteTopicChat,linkTopic:remoteLinkTopic,
-  submit:async(id,chatId,text,thread)=>{if(!thread)remotePlanTopic(chatId);await submitTurn({id,chatId,text},{remote:{chatId:remoteSettings().owner,messageId:id,...(thread?{thread}:{})}});},
+  // A text sent while the chat works reaches the model at once, as one typed in the app does: it is read at the
+  // reply's next step and answered there. The chat's Send now switch counts here too: on, the text stops the reply.
+  submit:async(id,chatId,text,thread)=>{
+    if(!thread)remotePlanTopic(chatId);
+    const running=replyRow(chatId),chat=store.get<Chat>('chat',chatId);
+    await submitTurn({id,chatId,text},{remote:{chatId:remoteSettings().owner,messageId:id,...(thread?{thread}:{})}});
+    if(running&&sendsNow(text,true,chat.sendNow??sendNowDefault(),false)&&replyRow(chatId)===running)await handlers.stop({chatId,reason:'superseded-by-message'});
+  },
   stop:async chatId=>{await handlers.stop({chatId});},
   status:chatId=>{const turn=store.all<Turn>('turn').filter(turn=>turn.chatId===chatId&&!turn.parentTurnId).at(-1);return turn?(STATUS[turn.status]||turn.status)+(turn.text?': '+turn.text.slice(0,200):''):'Nothing sent yet.';},
   waiting:()=>{const kind=remoteShown()?.kind;return kind==='approval'||kind==='question'?kind:null;},prompt:id=>remotePrompt(store,id),code:remoteCode,
@@ -439,7 +447,7 @@ async function startRemote(){
   const test=process.env.TRISMEGISTUS_TEST_TELEGRAM_URL,base=namespace.startsWith('Trismegistus/Test/')&&test&&/^http:\/\/127\.0\.0\.1:\d+\/bot$/.test(test)?test:undefined;
   await fs.writeFile(path.join(home,'config.yaml'),JSON.stringify({platforms:{telegram:{enabled:true,extra:{preserve_message_boundaries:true,drop_pending_on_cold_boot:false,...(base?{base_url:base,base_file_url:base}:{})}}},plugins:{enabled:['trismegistus-gate']},
     auth:{adopt_external_logins:false},approvals:{mode:'manual',unattended_mode:'deny'},security:{redact_secrets:true,allow_lazy_installs:false},updates:{check:false}},null,2));
-  remoteChannel??=await gateChannel({inbound:remoteInbound,ready:info=>{if(info?.username&&info.username!==remoteSettings().username)remoteSave({username:info.username});remoteGateway?.ready();},outbox:remoteOutbox,sent:remoteSent});
+  remoteChannel??=await gateChannel({inbound:remoteInbound,ready:info=>{if(info?.username&&info.username!==remoteSettings().username)remoteSave({username:info.username});remoteGateway?.ready();},outbox:remoteOutbox,sent:remoteSent,live:remoteLive,event:remoteEvent});
   remoteGateway??=new GatewaySupervisor(launchGateway,child=>{child.stdin?.end();if(child.pid)void promisify(execFile)('taskkill',['/PID',String(child.pid),'/T','/F'],{windowsHide:true}).catch(()=>{});},()=>{remoteOn=!!remoteGateway?.running;applyAlwaysOn(false);emit();});
   if(!remoteSettings().enabled){remoteChannel?.close();remoteChannel=undefined;return;}remoteGateway.start();void drainRemoteInbox();
 }
@@ -778,7 +786,8 @@ export async function checkClaude(signal?:AbortSignal){
 export const streamWindows=new WeakMap<BrowserWindow,Set<string>>(),streamTurns=new Set<string>();
 let streamTimer:NodeJS.Timeout|undefined;
 function emitStream(id:string){
-  streamTurns.add(id);if(streamTimer)return;
+  // A reply being written also shows in its Telegram thread, at its own slower pace.
+  streamTurns.add(id);remoteLiveSoon();if(streamTimer)return;
   streamTimer=setTimeout(()=>{
     streamTimer=undefined;
     const updates=[...streamTurns].map(id=>store.get<Turn>('turn',id)).filter(turn=>['running','waiting','stopping'].includes(turn.status)).map(({id,text,reasoning,activity,stageSince,lastActivity})=>({id,text,reasoning,activity,stageSince,lastActivity}));streamTurns.clear();

@@ -184,14 +184,134 @@ async def _deliver():
             after = max(after, int(row['seq']))
 
 
+# Live: the reply as it is written. Telegram's own draft (sendMessageDraft, with its Stop button) where the bot chat
+# takes it; where it refuses, one message edited in place with a Stop button under it, removed when the reply ends.
+_no_draft = set()
+_previews = {}
+
+
+async def _draft(frame):
+    adapter = _adapter
+    if adapter is None:
+        return
+    bot, chat, thread = adapter._bot, int(frame['chat_id']), frame.get('thread_id')
+    key, place = thread or '', ({'message_thread_id': int(thread)} if thread else {})
+    preview = _previews.get(key)
+    if frame.get('done'):
+        if _previews.pop(key, None):
+            await bot.delete_message(chat_id=chat, message_id=preview['id'])
+        return
+    if key not in _no_draft:
+        try:
+            # can_stop is newer than this python-telegram-bot, so it goes in by its Bot API name.
+            if await bot.send_message_draft(chat_id=chat, draft_id=int(frame['draft_id']), text=frame['text'],
+                                            api_kwargs={'can_stop': True}, **place):
+                return
+        except Exception as error:
+            logger.info('Ghidorah gate: drafts are refused here, a message edited in place is used instead: %s', type(error).__name__)
+        _no_draft.add(key)
+    text = frame['text'] or '…'
+    keys = _keys([[{'text': 'Stop', 'data': frame['stop'], 'style': 'danger'}]]) if frame.get('stop') else None
+    if preview and preview['draft'] != frame['draft_id']:
+        _previews.pop(key, None)
+        await bot.delete_message(chat_id=chat, message_id=preview['id'])
+        preview = None
+    if preview is None:
+        message = await bot.send_message(chat_id=chat, text=text, reply_markup=keys, disable_notification=True, **place)
+        _previews[key] = {'id': message.message_id, 'draft': frame['draft_id'], 'text': text}
+    elif preview['text'] != text:
+        await bot.edit_message_text(chat_id=chat, message_id=preview['id'], text=text, reply_markup=keys)
+        preview['text'] = text
+
+
+async def _live():
+    after = 0
+    while True:
+        adapter = _adapter
+        if adapter is None or not adapter.is_connected:
+            await asyncio.sleep(0.5)
+            continue
+        try:
+            frames = await asyncio.to_thread(_call, '/live?after=' + str(after), None, 35)
+        except Exception:
+            await asyncio.sleep(2)
+            continue
+        for frame in frames or []:
+            after = max(after, int(frame['n']))
+            try:
+                await _draft(frame)
+            except Exception as error:
+                # A frame is a picture of a moment: the next one, or the finished reply, makes up for a lost one.
+                logger.debug('Ghidorah gate: a draft frame was not shown: %s', type(error).__name__)
+
+
+async def _event(payload):
+    try:
+        return await asyncio.to_thread(_call, '/event', payload)
+    except Exception as error:
+        logger.warning('Ghidorah gate could not hand an event to the app: %s', type(error).__name__)
+        return None
+
+
+async def _pressed(update, context):
+    """A button under one of the app's messages. Only the owner's press in the owner's chat is handed over."""
+    from telegram.ext import ApplicationHandlerStop
+    query = update.callback_query
+    owner = _settings()['owner']
+    message = getattr(query, 'message', None)
+    if str(getattr(query.from_user, 'id', '')) != owner or message is None or str(message.chat.id) != owner:
+        await query.answer()
+        raise ApplicationHandlerStop
+    thread = getattr(message, 'message_thread_id', None)
+    answer = await _event({'type': 'button', 'data': query.data, 'message_id': str(message.message_id),
+                           **({'thread_id': str(thread)} if thread else {})})
+    await query.answer(text=(answer or {}).get('text') or None)
+    raise ApplicationHandlerStop
+
+
+async def _stopped(update, context):
+    """Telegram's own Stop on a draft (Bot API 10.3, update stopped_message_generation)."""
+    stopped = getattr(update, 'stopped_message_generation', None) or (getattr(update, 'api_kwargs', None) or {}).get('stopped_message_generation')
+    if not stopped:
+        return
+    read = (lambda name: stopped.get(name)) if isinstance(stopped, dict) else (lambda name: getattr(stopped, name, None))
+    chat = read('chat')
+    chat_id = chat.get('id') if isinstance(chat, dict) else getattr(chat, 'id', None)
+    if str(chat_id) != _settings()['owner'] or not isinstance(read('draft_id'), int):
+        return
+    thread = read('message_thread_id')
+    await _event({'type': 'stopped', 'draft_id': read('draft_id'), **({'thread_id': str(thread)} if thread else {})})
+
+
+_wired = set()
+_tasks = {}
+
+
 def attach(native, adapter):
     """Runs inside the Telegram adapter's connect(), on the gateway loop; a reconnect runs it again."""
     global _adapter, _delivery
     _adapter = adapter
     if _delivery is None or _delivery.done():
         _delivery = asyncio.get_running_loop().create_task(_deliver())
+    if _tasks.get('live') is None or _tasks['live'].done():
+        _tasks['live'] = asyncio.get_running_loop().create_task(_live())
+    if native is not None and id(native) not in _wired and hasattr(native, 'add_handler'):
+        # The adapter moves handlers a plugin adds here ahead of its own catch-alls.
+        from telegram import Update
+        from telegram.ext import CallbackQueryHandler, TypeHandler
+        native.add_handler(CallbackQueryHandler(_pressed, pattern=r'^gh:'))
+        native.add_handler(TypeHandler(Update, _stopped), group=-7)
+        _wired.add(id(native))
 
 
 def register(ctx):
+    # The adapter asks Telegram for the update types this python-telegram-bot knows. Stop on a draft is newer, so
+    # its name is added before the adapter connects; Telegram sends an update type only when it is asked for.
+    try:
+        from telegram import Update
+        if 'stopped_message_generation' not in Update.ALL_TYPES:
+            Update.ALL_TYPES.append('stopped_message_generation')
+    except Exception as error:
+        logger.warning('Ghidorah gate: Stop on a draft is not asked for: %s', type(error).__name__)
     ctx.register_hook('pre_gateway_dispatch', gate)
     ctx.register_platform_handler('telegram', attach)
