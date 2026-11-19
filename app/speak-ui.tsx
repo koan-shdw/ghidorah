@@ -29,9 +29,11 @@ export function ListenButton({turn,state,call}:{turn:Turn;state:Snapshot;call:Ca
  return <><button aria-pressed={!!phase} aria-label={phase?'Stop reading':'Listen to this reply'} title={phase?'Stop reading':voices.ready?'Read this reply aloud · '+voice.name:'Install the voice to hear replies'} onClick={()=>{if(phase)speaker.stop();else if(!voices.ready)void call('voicesOpen').catch(()=>{});else void speaker.say(key,text,voice);}}><Icon name={phase?'stop':'speaker'}/>{phase==='loading'?'Starting…':phase?'Stop':'Listen'}</button>{problem&&<span className="speak-problem" role="alert">{problem}</span>}</>;
 }
 
-/** In the chat bar: once on, a reply that finishes while its chat is on screen is read aloud. One switch for every chat.
- * A chat open in its own window or a split pane is read there: `elsewhere` keeps the main view's copy quiet. */
-export function SpeakReplies({state,chatId,turns,call,elsewhere=false}:{state:Snapshot;chatId:string;turns:Turn[];call:Call;elsewhere?:boolean}){
+/** Speak replies has two parts since the switch moved into the chat's Options menu (Koan 2026-11-19): the reader, which
+ * stays mounted with the chat so replies are read while the menu is closed, and the switch, a row of that menu.
+ * Once on, a reply that finishes while its chat is on screen is read aloud. One switch for every chat. A chat open in
+ * its own window or a split pane is read there: `elsewhere` keeps the main view's copy quiet. */
+export function SpeakRepliesReader({state,chatId,turns,elsewhere=false}:{state:Snapshot;chatId:string;turns:Turn[];elsewhere?:boolean}){
  const voices=state.voices,on=!!voices?.speakReplies&&!!voices.ready,seen=useRef<Map<string,string>|null>(null);
  useEffect(()=>{
   const before=seen.current,now=new Map(turns.map(turn=>[turn.id,turn.status]));seen.current=now;
@@ -42,8 +44,12 @@ export function SpeakReplies({state,chatId,turns,call,elsewhere=false}:{state:Sn
    const text=replyAloud(turn,state);if(text.trim())speaker.after('turn:'+turn.id,text,voiceForChat(voices,chatOf(state,chatId)),turn.id);
   }
  },[turns,on]);
+ return null;
+}
+export function SpeakReplies({state,call}:{state:Snapshot;call:Call}){
+ const voices=state.voices;
  if(!voices)return null;
- return <Switch className="speak-replies" checked={!!voices.speakReplies} ariaLabel="Speak replies" title={voices.ready?'Reads each reply aloud when it is finished':'Install the voice to hear replies'} label="Speak replies" onChange={next=>{
+ return <Switch className="chat-option speak-replies" checked={!!voices.speakReplies} ariaLabel="Speak replies" title={voices.ready?'Reads each reply aloud when it is finished':'Install the voice to hear replies'} label={<span className="chat-option-text">Speak replies<small>Read each reply aloud</small></span>} onChange={next=>{
   if(!next)speaker.stop();
   if(next&&!voices.ready){void call('voicesOpen').catch(()=>{});return;}
   void call('voicesSpeakReplies',{on:next}).catch(()=>{});

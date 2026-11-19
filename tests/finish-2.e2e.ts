@@ -25,7 +25,7 @@ try{
  const chat=await call('addProject');await call('addModel',{chatId:chat,model:gemini});await call('effort',{chatId:chat,model:gemini,effort:'low'});
  if(await page.getByRole('button',{name:'Close settings',exact:true}).count())await page.getByRole('button',{name:'Close settings',exact:true}).click();
  await page.locator('[data-chat-id="'+chat+'"] .chat-link').click();
- await page.getByRole('button',{name:'Model details',exact:true}).first().click();
+ await page.getByRole('button',{name:'Context window and usage',exact:true}).first().click();
  const section=(label:string)=>page.locator('.usage-model').filter({has:page.locator('h3',{hasText:label})}).first().locator('.usage-model-details');
  const deepseek=section('DeepSeek'),flash=section('gemini-3.8-flash');
  await deepseek.waitFor();

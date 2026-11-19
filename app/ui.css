@@ -67,19 +67,41 @@ main{display:flex;flex:1;min-width:0;flex-direction:column}
 .composer-box{display:flex;flex-direction:column;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-xl);padding:12px}
 .composer-box textarea{display:block;width:100%;min-width:0;resize:none;min-height:44px;max-height:220px;background:transparent;border:0;outline:none;padding:2px 4px 8px;line-height:1.5}
 .composer-box textarea::placeholder{color:var(--muted)}
-.composer-toolbar{display:flex;gap:10px;align-items:flex-end}
-.composer-tools{position:relative;display:flex;flex:1;min-width:0;align-items:center;flex-wrap:wrap;gap:var(--space-1)}
+/* One row inside the message box (Koan 2026-11-19): +, the mode and who answers on the left; the chat's state, the
+   microphone and send on the right. */
+.composer-toolbar{display:flex;gap:var(--space-3);align-items:center;min-width:0}
+.composer-tools{position:relative;display:flex;flex:none;align-items:center;gap:var(--space-1)}
+.composer-toolbar:not(:has(.dock-setup))>.composer-tools{flex:1}
 .composer-tools>button,.dictation-anchor>.dictation-trigger{display:inline-grid;place-items:center;width:var(--h-lg);min-height:var(--h-lg);padding:0;margin:0;border:0;border-radius:var(--r);color:var(--muted)}
 .composer-tools>button:hover,.composer-tools>button[aria-expanded=true],.dictation-anchor>.dictation-trigger:hover{color:var(--text);background:var(--raised)}
 .composer-tools .sidebar-icon,.dictation-anchor .sidebar-icon{width:var(--icon-lg);height:var(--icon-lg);flex:0 0 var(--icon-lg)}
 .composer-toolbar>.send{display:grid;place-items:center;flex:0 0 32px;width:32px;height:32px;padding:6px;margin:0;border-radius:var(--r-round);background:var(--text);color:var(--bg)}
 .composer-toolbar>.send:hover{background:var(--accent)}
 .composer-toolbar>.send .sidebar-icon{width:20px;height:20px}
-.composer-tools>[role=status],.composer-tools>.dictation-error{flex-basis:100%;font-size:var(--fs-meta);line-height:1.4;margin:2px 0 0}
-.composer-controls{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;padding:var(--space-3) 0 var(--space-2);font-size:var(--fs-meta)}
-.composer-controls select{border:0;background:none;padding:3px}
-.model-row{display:flex;flex-wrap:nowrap;align-items:center;gap:var(--space-2);min-width:0;border-top:1px solid var(--line);padding-top:var(--space-3);font-size:var(--fs-ui)}
-.model-row select{border:0;background:none;padding:4px}
+.composer-box>.dictation-error{font-size:var(--fs-meta);line-height:1.4;margin:0 var(--space-2)}
+/* What the next message uses: the permission mode, then Jev and the chat's models. It takes the room that is left;
+   chat-chrome.tsx folds the models into one chip when they do not fit, so nothing here shrinks or scrolls. */
+.dock-setup{display:flex;align-items:center;gap:var(--space-2);flex:1 1 0;min-width:0}
+.dock-setup>*{flex:none}
+.dock-setup>.choice-menu>summary{min-height:var(--h);padding:0 var(--space-4);border-radius:var(--r-pill)}
+.model-row{display:flex;flex-wrap:nowrap;align-items:center;gap:var(--space-2);font-size:var(--fs-ui)}
+/* The chat's state: the context ring and the Options menu. */
+.dock-status{display:flex;align-items:center;gap:var(--space-1);flex:none}
+.dock-status>.context-ring{display:inline-flex;align-items:center;gap:var(--space-2);height:var(--h);padding:0 var(--space-3);border-radius:var(--r-pill);color:var(--muted);font-size:var(--fs-meta)}
+.dock-status>.context-ring:hover,.dock-status>.context-ring[aria-expanded=true]{background:var(--raised);color:var(--text)}
+/* The Options menu's rows: a name and what it does on the left, its control on the right. */
+.chat-option{display:flex;align-items:center;justify-content:space-between;gap:var(--space-7);width:100%;min-height:var(--h-lg);padding:var(--space-2) var(--space-4);border-radius:var(--r-sm);color:var(--text);font-size:var(--fs-ui);text-align:left;white-space:nowrap}
+.kit-switch.chat-option{flex-direction:row-reverse;color:var(--text)}
+button.chat-option:hover{background:var(--raised)}
+.chat-option-text small{display:block;margin-top:var(--space-1);color:var(--muted);font-size:var(--fs-meta)}
+.chat-option .sidebar-icon{width:var(--icon-sm);height:var(--icon-sm);flex:0 0 var(--icon-sm);color:var(--muted)}
+.chat-option-view>.kit-tabs{padding:var(--space-1);border:1px solid var(--line);border-radius:var(--r)}
+.chat-option-view>.kit-tabs>button{min-height:var(--h-sm)}
+.chat-options [role=alert]{padding:0 var(--space-4);color:var(--danger);font-size:var(--fs-meta);white-space:normal}
+/* Under the box: only what applies right now, such as the hand-off suggestion. */
+.dock-under{display:flex;justify-content:flex-end;padding-top:var(--space-2)}
+.dock-under:empty{display:none}
+.dock-under>.handover-chip{background:transparent}
 .model-tab{border:1px solid transparent}
 .model-tab.selected{border-color:var(--accent);background:var(--selected)}
 .model-tab.working{color:var(--green);box-shadow:inset 0 -2px var(--green)}
@@ -102,7 +124,7 @@ main{display:flex;flex:1;min-width:0;flex-direction:column}
 .actions{display:flex;gap:6px;flex-wrap:wrap;font-size:var(--fs-ui)}
 .hint{font-size:var(--fs-meta)!important}
 @media(max-width:900px){.sidebar{width:220px}.messages{padding:20px}.bottom-area{padding:8px 15px 12px}.project-tag{display:none}.backend-status{display:none}}
-@media(max-width:720px){.sidebar{width:180px}.sidebar-title strong{font-size:var(--fs-meta)}.titlebar{padding-right:125px}.model-row{overflow:auto}.messages{padding:16px}}
+@media(max-width:720px){.sidebar{width:180px}.sidebar-title strong{font-size:var(--fs-meta)}.titlebar{padding-right:125px}.messages{padding:16px}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important}}
 .question{display:block;margin:12px 0}
 .question input{display:block;width:100%;margin:8px 0}
@@ -129,7 +151,7 @@ main{display:flex;flex:1;min-width:0;flex-direction:column}
 .folder-setting{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:var(--fs-ui)}
 .folder-setting>span{overflow-wrap:anywhere;flex:1}
 .folder-setting button{border:1px solid var(--line)}
-.composer-controls .choice-options{left:0;right:auto}
+.dock-setup .choice-options{left:0;right:auto}
 .supplier-pill{border:1px solid var(--line);border-radius:var(--r-xl);margin:12px 0;background:var(--surface)}
 .supplier-pill>summary{display:flex;align-items:center;gap:12px;padding:13px 16px;cursor:pointer;list-style:none}
 .supplier-pill>summary::-webkit-details-marker{display:none}
@@ -151,9 +173,8 @@ main{display:flex;flex:1;min-width:0;flex-direction:column}
 .trust-review{border:1px solid var(--line);border-radius:var(--r-lg);padding:12px;margin-top:12px}
 .trust-review pre{max-height:220px;overflow:auto;white-space:pre-wrap;font-size:var(--fs-meta)}
 .bottom-area{position:relative}
-.composer-controls>.context-ring{display:inline-flex;align-items:center;gap:var(--space-2);height:var(--h);padding:0 var(--space-4) 0 var(--space-3);border-radius:var(--r-pill);background:var(--surface);color:var(--muted);font-size:var(--fs-meta)}
 .context-ring .sidebar-icon{width:var(--icon);height:var(--icon)}
-.usage-panel{position:absolute;right:26px;bottom:82px;width:580px;max-width:calc(100vw - 52px);max-height:calc(100vh - 110px);display:flex;flex-direction:column;z-index:var(--z-panel);border:1px solid var(--line);border-radius:var(--r-xl);background:var(--surface);box-shadow:var(--shadow-panel);font-size:var(--fs-ui);font-variant-numeric:tabular-nums}
+.usage-panel{position:absolute;right:26px;bottom:calc(100% + var(--space-2));width:580px;max-width:calc(100vw - 52px);max-height:calc(100vh - 110px);display:flex;flex-direction:column;z-index:var(--z-panel);border:1px solid var(--line);border-radius:var(--r-xl);background:var(--surface);box-shadow:var(--shadow-panel);font-size:var(--fs-ui);font-variant-numeric:tabular-nums}
 .usage-panel>header,.usage-panel>footer{padding:6px 16px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-shrink:0}
 .usage-panel>header{border-bottom:1px solid var(--line);font-size:var(--fs-body)}
 .usage-panel>header strong span{font-size:var(--fs-meta);font-weight:400;color:var(--muted);margin-left:10px}
@@ -224,8 +245,6 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .pool-defaults summary{cursor:pointer;color:var(--muted)}
 .pool-empty{margin:0}
 @media(max-width:600px){.usage-panel{right:8px;width:calc(100vw - 32px);max-width:calc(100vw - 32px)}.usage-columns,.usage-model{grid-template-columns:minmax(80px,1fr) minmax(100px,1.2fr) 65px;gap:10px}.usage-panel>header strong span,.usage-panel>footer>span{display:none}.usage-section-heading{align-items:start}.usage-section-heading>span{text-align:right}.usage-accounts{grid-template-columns:1fr}}
-.model-remove{color:var(--muted);font-size:var(--fs-body);padding:var(--space-1) var(--space-3);border-radius:var(--r-pill)}
-.model-remove:hover{color:var(--text)}
 .welcome-art{flex-shrink:1;max-width:100%;max-height:55vh;margin:0 0 24px;font-family:var(--font-mono);font-size:var(--fs-art);white-space:pre;overflow:visible}
 .welcome-art-fallback{font-size:var(--fs-display);color:var(--accent);margin-bottom:24px}
 .welcome-art-frame{display:contents}
@@ -244,7 +263,6 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .mcp-offer-token{flex-basis:100%}
 .google-steps{margin:4px 0 10px;padding-left:20px;line-height:1.9;font-size:var(--fs-ui)}
 .link-button{background:none;border:0;padding:0;min-height:0;color:var(--link);text-decoration:underline;cursor:pointer;font:inherit}
-.connections-link{font-size:var(--fs-meta);color:var(--muted);margin-left:auto;margin-right:0}
 .plugins-settings code,.plugins-settings small{overflow-wrap:anywhere;white-space:normal}
 .plugins-settings .supplier-settings{display:grid;gap:10px}
 .plugins-settings .supplier-settings button{justify-self:start}
@@ -324,7 +342,7 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .shortcut-help table{width:100%;border-collapse:collapse;font-size:var(--fs-list);white-space:normal}
 .shortcut-help th,.shortcut-help td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line)}
 .shortcut-help kbd{font:inherit;color:var(--text)}
-.chat-window-composer{padding:12px 18px;border-top:1px solid var(--line);flex-shrink:0;min-width:0}
+.chat-window-composer{position:relative;padding:12px 18px;border-top:1px solid var(--line);flex-shrink:0;min-width:0}
 .chat-window-composer .composer{width:100%}
 .chat-window-shell{display:flex;height:100vh;position:relative}
 .chat-window-shell>.side-job{flex:1;min-width:0}
@@ -358,7 +376,9 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .job-titlebar .chat-view-control{margin-left:auto}
 .job-parent>.chat-view-control{margin-left:auto}
 .job-parent>button:first-child{min-width:0}
-.side-model-controls{position:relative;flex-shrink:0}
+/* The usage panel opens above the whole message box (the ring that opens it is inside the box since 2026-11-19),
+   so it hangs from the composer area, not from this small block under the box. */
+.side-model-controls{flex-shrink:0}
 .side-model-controls>.usage-panel{max-width:calc(100% - 16px);right:8px;bottom:calc(100% + 8px)}
 .side-model-controls>dialog.settings::backdrop{background:var(--overlay-soft)}
 .user-message{position:relative}
@@ -377,7 +397,7 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .waiting-row>.waiting-remove{color:var(--muted)}
 .waiting-row>.waiting-remove:hover{color:var(--text)}
 /* Beside the send arrow while a reply runs: the action Enter does not do, with its key (Composer `other`). */
-.composer-toolbar>.send-other{display:inline-flex;align-items:center;gap:var(--space-4);align-self:flex-end;min-height:var(--h);margin:0 0 var(--space-1);padding:0 var(--space-5);border:1px solid color-mix(in srgb,var(--accent) 45%,var(--line));border-radius:var(--r-pill);color:var(--accent);font-size:var(--fs-ui);white-space:nowrap}
+.composer-toolbar>.send-other{display:inline-flex;align-items:center;gap:var(--space-4);flex:none;min-height:var(--h);margin:0;padding:0 var(--space-5);border:1px solid color-mix(in srgb,var(--accent) 45%,var(--line));border-radius:var(--r-pill);color:var(--accent);font-size:var(--fs-ui);white-space:nowrap}
 .composer-toolbar>.send-other:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 12%,transparent)}
 .composer-toolbar>.send-other:disabled{opacity:.45}
 .composer-toolbar>.send-other>kbd{padding:0 var(--space-2);border:1px solid var(--line);border-radius:var(--r-sm);color:var(--muted);font:inherit;font-size:var(--fs-meta)}
@@ -486,18 +506,12 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .app-titlebar>span{pointer-events:none}
 .app-frame>.shell{height:auto;flex:1;min-height:0}
 .app-frame .titlebar,.app-frame .sidebar-title{-webkit-app-region:no-drag}
-.composer-controls>button:not(.context-ring),.composer-controls>.choice-menu>summary{display:flex;align-items:center;min-height:var(--h);padding:0 var(--space-4);border:1px solid transparent;border-radius:var(--r-pill);background:var(--surface)}
-.composer-controls .chat-view-control{gap:6px;margin:0 2px}
-.composer-controls .context-ring{margin-left:0}
-.model-row>.model-add,.model-row>.model-disclosure{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);flex-shrink:0;min-height:var(--h);border:1px solid var(--line);border-radius:var(--r-pill);color:var(--muted);padding:0 var(--space-5);white-space:nowrap}
-.model-row>.model-add .sidebar-icon,.model-row>.model-disclosure .sidebar-icon{width:var(--icon-sm);height:var(--icon-sm);flex-basis:var(--icon-sm)}
-.model-row>.model-disclosure{width:var(--h);padding:0}
-/* The mic is red while it listens; the waves (dictation-waves.tsx) show your voice: bars in the bottom row beside the
-   buttons, or a line across the box between your words and the buttons. They draw in the box's text colour. */
+/* The mic is red while it listens; the waves (dictation-waves.tsx) show your voice: bars in the bottom row, where
+   the ring and Options sit when it is quiet, or a line across the box between your words and the row. They draw in
+   the box's text colour. */
 .dictation-anchor>.dictation-trigger.recording{border-color:var(--danger);color:var(--danger);background:color-mix(in srgb,var(--danger) 7%,transparent)}
 .dictation-waves{display:block;color:var(--text);pointer-events:none}
-.composer-box.waves-bars .composer-tools{flex:0 1 auto}
-.composer-toolbar>.dictation-waves.bars{flex:1 1 60px;min-width:40px;height:var(--h-lg);align-self:center}
+.composer-toolbar>.dictation-waves.bars{flex:0 1 96px;min-width:40px;height:var(--h-lg);align-self:center}
 .composer-box>.dictation-waves.line{align-self:stretch;width:auto;height:30px;margin:0 var(--space-2)}
 .app-titlebar .app-mark{width:25px;height:25px;display:block;object-fit:contain;flex:none}
 .app-titlebar strong{font-weight:600;pointer-events:none}
@@ -546,26 +560,40 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .backend-notice button{flex-shrink:0;border:1px solid var(--line);border-radius:var(--r-pill);color:var(--text)}
 .context-dialog .context-auto{display:flex;align-items:center;gap:8px}
 .update-window{width:min(560px,calc(100vw - 32px))}
-/* C1 C2: the caret after the title and the panels as one icon group */
+/* C1 C2: the caret after the title, and one switch at the bar's right end for the Workspace panel (Koan 2026-11-19).
+   The switch sits above where the panel opens; its dot says something inside is new. The status is a dot, pushed to
+   the right; the main chat's bar no longer keeps room on its right for buttons the app's own title bar holds. */
 .titlebar .chat-menu-trigger{width:var(--h-sm);min-height:var(--h-sm);flex-shrink:0;-webkit-app-region:no-drag}
-.panel-group{display:flex;align-items:center;gap:var(--space-1);flex-shrink:0;margin-left:auto;padding:var(--space-1);border:1px solid var(--line);border-radius:var(--r);-webkit-app-region:no-drag}
-.panel-group>.kit-icon-only{width:var(--h);min-height:var(--h-sm)}
+.primary-chat-pane .titlebar{padding-right:var(--space-5)}
+.primary-chat-pane .titlebar>.chat-menu-trigger{margin-right:auto}
+.titlebar>.backend-status{margin-left:0}
+.workspace-switch{position:relative;display:inline-flex;flex:none;-webkit-app-region:no-drag}
+.workspace-switch>.kit-button[aria-pressed=true]{background:var(--raised);color:var(--text)}
+.workspace-switch>.workspace-news{position:absolute;top:var(--space-1);right:var(--space-1);pointer-events:none}
 .chat-window-actions{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-4);flex-shrink:0}
-/* C10 C11: the toggles are switches; the ring shows the fullest context window */
-.composer-controls>.kit-switch{min-height:var(--h);border-radius:var(--r-pill);background:var(--surface)}
+.chat-window-actions>.workspace-switch{margin-left:auto}
+/* C11: the ring shows the fullest context window */
 .context-ring-mark{width:var(--icon-lg);height:var(--icon-lg);transform:rotate(-90deg)}
 .context-ring-mark circle{fill:none;stroke-width:4;stroke:var(--line)}
 .context-ring-mark circle+circle{stroke:var(--muted);stroke-linecap:round}
 .context-ring[data-pressure=warning] .context-ring-mark circle+circle{stroke:var(--warning)}
 .context-ring[data-pressure=high] .context-ring-mark circle+circle{stroke:var(--danger)}
-.composer-controls .chat-view-control select{min-height:var(--h);border:0;background:transparent;padding:0 var(--space-2)}
-.composer-controls>.chat-view-control{padding-left:var(--space-4);border-radius:var(--r-pill);background:var(--surface)}
-/* C12: pills scroll inside the row; an open menu is never clipped; × shows on hover; tooltips hide while a menu is open */
-.model-pills{display:flex;align-items:center;gap:var(--space-2);flex:0 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none;mask-image:linear-gradient(90deg,black calc(100% - 28px),transparent)}
-.model-row.menu-open .model-pills,.model-pills:has(details[open]){overflow:visible;mask-image:none}
-.model-pills .model-remove{opacity:0;transition:opacity .15s}
-.model-pill:hover .model-remove,.model-pill:focus-within .model-remove{opacity:1}
+/* C12: the models as chips inside the message box. A chip is quiet until it is picked; its level is part of it and
+   opens the level menu; tooltips hide while a menu is open. Folded, one chip stands for them all. */
+.model-pills{display:flex;align-items:center;gap:var(--space-2)}
 .model-row.menu-open .model-usage-tooltip{display:none!important}
+.dock-setup .model-pill{border-color:transparent;background:transparent}
+.dock-setup .model-pill:hover{background:var(--raised)}
+.dock-setup .model-pill.selected{border-color:var(--accent);background:var(--selected)}
+.dock-setup .jev.model-pill{border-right-color:var(--line);border-radius:0}
+.dock-setup .model-pill .choice-menu{margin-left:0;border-left:0}
+.dock-setup .model-pill .choice-menu>summary{gap:0;padding:var(--space-1) var(--space-4) var(--space-1) 0;color:var(--muted)}
+.dock-setup .model-pill .choice-menu>summary:hover,.dock-setup .model-pill .choice-menu[open]>summary{background:transparent;color:var(--text)}
+.dock-setup .model-pill .choice-menu>summary>span[aria-hidden]{display:none}
+.model-fold{gap:var(--space-2);padding:0 var(--space-4);cursor:pointer}
+.model-fold .health-dot{margin-right:0}
+.model-fold .sidebar-icon{width:var(--icon-sm);height:var(--icon-sm);flex:0 0 var(--icon-sm)}
+.model-more{color:var(--muted)}
 /* C13 C14: live and failed status colours; reply actions fade until the reply is hovered or focused */
 .model-label>.turn-activity[data-tone=live]{color:var(--green)}
 .model-label>.turn-activity[data-tone=danger]{color:var(--danger)}

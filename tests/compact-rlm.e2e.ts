@@ -7,6 +7,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import {Backend,PYTHON} from '../app/backend';
 import {mainWindow,pollState} from './fixtures/poll-state';
+import {chatOptions} from './fixtures/chat-bar';
 
 const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/compact-rlm-')),folder=await fs.mkdtemp(path.join(root,'work/compact-rlm-files-'));
 const host=new Backend(root,data,'Trismegistus/Test/'+path.basename(data),()=>{});await host.host('initialize');await host.host('save_key',{key:'synthetic-deepseek-regression-credential'});
@@ -18,7 +19,7 @@ try{
  await pollState(page,s=>s.backend==='ready'&&s.claude?.models?.some(m=>m.id==='claude-code:haiku')===true);await call('wizardFinish');await call('workingFolder',{folder});
  const chatId=await call('newChat');await call('addModel',{chatId,model:'claude-code:haiku'});await call('mode',{projectId:(await call('state')).chats.find((c:any)=>c.id===chatId).projectId,mode:'bypass'});
  const send=async(text:string,model='claude-code:haiku',owner=chatId)=>{const id=crypto.randomUUID();await call('submit',{chatId:owner,id,text,models:[model]});const state=await pollState(page,s=>s.turns.some(t=>t.id===id&&['completed','failed','interrupted','stopped'].includes(t.status)));assert.equal(state.turns.find(t=>t.id===id)!.status,'completed',state.turns.find(t=>t.id===id)!.error||'');return id;};
- await call('openMainChat',{chatId});const toggle=page.getByRole('button',{name:'RLM history',exact:true});await toggle.waitFor();assert.equal(await toggle.getAttribute('aria-pressed'),'true');
+ await call('openMainChat',{chatId});const toggle=page.locator('[aria-label="RLM history"]');await toggle.waitFor({state:'attached'});assert.equal(await toggle.getAttribute('aria-pressed'),'true');
  const first=await send('ANCHOR_KEEP is the approved decision.');await send('Newest task: ANCHOR_LATEST.');const before=(await call('state')).turns;
  // Real slash-menu/composer path, with a focus appended by the user.
  const composer=page.locator('textarea[placeholder="Message"]');await composer.fill('/compact preserve ANCHOR_KEEP');await composer.press('Enter');
@@ -27,7 +28,7 @@ try{
  const query={question:'What decision was approved?',query:'ANCHOR_KEEP is the approved'};
  const lookup=await send('RLM_HISTORY_FIXTURE '+JSON.stringify(query),'deepseek-flash');state=await call('state');let result=JSON.stringify(state.tools.find((t:any)=>t.turnId===lookup&&t.name==='query_chat_history')?.result);assert.match(result,/Saved decision retrieved/);assert.match(result,new RegExp(first));
  const nativeLookup=await send(JSON.stringify({action:'mcp',server:'ghidorah',tool:'query_chat_history',arguments:query,requiredTools:['query_chat_history']}));state=await call('state');assert.match(state.turns.find((t:any)=>t.id===nativeLookup).text,/Saved decision retrieved/);
- const usageBefore=state.chats.find((c:any)=>c.id===chatId).summarizationUsage.length;await toggle.click();await page.waitForFunction(()=>document.querySelector('[aria-label="RLM history"]')?.getAttribute('aria-pressed')==='false');assert.equal(await toggle.getAttribute('aria-pressed'),'false');
+ const usageBefore=state.chats.find((c:any)=>c.id===chatId).summarizationUsage.length;await (await chatOptions(page)).locator('[aria-label="RLM history"]').click();await page.waitForFunction(()=>document.querySelector('[aria-label="RLM history"]')?.getAttribute('aria-pressed')==='false');assert.equal(await toggle.getAttribute('aria-pressed'),'false');
  const off=await send('RLM_HISTORY_FIXTURE '+JSON.stringify(query),'deepseek-flash');state=await call('state');result=JSON.stringify(state.tools.find((t:any)=>t.turnId===off&&t.name==='query_chat_history')?.result);assert.match(result,/off/);assert.equal(state.chats.find((c:any)=>c.id===chatId).summarizationUsage.length,usageBefore);
  await send('Confirm the current history mode.');requests=(await fs.readFile(path.join(data,'claude-requests.jsonl'),'utf8')).trim().split('\n').map(row=>JSON.parse(row));assert.match(JSON.stringify(requests.at(-1).content),/RLM history assistance is off/);
  // Koan's rule (2026-10-08, Phase 1 54a03a9): Claude shrinks its own live session; Tris adds no automatic summary.
@@ -38,8 +39,8 @@ try{
  await call('openMainChat',{chatId});
  const capture=await app.evaluate(async({BrowserWindow})=>{const w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('index.html'))!;await w.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true});await new Promise(r=>setTimeout(r,100));return (await w.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG().toString('base64');});await fs.writeFile(path.join(data,'footer.png'),Buffer.from(capture,'base64'));
  // The setting belongs to this chat and survives restart and a detached window.
- await app.evaluate(({app})=>app.quit());await app.close();app=await launch();page=await mainWindow(app);await pollState(page,s=>s.backend==='ready');await call('openMainChat',{chatId});assert.equal(await page.getByRole('button',{name:'RLM history',exact:true}).getAttribute('aria-pressed'),'false');
- await call('openChatWindow',{chatId});let detached;for(let n=0;n<100&&!detached;n++){detached=app.windows().find(p=>p.url().endsWith('#chat='+chatId));if(!detached)await page.waitForTimeout(100);}assert.ok(detached);assert.equal(await detached.getByRole('button',{name:'RLM history',exact:true}).getAttribute('aria-pressed'),'false');await detached.getByRole('button',{name:'RLM history',exact:true}).click();assert.equal((await call('state')).chats.find((c:any)=>c.id===chatId).rlm,true);
+ await app.evaluate(({app})=>app.quit());await app.close();app=await launch();page=await mainWindow(app);await pollState(page,s=>s.backend==='ready');await call('openMainChat',{chatId});assert.equal(await page.locator('[aria-label="RLM history"]').getAttribute('aria-pressed'),'false');
+ await call('openChatWindow',{chatId});let detached;for(let n=0;n<100&&!detached;n++){detached=app.windows().find(p=>p.url().endsWith('#chat='+chatId));if(!detached)await page.waitForTimeout(100);}assert.ok(detached);assert.equal(await detached.locator('[aria-label="RLM history"]').getAttribute('aria-pressed'),'false');await (await chatOptions(detached)).locator('[aria-label="RLM history"]').click();assert.equal((await call('state')).chats.find((c:any)=>c.id===chatId).rlm,true);
  assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().some(w=>w.isVisible())),false);
  await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({slashCommand:true,originalsRetained:true,autoCompact:true,boundedContinuation:true,rlmBothEngines:true,defaultOn:true,offNoCalls:true,usage:true,cancellationContinues:true,restart:true,detachedToggle:true,hidden:true},null,2));console.log('PASS /compact, auto compaction and RLM history on both engines; '+data);
 }finally{await app.evaluate(({app})=>app.quit()).catch(()=>{});await app.close().catch(()=>{});fake.stdin.end('\n');lines.close();await host.host('delete_key');}

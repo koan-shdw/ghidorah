@@ -7,6 +7,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import {Backend,PYTHON} from '../app/backend';
 import {findClaude,runClaude} from '../app/claude';
+import {addMenu} from './fixtures/chat-bar';
 import {SecretScrubber} from '../app/redaction';
 
 const working=await fs.mkdtemp(path.join(process.cwd(),'work','skills-conversion-workspace-'));
@@ -53,7 +54,7 @@ try{
  await message.evaluate(element=>element.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,isComposing:true})));assert.equal(await message.inputValue(),'/exa');assert.equal((await call('state')).turns.length,beforePicker);
  await message.press('ArrowDown');await message.press('Tab');assert.equal(await message.inputValue(),'/example:run ');assert.equal(await options.count(),0);assert.equal((await call('state')).turns.length,beforePicker);
  await message.fill('/example');await message.press('Escape');assert.equal(await message.inputValue(),'/example');assert.equal(await options.count(),0);
- await message.fill('keep these arguments');await page.getByRole('button',{name:'Browse skills and commands',exact:true}).click();await options.getByRole('option',{name:/\/example:run/}).click();assert.equal(await message.inputValue(),'/example:run keep these arguments');
+ await message.fill('keep these arguments');await addMenu(page,'Skills and commands');await options.getByRole('option',{name:/\/example:run/}).click();assert.equal(await message.inputValue(),'/example:run keep these arguments');
  await message.press('Shift+Enter');assert.equal(await message.inputValue(),'/example:run keep these arguments\n');assert.equal((await call('state')).turns.length,beforePicker);
  await message.fill('/exa');await page.screenshot({path:path.join(data,'composer-commands.png')});
  await instance.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(720,620));

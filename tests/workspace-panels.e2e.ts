@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
 import assert from 'node:assert/strict';
+import {openWorkspace} from './fixtures/chat-bar';
 
 const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/workspace-panels-')),folder=await fs.mkdtemp(path.join(os.tmpdir(),'tris-workspace-'));
 const git=(...args:string[])=>execFileSync('git',['-C',folder,...args],{encoding:'utf8',windowsHide:true}).trim();
@@ -21,7 +22,7 @@ try{
   async function until(fn:()=>Promise<boolean>,label:string,timeout=30000){const end=Date.now()+timeout;while(Date.now()<end){if(await fn())return;await new Promise(r=>setTimeout(r,120));}throw Error('Timed out: '+label);}
   await until(async()=>(await call('state')).backend==='ready','backend',90000);await page.getByLabel('Close settings',{exact:true}).click();
   await call('workingFolder',{folder});const chatId=await call('newChat');await page.locator('[data-chat-id="'+chatId+'"] .chat-link').click();
-  await page.getByLabel('Open files',{exact:true}).click();await page.locator('.workspace-files button').filter({hasText:'calc.py'}).click();
+  await openWorkspace(page,'files');await page.locator('.workspace-files button').filter({hasText:'calc.py'}).click();
   const editor=page.getByRole('textbox',{name:'File contents'});await editor.fill('def add(a, b):\n    return a * b\n');
   await page.getByRole('button',{name:'Save',exact:true}).click();await until(async()=>(await fs.readFile(path.join(folder,'calc.py'),'utf8')).includes('a * b'),'editor save');
   await page.screenshot({path:path.join(data,'editor.png')});
@@ -30,7 +31,7 @@ try{
   await assert.rejects(call('workingFolder',{clear:true}),/Save or discard/);
   await instance.evaluate(({dialog,app})=>{const original=dialog.showMessageBox;dialog.showMessageBox=async()=>({response:0,checkboxChecked:false});app.quit();dialog.showMessageBox=original;});assert.equal(await editor.textContent(),'keep my unsaved draft');
   await page.getByRole('button',{name:'Discard',exact:true}).click();await page.getByRole('button',{name:'Discard draft',exact:true}).click();await until(async()=>(await editor.textContent())==='external change','discard reload');
-  await page.getByLabel('Open changes',{exact:true}).click();await page.getByRole('button',{name:'Working',exact:true}).click();await page.getByLabel('Git diff').filter({hasText:'+external change'}).waitFor();
+  await openWorkspace(page,'changes');await page.getByRole('button',{name:'Working',exact:true}).click();await page.getByLabel('Git diff').filter({hasText:'+external change'}).waitFor();
   assert.equal(await fs.stat(path.join(folder,'helper-ran.txt')).then(()=>true,()=>false),false);console.log('PASS editor Save/Discard, stale save preserves external changes, actual Git diff executes no repository helpers');
   await page.screenshot({path:path.join(data,'changes.png')});
   await page.keyboard.press('Control+Backquote');await until(async()=>(await call('terminalList',{chatId})).length===1,'shortcut terminal');const terminal=(await call('terminalList',{chatId}))[0];

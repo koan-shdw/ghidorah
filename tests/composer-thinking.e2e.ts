@@ -5,6 +5,7 @@ import os from 'node:os';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {Backend,PYTHON} from '../app/backend';
+import {setChatView} from './fixtures/chat-bar';
 
 const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work','composer-thinking-')),namespace='Trismegistus/Test/'+path.basename(data),folder=await fs.mkdtemp(path.join(os.tmpdir(),'tris-thinking-'));
 const host=new Backend(root,data,namespace,()=>{});await host.host('initialize');
@@ -38,7 +39,7 @@ try{
  }
  const results:any[]=[];
  for(const value of ['', 'Keep this follow-up while you think']){
-  await main.getByLabel('Chat view',{exact:true}).selectOption('thinking');const id=await start();const result=await observe(main,value);results.push({view:'main',value,...result});
+  await setChatView(main,'thinking');const id=await start();const result=await observe(main,value);results.push({view:'main',value,...result});
   assert.ok(result.frames>20);assert.equal(result.changed,0);assert.equal(result.replaced,0);assert.equal(result.moved,0);assert.equal(result.lostFocus,0);assert.deepEqual(result.placeholders,['Message']);assert.ok(result.maxGap<3,JSON.stringify(result));
   await wait(s=>s.turns.find((t:any)=>t.id===id)?.status==='completed');
  }
@@ -46,7 +47,7 @@ try{
  await main.getByRole('combobox',{name:'Message',exact:true}).fill('');let id=await start();
  await main.locator('.primary-chat-pane .transcript').evaluate(element=>element.scrollTop=0);await main.waitForTimeout(800);
  assert.equal(await main.locator('.primary-chat-pane .transcript').evaluate(element=>element.scrollTop),0);await call('stop',{chatId});await wait(s=>s.turns.find((t:any)=>t.id===id)?.status==='stopped');
- const windowOpened=app.waitForEvent('window');await call('openChatWindow',{chatId});const detached=await windowOpened;await detached.waitForLoadState();await detached.getByLabel('Chat view',{exact:true}).selectOption('thinking');
+ const windowOpened=app.waitForEvent('window');await call('openChatWindow',{chatId});const detached=await windowOpened;await detached.waitForLoadState();await detached.locator('.chat-view-tabs').waitFor({state:'attached'});await setChatView(detached,'thinking');
  id=await start(detached);const result=await observe(detached,'Window draft stays put');results.push({view:'window',...result});assert.equal(result.changed,0);assert.equal(result.replaced,0);assert.equal(result.moved,0);assert.equal(result.lostFocus,0);assert.deepEqual(result.placeholders,['Message']);
  await wait(s=>s.turns.find((t:any)=>t.id===id)?.status==='completed');
  await detached.locator('.chat-window-composer').screenshot({path:path.join(data,'composer.png')});await fs.writeFile(path.join(data,'frames.json'),JSON.stringify(results,null,2));assert.deepEqual(errors,[]);

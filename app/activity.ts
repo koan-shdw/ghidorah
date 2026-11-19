@@ -46,7 +46,7 @@ export function planSteps(tools:ToolCall[],before:ToolCall[]|(()=>ToolCall[])=[]
 export function foldText(items:TaskItem[]){const kept=items.filter(item=>item.status!=='cancelled');return kept.filter(item=>item.status==='completed').length+' of '+kept.length+(kept.length===1?' step':' steps')+' done';}
 
 /** A chat's own turns and those of its side jobs: its child chats, and the chats a turn of this chat started. */
-function ownedTurns(state:Pick<Snapshot,'chats'|'jobChats'|'turns'>,chatId:string){
+export function ownedTurns(state:Pick<Snapshot,'chats'|'jobChats'|'turns'>,chatId:string){
  const allTurns=new Map(state.turns.map(turn=>[turn.id,turn])),owners=new Set([chatId,...[...state.chats,...state.jobChats||[]].filter(chat=>chat.parentChatId===chatId).map(chat=>chat.id)]);
  for(const turn of state.turns)if(turn.parentTurnId&&allTurns.get(turn.parentTurnId)?.chatId===chatId)owners.add(turn.chatId);
  return {owners,turns:new Map(state.turns.filter(turn=>owners.has(turn.chatId)).map(turn=>[turn.id,turn]))};

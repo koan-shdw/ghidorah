@@ -6,6 +6,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import {Backend,PYTHON} from '../app/backend';
+import {chatOptions,chatView,closeChatOptions,setChatView} from './fixtures/chat-bar';
+// The chat's view is three choices in its Options menu (Koan 2026-11-19). This stands in for the select it was.
+const view=(scope:any)=>({selectOption:(mode:any)=>setChatView(scope,mode),inputValue:()=>chatView(scope)});
 const working=await fs.mkdtemp(path.join(process.cwd(),'work','chat-view-workspace-'));
 const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/chat-view-')),namespace='Trismegistus/Test/'+path.basename(data),host=new Backend(root,data,namespace,()=>{}),records=path.join(data,'requests.jsonl');
 await host.host('initialize');await host.host('save_key',{key:'synthetic-deepseek-regression-credential'});
@@ -18,7 +21,7 @@ try{
  const wait=async(check:(s:any)=>boolean)=>{for(let n=0;n<900;n++){const s=await call('state');if(check(s))return s;await page.waitForTimeout(100);}throw Error('Timed out');};
  await wait(s=>s.backend==='ready');if(await page.getByLabel('Close settings',{exact:true}).count())await page.getByLabel('Close settings',{exact:true}).click();await call('workingFolder',{folder:working});
  const first=await call('newChat'),second=await call('newChat');for(const chatId of [first,second])await call('modelSelection',{chatId,selected:true});await page.locator('[data-chat-id="'+first+'"] .chat-link').click();
- const main=page.getByRole('region',{name:'Main chat',exact:true}),select=main.getByLabel('Chat view',{exact:true});
+ const main=page.getByRole('region',{name:'Main chat',exact:true}),select=view(main);
  await main.getByLabel('Message',{exact:true}).fill('View mode reasoning fixture');await main.getByLabel('Message',{exact:true}).press('Enter');await wait(s=>s.turns.some((t:any)=>t.chatId===first&&t.status==='completed'));
  assert.equal(await main.locator('.thinking').count(),1);assert.equal(await main.locator('.thinking[open]').count(),0);
  await select.selectOption('thinking');assert.equal(await main.locator('.thinking[open]').count(),await main.locator('.thinking').count());assert.match(await main.locator('.thinking').innerText(),/Checking the request/);
@@ -29,17 +32,18 @@ try{
  assert.ok(await main.locator('.activity[open]').count()>0);await select.selectOption('thinking');assert.equal(await main.locator('.activity[open]').count(),0);assert.equal(await main.locator('.thinking[open]').count(),await main.locator('.thinking').count());
  await select.selectOption('normal');await main.locator('.activity-group > summary').first().click();await main.locator('.activity summary').first().click();assert.ok(await main.locator('.activity[open]').count()>0);await select.selectOption('verbose');assert.ok(await main.locator('.activity[open]').count()>0);
  await page.screenshot({path:path.join(data,'verbose.png')});
- await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(650,650));await select.selectOption('normal');assert.ok(await select.evaluate(el=>{const b=el.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth&&b.top>=0&&b.bottom<=innerHeight;}));await select.selectOption('verbose');await page.screenshot({path:path.join(data,'narrow.png')});await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(1500,950));
+ await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(650,650));await select.selectOption('normal');assert.ok(await (await chatOptions(main)).locator('.chat-view-tabs').evaluate(el=>{const b=el.getBoundingClientRect();return b.width>0&&b.left>=0&&b.right<=innerWidth&&b.top>=0&&b.bottom<=innerHeight;}),'the view choices fit a narrow window');await closeChatOptions(main);await select.selectOption('verbose');await page.screenshot({path:path.join(data,'narrow.png')});await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(1500,950));
  await main.getByLabel('Message',{exact:true}).focus();await page.keyboard.press('Control+o');assert.equal(await select.inputValue(),'normal');await page.keyboard.press('Control+o');assert.equal(await select.inputValue(),'thinking');
  await page.keyboard.press('F1');await page.getByRole('dialog',{name:'Keyboard shortcuts',exact:true}).waitFor();await page.keyboard.press('Control+o');assert.equal(await select.inputValue(),'thinking');await page.keyboard.press('Escape');
  await page.locator('[data-chat-id="'+second+'"] .chat-link').click({button:'right'});await page.getByRole('menuitem',{name:'Open in',exact:true}).hover();await page.getByRole('menuitem',{name:'Split view',exact:true}).click();const side=page.getByRole('region',{name:'Split chat',exact:true});
- assert.equal(await side.getByLabel('Chat view',{exact:true}).inputValue(),'normal');await side.getByLabel('Message',{exact:true}).fill('Second view fixture');await side.getByLabel('Message',{exact:true}).press('Enter');await wait(s=>s.turns.some((t:any)=>t.chatId===second&&t.status==='completed'));
- await side.getByLabel('Message',{exact:true}).focus();await page.keyboard.press('Control+o');assert.equal(await side.getByLabel('Chat view',{exact:true}).inputValue(),'thinking');assert.equal(await select.inputValue(),'thinking');await page.keyboard.press('Control+o');assert.equal(await side.getByLabel('Chat view',{exact:true}).inputValue(),'verbose');assert.equal(await select.inputValue(),'thinking');
- const opening=app.waitForEvent('window');await side.getByLabel('Pop out split chat',{exact:true}).click();const popped=await opening;await popped.getByLabel('Chat view',{exact:true}).waitFor();assert.equal(await popped.getByLabel('Chat view',{exact:true}).inputValue(),'verbose');
- await popped.getByLabel('Chat view',{exact:true}).selectOption('normal');await page.locator('[data-chat-id="'+second+'"] .chat-link').click();await page.waitForFunction(()=>document.querySelector<HTMLSelectElement>('.primary-chat-pane [aria-label="Chat view"]')?.value==='normal');
- await popped.getByLabel('Chat view',{exact:true}).selectOption('verbose');await page.waitForFunction(()=>document.querySelector<HTMLSelectElement>('.primary-chat-pane [aria-label="Chat view"]')?.value==='verbose');
+ assert.equal(await view(side).inputValue(),'normal');await side.getByLabel('Message',{exact:true}).fill('Second view fixture');await side.getByLabel('Message',{exact:true}).press('Enter');await wait(s=>s.turns.some((t:any)=>t.chatId===second&&t.status==='completed'));
+ await side.getByLabel('Message',{exact:true}).focus();await page.keyboard.press('Control+o');assert.equal(await view(side).inputValue(),'thinking');assert.equal(await select.inputValue(),'thinking');await page.keyboard.press('Control+o');assert.equal(await view(side).inputValue(),'verbose');assert.equal(await select.inputValue(),'thinking');
+ const opening=app.waitForEvent('window');await side.getByLabel('Pop out split chat',{exact:true}).click();const popped=await opening;await popped.locator('.chat-view-tabs').waitFor({state:'attached'});assert.equal(await view(popped).inputValue(),'verbose');
+ const mainView=(mode:string)=>page.waitForFunction(mode=>document.querySelector('.primary-chat-pane .chat-view-tabs [aria-pressed=true]')?.textContent?.toLowerCase()===mode,mode);
+ await view(popped).selectOption('normal');await page.locator('[data-chat-id="'+second+'"] .chat-link').click();await mainView('normal');
+ await view(popped).selectOption('verbose');await mainView('verbose');
  await Promise.all([popped.waitForEvent('close'),popped.getByLabel('Close chat window',{exact:true}).click({noWaitAfter:true}).catch((error:Error)=>{if(!/closed/i.test(error.message))throw error;})]);await app.close();app=await launch();page=await app.firstWindow();await wait(s=>s.backend==='ready');if(await page.getByLabel('Close settings',{exact:true}).count())await page.getByLabel('Close settings',{exact:true}).click();
- await page.locator('[data-chat-id="'+first+'"] .chat-link').click();await page.waitForFunction(()=>document.querySelector<HTMLSelectElement>('.primary-chat-pane [aria-label="Chat view"]')?.value==='thinking');
- await page.locator('[data-chat-id="'+second+'"] .chat-link').click();await page.waitForFunction(()=>document.querySelector<HTMLSelectElement>('.primary-chat-pane [aria-label="Chat view"]')?.value==='verbose');
+ await page.locator('[data-chat-id="'+first+'"] .chat-link').click();await mainView('thinking');
+ await page.locator('[data-chat-id="'+second+'"] .chat-link').click();await mainView('verbose');
  await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({narrowControl:true,normalCollapsed:true,thinkingExpanded:true,verboseTools:true,manualDisclosure:true,approvalVisible:true,noExtraInference:true,ctrlO:true,modalIsolation:true,focusedSplit:true,popout:true,crossWindowSync:true,restartPersistence:true}));console.log(data);
 }finally{await app.close();fake.kill();execFileSync(PYTHON,['-c',"import sys;sys.path.insert(0,'backend');import windows_credentials as v;[v.delete(sys.argv[1]+'/'+s) for s in ('deepseek','encryption')]",namespace],{windowsHide:true});}

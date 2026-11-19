@@ -2,6 +2,7 @@ import {_electron as electron} from 'playwright';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import {addMenu} from './fixtures/chat-bar';
 const root=path.resolve('.');const data=path.join(root,'work','desktop-test-'+Date.now());
 await fs.mkdir(data,{recursive:true});
 const instance=await electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,args:process.env.TRISMEGISTUS_EXE?[]:[root],env:{...process.env,TRISMEGISTUS_TEST_DATA:data},timeout:30000});
@@ -31,7 +32,7 @@ try{
  await page.screenshot({path:path.join(root,'work','desktop-narrow.png')});
  assert.ok(await page.getByLabel('Send',{exact:true}).isVisible());
  assert.ok(await page.getByLabel('Permission mode',{exact:true}).first().isVisible());
- await page.getByRole('button',{name:'Browse skills and commands',exact:true}).click();
+ await addMenu(page,'Skills and commands');
  assert.ok(await page.getByText('/review',{exact:true}).count()>0,'Built-in review commands are always listed');
  await page.getByRole('button',{name:'Manage plugins',exact:true}).click();assert.equal(await page.getByRole('heading',{name:'Plugins',exact:true}).count(),1);
  console.log('PASS draft navigation, keyboard dialog close and narrow-window controls');

@@ -7,6 +7,7 @@ import {mainWindow,pollState} from './fixtures/poll-state';
 import {Store} from '../app/store';
 import type {Turn} from '../app/types';
 import {saveChatOutput} from '../app/chat-files';
+import {openWorkspace} from './fixtures/chat-bar';
 const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/preview-controls-')),folder=await fs.mkdtemp(path.join(os.tmpdir(),'ghidorah-preview-'));
 await fs.writeFile(path.join(folder,'index.html'),'<title>Preview controls</title><link rel="stylesheet" href="/style.css"><h1>Inside preview</h1><input value="kept"><img src="pixel.svg"><button onclick="document.querySelector(\'h1\').textContent=\'Clicked\'">Change</button>');
 await fs.writeFile(path.join(folder,'style.css'),'h1{color:rgb(100,200,150)}');await fs.writeFile(path.join(folder,'pixel.svg'),'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="red"/></svg>');
@@ -39,7 +40,7 @@ try{
  await page.locator(`[data-chat-id="${chatId}"] .chat-link`).click();
  const inline=page.locator('.inline-preview');await browserButton(inline.first());await browserButton(inline.nth(1));await inline.first().getByRole('button',{name:'Preview in app',exact:true}).click();await aligned(page);
  await page.getByRole('button',{name:'Chat menu',exact:true}).first().click();await page.getByRole('menuitem',{name:'Chat files',exact:true}).click();await browserButton(page.locator('.chat-file-actions'));await page.locator('.chat-file-actions').getByRole('button',{name:'Preview in app',exact:true}).click();await aligned(page);
- await page.getByLabel('Open files',{exact:true}).click();await page.locator('.workspace-files button').filter({hasText:'index.html'}).click();
+ await openWorkspace(page,'files');await page.locator('.workspace-files button').filter({hasText:'index.html'}).click();
  await browserButton(page.locator('.editor-toolbar'));await page.locator('.editor-toolbar').getByRole('button',{name:'Preview in app',exact:true}).click();
  await aligned(page);
  await page.locator('.rail-settings').click();await page.getByLabel('Text size',{exact:true}).selectOption('1.25');await page.getByLabel('Close settings',{exact:true}).click();
@@ -55,6 +56,6 @@ try{
  const closed=popped.waitForEvent('close');await popped.getByRole('button',{name:'Return to main window',exact:true}).click();await closed;await aligned(page);
  await page.locator('.rail-settings').click();await page.getByLabel('Text size',{exact:true}).selectOption('1.5');await page.getByLabel('Close settings',{exact:true}).click();await aligned(page);
  await page.screenshot({path:path.join(data,'preview-150.png')});
- const detachedOpening=app.waitForEvent('window');await call('openChatWindow',{chatId});const detached=await detachedOpening;await detached.waitForLoadState();await detached.getByLabel('Open preview',{exact:true}).click();await detached.getByRole('button',{name:'Reopen',exact:true}).click();await aligned(detached);await browserButton(detached.locator('.preview-toolbar'));
+ const detachedOpening=app.waitForEvent('window');await call('openChatWindow',{chatId});const detached=await detachedOpening;await detached.waitForLoadState();await openWorkspace(detached,'preview');await detached.getByRole('button',{name:'Reopen',exact:true}).click();await aligned(detached);await browserButton(detached.locator('.preview-toolbar'));
  console.log('PASS preview bounds at 100%, 125%, 150%, resizing and detached windows; both controls and real Edge rendering with styles, images and scripts');
 }finally{await browser.close();await app.evaluate(({app})=>app.quit()).catch(()=>{});await app.close();}

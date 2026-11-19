@@ -33,7 +33,8 @@ try{
  for(const shell of await page.locator('.job-dock .job-window-shell').all())assert.equal(await shell.getAttribute('data-view-mode'),'thinking');assert.equal(await page.locator('.job-dock').getByRole('button',{name:'Close job pane',exact:true}).count(),3);
  await wait(s=>jobs.every((job:any)=>s.approvals.some((a:any)=>a.turnId===job.id&&a.status==='pending')));
  for(const job of jobs)await assert.rejects(call('removeModel',{chatId,model:job.model}),/Stop this model/);
- for(const button of await page.locator('.model-remove').all())assert.equal(await button.isDisabled(),true);
+ // The line above is the rule: a model at work cannot be removed. The hover × that showed it per pill is gone
+ // (2026-11-19); chat-window.e2e.ts checks the same rule on a chip's right-click menu.
  assert.equal((await call('state')).chats.find((c:any)=>c.id===chatId).selectedModels.length,0);
  let side=await jobPage(jobs[0].chatId);await side.getByLabel('Job correction').focus();assert.equal(await side.getByLabel('Chat view',{exact:true}).inputValue(),'thinking');await side.keyboard.press('Control+o');assert.equal(await side.getByLabel('Chat view',{exact:true}).inputValue(),'verbose');await side.keyboard.press('Control+o');assert.equal(await side.getByLabel('Chat view',{exact:true}).inputValue(),'normal');await side.keyboard.press('Control+o');assert.equal(await side.getByLabel('Chat view',{exact:true}).inputValue(),'thinking');await side.keyboard.press('Control+o');assert.equal(await side.getByLabel('Chat view',{exact:true}).inputValue(),'verbose');const sideState=await invoke(side,'state');assert.equal(sideState.chats.length,1);assert.ok(sideState.turns.every((t:any)=>t.chatId===jobs[0].chatId||t.id===parent.id));
  state=await call('state');const approval=(id:string)=>state.approvals.find((a:any)=>a.turnId===id&&a.status==='pending');

@@ -6,6 +6,7 @@ import os from 'node:os';
 import assert from 'node:assert/strict';
 import {PYTHON} from '../app/backend';
 import {allPaneIds,findGroupOfPane} from '../app/pane-tree';
+import {openWorkspace} from './fixtures/chat-bar';
 
 const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/finish-P-')),folder=await fs.mkdtemp(path.join(os.tmpdir(),'tris-pane-')),namespace='Trismegistus/Test/'+path.basename(data);
 await fs.writeFile(path.join(folder,'draft.txt'),'Original file');
@@ -21,7 +22,7 @@ try{
  await page.locator('[data-chat-id="'+first+'"] .chat-link').click();const main=page.getByRole('region',{name:'Main chat',exact:true});await main.getByLabel('Message',{exact:true}).fill('main draft');
  await page.locator('[data-chat-id="'+second+'"] .chat-link').click({button:'right'});await page.getByRole('menuitem',{name:'Open in',exact:true}).hover();await page.getByRole('menuitem',{name:'Split view',exact:true}).click();
  const secondary=page.getByRole('region',{name:'Split chat',exact:true});await secondary.getByLabel('Message',{exact:true}).fill('side draft');
- await main.getByLabel('Open files',{exact:true}).click();const workspace=page.getByRole('complementary',{name:'Workspace',exact:true});await workspace.locator('.workspace-files button').filter({hasText:'draft.txt'}).click();await workspace.locator('.cm-content').fill('Unsaved through pane moves');
+ await openWorkspace(main,'files');const workspace=page.getByRole('complementary',{name:'Workspace',exact:true});await workspace.locator('.workspace-files button').filter({hasText:'draft.txt'}).click();await workspace.locator('.cm-content').fill('Unsaved through pane moves');
  const source=page.getByLabel('Move Workspace',{exact:true}),destination=page.locator('[data-group="main-group"]');
  const a=await source.boundingBox(),b=await destination.boundingBox();assert.ok(a&&b);await page.mouse.move(a.x+a.width/2,a.y+a.height/2);await page.mouse.down();await page.mouse.move(b.x+b.width/2,b.y+b.height-12,{steps:20});await page.mouse.up();
  const moved=await until(s=>s.paneLayout&&findGroupOfPane(s.paneLayout,'workspace')?.id!=='workspace-group');

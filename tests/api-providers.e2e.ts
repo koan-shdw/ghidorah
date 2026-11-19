@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import {Backend,PYTHON} from '../app/backend';
 import {apiSuppliers} from '../app/api-catalog';
 import {mainWindow} from './fixtures/poll-state';
+import {addMenu,pickModel} from './fixtures/chat-bar';
 
 const root=path.resolve('.'),data=await fs.mkdtemp(path.join(root,'work','api-providers-')),folder=await fs.mkdtemp(path.join(root,'work','api-provider-files-'));await fs.writeFile(path.join(data,'health.json'),'{}');
 const namespace='Trismegistus/Test/'+path.basename(data),host=new Backend(root,data,namespace,()=>{});await host.host('initialize');
@@ -39,15 +40,16 @@ try{
   await wait(s=>s.backend==='ready'&&s.apiProviders.some((r:any)=>r.provider===provider&&r.source==='live'));
   await page.waitForFunction(label=>(document.querySelector('input[aria-label="'+label+'"]') as HTMLInputElement)?.value==='',info.name+' API key');
  }
- assert.equal(await page.locator('.backend-status').innerText(),'Connected');
+ // Connected is a dot now, with the word as its name; words show only when something is wrong (Koan 2026-11-19).
+ assert.equal(await page.locator('.backend-status.ready').getAttribute('title'),'Connected');assert.equal(await page.locator('.backend-status').innerText(),'');
  const connected=await call('state');connected.apiProviders=connected.apiProviders.filter((row:any)=>row.connected);assert.equal(connected.apiProviders.length,Object.keys(urls).length);assert.ok(connected.apiProviders.every((r:any)=>r.models.length===1));
  assert.equal(await fs.readFile(path.join(data,'requests.jsonl'),'utf8').catch(()=>''),'','Setup must not send model prompts');
  await capture('connections.png');await page.getByLabel('Close settings').click();
  const chat=await call('addProject'),other=await call('addProject');
- await page.locator('[data-chat-id="'+chat+'"]').locator('.chat-link').click();await page.getByRole('button',{name:'Add model',exact:true}).click();
+ await page.locator('[data-chat-id="'+chat+'"]').locator('.chat-link').click();await addMenu(page,'Add a model');
  for(const row of connected.apiProviders){const model=row.models[0].id,label=model.split(':').slice(2).join(':');await page.getByRole('button',{name:'Add '+label+' to this chat',exact:true}).click();await page.locator('[data-model="'+model+'"]').click({button:'right'});}
  await page.getByLabel('Close settings').click();
- await page.locator('.model-tab').filter({hasText:'gemini-3.8-flash'}).click();await page.getByLabel('Message',{exact:true}).fill('UI sends with Gemini only.');await page.getByRole('button',{name:'Send',exact:true}).click();const sent=await wait(s=>s.turns.some((t:any)=>t.prompt==='UI sends with Gemini only.'));await done(sent.turns.find((t:any)=>t.prompt==='UI sends with Gemini only.').id);
+ await pickModel(page,'gemini-3.8-flash');await page.getByLabel('Message',{exact:true}).fill('UI sends with Gemini only.');await page.getByRole('button',{name:'Send',exact:true}).click();const sent=await wait(s=>s.turns.some((t:any)=>t.prompt==='UI sends with Gemini only.'));await done(sent.turns.find((t:any)=>t.prompt==='UI sends with Gemini only.').id);
  await capture('models-chat.png');
  assert.ok(!(await call('state')).chats.find((c:any)=>c.id===other).pool.some((m:string)=>m.startsWith('api:')));
  for(const row of connected.apiProviders){

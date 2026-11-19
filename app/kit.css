@@ -28,6 +28,16 @@
 .kit-tip-host{display:inline-flex;align-items:center;min-width:0}
 .kit-tip{position:fixed;inset:auto;margin:0;width:max-content;max-width:270px;padding:var(--space-3) var(--space-5);overflow:visible;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);box-shadow:var(--shadow-popover);color:var(--text);font-size:var(--fs-meta);font-style:normal;font-weight:var(--fw-regular);line-height:1.4;letter-spacing:0;text-align:left;text-transform:none;white-space:normal;pointer-events:none}
 .kit-tip.kit-tone-danger{border-color:var(--danger);color:var(--danger)}
+/* Popover: an icon button that opens a small panel of controls above it. */
+.kit-popover{position:relative;display:inline-flex;flex:none}
+.kit-popover>summary{display:inline-grid;place-items:center;width:var(--h);min-height:var(--h);border-radius:var(--r);color:var(--muted);list-style:none;cursor:pointer;user-select:none}
+.kit-popover>summary::-webkit-details-marker{display:none}
+.kit-popover>summary:hover,.kit-popover[open]>summary{background:var(--raised);color:var(--text)}
+.kit-popover>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.kit-popover>summary .sidebar-icon{width:var(--icon);height:var(--icon);flex:0 0 var(--icon)}
+.kit-popover-panel{position:absolute;bottom:calc(100% + 9px);left:0;z-index:var(--z-popover);display:grid;gap:var(--space-1);min-width:280px;padding:var(--space-3);border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface);box-shadow:var(--shadow-popover);color:var(--text);font-size:var(--fs-ui);text-align:left;white-space:nowrap}
+.kit-popover-end>.kit-popover-panel{left:auto;right:0}
+.kit-popover-panel hr{width:100%;height:1px;margin:var(--space-2) 0;border:0;background:var(--line)}
 .kit-chip.kit-tone-ok,.kit-chip.kit-tone-live{color:var(--green);border-color:color-mix(in srgb,var(--green) 40%,var(--line))}
 .kit-chip.kit-tone-warning{color:var(--warning);border-color:color-mix(in srgb,var(--warning) 40%,var(--line))}
 .kit-chip.kit-tone-danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}

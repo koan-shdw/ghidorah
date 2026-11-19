@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import {Backend,PYTHON} from '../app/backend';
+import {addMenu} from './fixtures/chat-bar';
 
 // Plan quick wins in the desktop: tooltip prices (2b), pill health dots (2c), videos to Gemini (2d), app Git lights (5a).
 const root=path.resolve('.'),data=await fs.mkdtemp(path.join(root,'work','quick-wins-')),folder=await fs.mkdtemp(path.join(root,'work','quick-wins-files-')),healthFile=path.join(data,'health.json');
@@ -44,7 +45,7 @@ try{
   if(value==='limited')await page.screenshot({path:path.join(data,'health-limited.png')});
  }
  assert.equal(await dot('gemini-3.8-flash').getAttribute('class'),'health-dot ok');
- await page.getByRole('button',{name:'Add model',exact:true}).click();
+ await addMenu(page,'Add a model');
  assert.match(await page.locator('[data-model="deepseek-flash"] .health-dot').first().getAttribute('class')||'',/ok/);
  assert.match(await page.locator('[data-model="deepseek-flash"]').first().getAttribute('title')||'',/Connected/);
  await page.getByLabel('Close settings').click();

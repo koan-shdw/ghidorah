@@ -14,7 +14,8 @@ const paths={
  fork:'M6 7v10m0-10a2 2 0 1 0 0-4 2 2 0 1 0 0 4zm0 14a2 2 0 1 0 0-4 2 2 0 1 0 0 4zm12-14a2 2 0 1 0 0-4 2 2 0 1 0 0 4zM6 14h7a5 5 0 0 0 5-5V7',
  terminal:'M3 5h18v14H3V5zm4 4l3 3-3 3m6 0h4',archive:'M3 3h18v5H3V3zm1 5v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8m-11 4h6',
  trash:'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7',up:'M5 14l7-7 7 7',down:'M5 10l7 7 7-7',right:'M9 5l7 7-7 7',check:'M5 12l4 4L19 6',
- panel:'M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm5 0v16',plus:'M12 4v16M4 12h16',more:'M4 12h.01M12 12h.01M20 12h.01',search:'M10 3a7 7 0 1 0 0 14 7 7 0 1 0 0-14zm5 12l6 6',filter:'M3 5h18M6 12h12M9 19h6',
+ panel:'M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm5 0v16',panelRight:'M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm11 0v16',
+ options:'M4 7h8.4m5.2 0H20M4 17h2.4m5.2 0H20M12.4 7a2.6 2.6 0 1 0 5.2 0 2.6 2.6 0 1 0-5.2 0zm-6 10a2.6 2.6 0 1 0 5.2 0 2.6 2.6 0 1 0-5.2 0z',plus:'M12 4v16M4 12h16',more:'M4 12h.01M12 12h.01M20 12h.01',search:'M10 3a7 7 0 1 0 0 14 7 7 0 1 0 0-14zm5 12l6 6',filter:'M3 5h18M6 12h12M9 19h6',
  settings:'M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1 1-3zm0 9a3 3 0 1 0 6 0 3 3 0 1 0-6 0',
  close:'M6 6l12 12M18 6 6 18',caret:'M8 10l4 4 4-4',slash:'M15 4 9 20',plan:'M3 6l2 2 3-3M3 13l2 2 3-3M11 7h10M11 14h10M11 20h10',tasks:'M4 5h5v5H4zM4 15l2 2 3-3M13 7h8M13 16h8',
  popout:'M14 4h6v6M10 14 20 4M18 14v6H4V6h6',image:'M4 4h16v16H4V4zm0 12 5-5 4 4 3-3 4 4M9 8.5h.01',code:'M9 8l-4 4 4 4m6-8 4 4-4 4',
@@ -114,14 +115,15 @@ export function Dialog({title,label,id,className,size='md',busy=false,onClose,he
 }
 
 export type MenuItem={label:string;icon:IconName;key?:string;action?:()=>void;children?:MenuItem[];danger?:boolean;checked?:boolean;separator?:boolean;disabled?:boolean;title?:string};
-/** A menu at a point: keyboard keys, letter shortcuts and one level of submenus. */
-export function Menu({x,y,label,items,close,className}:{x:number;y:number;label:string;items:MenuItem[];close:()=>void;className?:string}){
+/** A menu at a point: keyboard keys, letter shortcuts and one level of submenus. `above`: its bottom edge sits at y,
+ * for a menu opened from a control at the foot of the window. */
+export function Menu({x,y,label,items,close,className,above=false}:{x:number;y:number;label:string;items:MenuItem[];close:()=>void;className?:string;above?:boolean}){
  const root=useRef<HTMLDivElement>(null),main=useRef<HTMLDivElement>(null),sub=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement|null>(null),timer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
  const [active,setActive]=useState<number|null>(null),[anchor,setAnchor]=useState<DOMRect|null>(null);
  function cancel(){clearTimeout(timer.current);}
  function hide(){cancel();timer.current=setTimeout(()=>setActive(null),180);}
  function open(index:number,button:HTMLButtonElement){cancel();trigger.current=button;setAnchor(button.getBoundingClientRect());setActive(index);}
- useLayoutEffect(()=>{const el=main.current!;el.style.left=Math.max(8,Math.min(x,innerWidth-el.offsetWidth-8))+'px';el.style.top=Math.max(8,Math.min(y,innerHeight-el.offsetHeight-8))+'px';el.querySelector('button')?.focus();},[x,y]);
+ useLayoutEffect(()=>{const el=main.current!;el.style.left=Math.max(8,Math.min(x,innerWidth-el.offsetWidth-8))+'px';el.style.top=Math.max(8,Math.min(above?y-el.offsetHeight:y,innerHeight-el.offsetHeight-8))+'px';el.querySelector('button')?.focus();},[x,y,above]);
  useLayoutEffect(()=>{if(!sub.current||!anchor)return;const el=sub.current,box=main.current!.getBoundingClientRect();el.style.left=Math.max(8,box.right+el.offsetWidth+4<innerWidth?box.right+2:box.left-el.offsetWidth-2)+'px';el.style.top=Math.max(8,Math.min(anchor.top-6,innerHeight-el.offsetHeight-8))+'px';},[active,anchor]);
  useEffect(()=>{const outside=(e:PointerEvent)=>{if(!root.current?.contains(e.target as Node))close();};const resize=()=>close();document.addEventListener('pointerdown',outside);window.addEventListener('resize',resize);return()=>{cancel();document.removeEventListener('pointerdown',outside);window.removeEventListener('resize',resize);};},[close]);
  function keys(e:React.KeyboardEvent,children:boolean){
@@ -139,8 +141,21 @@ export function Menu({x,y,label,items,close,className}:{x:number;y:number;label:
 /** The menu's first name, kept for the screens that still use it. */
 export const SidebarMenu=Menu;
 
-/** The house dropdown: a details menu of radio choices. */
-export function ChoiceMenu({label,value,options,disabled,onChange}:{label:string,value:string,options:Record<string,string>,disabled?:boolean,onChange:(value:string)=>void}){
+/** A button that opens a small panel of controls above it: settings that are set once and looked at rarely. It closes
+ * on a press outside it and on Esc. `end`: the panel lines up with the button's right edge. */
+export function Popover({label,icon,title,className,end=false,children}:{label:string;icon:IconName;title?:string;className?:string;end?:boolean;children?:React.ReactNode}){
+ const host=useRef<HTMLDetailsElement>(null);
+ useEffect(()=>{
+  const outside=(event:PointerEvent)=>{if(host.current?.open&&!host.current.contains(event.target as Node))host.current.open=false;};
+  const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'&&host.current?.open){event.preventDefault();event.stopPropagation();host.current.open=false;host.current.querySelector('summary')?.focus();}};
+  document.addEventListener('pointerdown',outside);document.addEventListener('keydown',escape,true);
+  return()=>{document.removeEventListener('pointerdown',outside);document.removeEventListener('keydown',escape,true);};
+ },[]);
+ return <details ref={host} className={join('kit-popover',end&&'kit-popover-end',className)}><summary aria-label={label} title={title||label}><Icon name={icon}/></summary><div className="kit-popover-panel" role="group" aria-label={label}>{children}</div></details>;
+}
+
+/** The house dropdown: a details menu of radio choices. `summary`: a shorter text for the closed menu. */
+export function ChoiceMenu({label,value,options,disabled,onChange,summary}:{label:string,value:string,options:Record<string,string>,disabled?:boolean,onChange:(value:string)=>void,summary?:string}){
   disabled=disabled||!Object.keys(options).length;
   const menu=useRef<HTMLDetailsElement>(null),choices=useRef<HTMLDivElement>(null),groupName=useId();
   useEffect(()=>{
@@ -164,7 +179,7 @@ export function ChoiceMenu({label,value,options,disabled,onChange}:{label:string
     return ()=>{anchor?.removeEventListener('toggle',toggle);document.removeEventListener('pointerdown',close);document.removeEventListener('keydown',escape,true);window.removeEventListener('resize',position);document.removeEventListener('scroll',position,true);};
   },[]);
   return <details className="choice-menu" ref={menu}>
-    <summary aria-label={label} aria-disabled={disabled} onClick={event=>{if(disabled)event.preventDefault();}}>{options[value]||(Object.keys(options).length?'Choose…':'No options available')} <span aria-hidden="true">⌄</span></summary>
+    <summary aria-label={label} aria-disabled={disabled} title={summary?options[value]:undefined} onClick={event=>{if(disabled)event.preventDefault();}}>{(options[value]?summary:'')||options[value]||(Object.keys(options).length?'Choose…':'No options available')} <span aria-hidden="true">⌄</span></summary>
     <div ref={choices} className="choice-options" role="radiogroup" aria-label={label}>{Object.entries(options).map(([id,text])=><label key={id}><input type="radio" name={groupName} value={id} checked={value===id} readOnly onClick={()=>{onChange(id);if(menu.current)menu.current.open=false;menu.current?.querySelector('summary')?.focus();}}/><span>{text}</span><span className="choice-check" aria-hidden="true">{value===id?'✓':''}</span></label>)}</div>
   </details>;
 }

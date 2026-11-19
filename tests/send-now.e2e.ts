@@ -76,8 +76,8 @@ try{
  assert.equal(state.turns.find(t=>t.id===slow)!.stopReason,'superseded-by-message');
  console.log('PASS Ctrl+Enter sends a draft now');
 
- // The chat bar's switch: on, Enter stops the reply and sends, and the button beside the arrow offers the wait.
- const toggle=main.getByRole('button',{name:'Send now',exact:true}).and(main.locator('.kit-switch'));assert.equal(await toggle.getAttribute('aria-pressed'),'false');
+ // The switch in the chat's Options menu: on, Enter stops the reply and sends, and the button beside the arrow offers the wait.
+ const toggle=main.locator('.kit-switch[aria-label="Send now"]');assert.equal(await toggle.getAttribute('aria-pressed'),'false');
  await click(toggle);await pollState(page,s=>s.chats.find(c=>c.id===hermes)?.sendNow===true);
  // The state answers before the window draws: wait for the switch itself.
  await page.waitForFunction(()=>document.querySelector('[aria-label="Main chat"] .kit-switch[aria-label="Send now"]')?.getAttribute('aria-pressed')==='true');

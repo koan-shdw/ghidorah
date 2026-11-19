@@ -8,6 +8,11 @@ function subscribe(change:()=>void){window.addEventListener('storage',change);wi
 export function setChatView(chatId:string,mode:ChatViewMode){if(!chatId||!modes.includes(mode))return;localStorage.setItem('chat-view:'+chatId,mode);window.dispatchEvent(new Event('chat-view-change'));}
 export function cycleChatView(chatId:string){setChatView(chatId,modes[(modes.indexOf(current(chatId))+1)%modes.length]);}
 export function useChatView(chatId:string){return useSyncExternalStore(subscribe,()=>current(chatId));}
+/** The chat's view as three choices side by side, for the chat's Options menu. */
+export function ChatViewTabs({chatId}:{chatId:string}){
+ const mode=useChatView(chatId);
+ return <div className="chat-view-tabs kit-tabs" role="group" aria-label="Chat view" title="Chat view · Ctrl+O">{modes.map(id=><button key={id} type="button" aria-pressed={mode===id} disabled={!chatId} onClick={()=>setChatView(chatId,id)}>{id[0].toUpperCase()+id.slice(1)}</button>)}</div>;
+}
 export function ChatViewSelect({chatId}:{chatId:string}){
  const mode=useChatView(chatId);
  return <label className="chat-view-control"><span>View</span><select aria-label="Chat view" title="Chat view · Ctrl+O" value={mode} disabled={!chatId} onChange={event=>setChatView(chatId,event.target.value as ChatViewMode)}><option value="normal">Normal</option><option value="thinking">Thinking</option><option value="verbose">Verbose</option></select></label>;

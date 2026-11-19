@@ -9,7 +9,7 @@ const app=await electron.launch({executablePath:process.env.TRISMEGISTUS_EXE,arg
 try{
  const page=await app.firstWindow();page.setDefaultTimeout(20000);
  await page.getByLabel('Close settings',{exact:true}).click();
- await page.getByLabel('Open files',{exact:true}).focus();
+ await page.getByRole('button',{name:'Workspace',exact:true}).focus();
  await page.keyboard.press('F1');
  const help=page.getByRole('dialog',{name:'Keyboard shortcuts',exact:true});await help.waitFor();
  assert.equal(await page.locator(':focus').getAttribute('aria-label'),'Close keyboard shortcuts');
@@ -18,7 +18,7 @@ try{
  await page.keyboard.press('Control+Backquote');assert.equal(await page.locator('.workspace-panel').isVisible(),false);
  await page.screenshot({path:path.join(data,'help.png')});
  await page.keyboard.press('Escape');await help.waitFor({state:'hidden'});
- assert.equal(await page.locator(':focus').getAttribute('aria-label'),'Open files');
+ assert.equal(await page.locator(':focus').getAttribute('aria-label'),'Workspace');
  await page.keyboard.press('Control+/');await help.waitFor();await page.keyboard.press('Escape');await help.waitFor({state:'hidden'});
  await page.getByRole('button',{name:'Chat menu',exact:true}).first().click();await page.getByRole('menuitem',{name:'Keyboard shortcuts',exact:true}).click();await help.waitFor();
  await page.setViewportSize({width:650,height:500});

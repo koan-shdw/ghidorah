@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import {Backend,PYTHON} from '../app/backend';
+import {addMenu} from './fixtures/chat-bar';
 const working=await fs.mkdtemp(path.join(process.cwd(),'work','split-chats-workspace-'));
 const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/split-chats-')),namespace='Trismegistus/Test/'+path.basename(data),host=new Backend(root,data,namespace,()=>{});
 await host.host('initialize');await host.host('save_key',{key:'synthetic-deepseek-regression-credential'});
@@ -23,8 +24,8 @@ try{
  async function split(id:string){await page.locator('[data-chat-id="'+id+'"] .chat-link').click({button:'right'});await page.getByRole('menuitem',{name:'Open in',exact:true}).hover();await page.getByRole('menuitem',{name:'Split view',exact:true}).focus();await page.keyboard.press('1');await page.getByRole('region',{name:'Split chat',exact:true}).waitFor();}
  await split(second);const side=page.getByRole('region',{name:'Split chat',exact:true});const message=side.getByLabel('Message',{exact:true});await message.fill('secondary draft');assert.equal(await main.getByLabel('Message',{exact:true}).inputValue(),'primary draft');
  assert.equal(await page.locator('[aria-label="Message"]').count(),2);
- await side.getByLabel('Model details',{exact:true}).click();await side.getByRole('dialog',{name:'Context window and usage',exact:true}).waitFor();assert.equal(await main.getByRole('dialog',{name:'Context window and usage',exact:true}).count(),0);await side.getByLabel('Model details',{exact:true}).click();await side.getByRole('dialog',{name:'Context window and usage',exact:true}).waitFor({state:'hidden'});
- await side.getByLabel('Add model',{exact:true}).click();await side.getByRole('dialog',{name:'Chat models',exact:true}).getByLabel('DeepSeek is in this chat',{exact:true}).waitFor();await page.keyboard.press('Escape');await side.getByRole('dialog',{name:'Chat models',exact:true}).waitFor({state:'hidden'});assert.equal(await message.inputValue(),'secondary draft');
+ await side.getByRole('button',{name:'Context window and usage',exact:true}).click();await side.getByRole('dialog',{name:'Context window and usage',exact:true}).waitFor();assert.equal(await main.getByRole('dialog',{name:'Context window and usage',exact:true}).count(),0);await side.getByRole('button',{name:'Context window and usage',exact:true}).click();await side.getByRole('dialog',{name:'Context window and usage',exact:true}).waitFor({state:'hidden'});
+ await addMenu(side,'Add a model');await side.getByRole('dialog',{name:'Chat models',exact:true}).getByLabel('DeepSeek is in this chat',{exact:true}).waitFor();await page.keyboard.press('Escape');await side.getByRole('dialog',{name:'Chat models',exact:true}).waitFor({state:'hidden'});assert.equal(await message.inputValue(),'secondary draft');
 
  const ids=await page.locator('[id]').evaluateAll(elements=>elements.map(e=>e.id));assert.equal(ids.length,new Set(ids).size,'unique DOM ids');
  await side.getByLabel('Stack split chats',{exact:true}).click();assert.equal(await page.getByRole('separator',{name:'Resize split chats'}).getAttribute('aria-orientation'),'horizontal');

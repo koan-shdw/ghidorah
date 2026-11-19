@@ -1,4 +1,5 @@
 import {pollState} from './fixtures/poll-state';
+import {addMenu} from './fixtures/chat-bar';
 // Read-only live account metadata and saved chat. No model prompts.
 import {_electron as electron} from 'playwright';
 import assert from 'node:assert/strict';
@@ -29,7 +30,7 @@ try{
   await page.screenshot({path:path.join(root,'work','live-usage-accounts.png')});
   await page.keyboard.press('Escape');assert.equal(await panel.count(),0);
   assert.ok(await page.locator('.context-ring').evaluate(element=>element===document.activeElement));
-  await page.getByRole('button',{name:'Add model',exact:true}).click();
+  await addMenu(page,'Add a model');
   const picker=page.getByRole('dialog',{name:'Chat models',exact:true});await picker.waitFor();
   const anthropic=picker.getByRole('region',{name:'Anthropic models',exact:true});
   await pollState(page,state=>!!state.claude?.models?.length);

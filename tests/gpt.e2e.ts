@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import {Backend,PYTHON} from '../app/backend';
+import {addMenu,removeModel} from './fixtures/chat-bar';
 
 const root=path.resolve('.'),data=path.join(root,'work','gpt-'+Date.now()),folder=path.join(data,'workspace');
 await fs.mkdir(folder,{recursive:true});
@@ -26,7 +27,7 @@ try{
   const chatId=await call('addProject',{folder});
   const submit=async(text:string,model:string)=>{await call('modelSelection',{chatId,model,selected:true});const id=crypto.randomUUID();await call('submit',{id,chatId,text});return id;};
   const first=await submit('Remember copperfinch.','deepseek-flash');await wait(s=>s.turns.find((t:any)=>t.id===first)?.status==='completed');
-  await page.getByRole('button',{name:'Add model',exact:true}).click();
+  await addMenu(page,'Add a model');
   const settings=page.locator('dialog.settings');
   const full=settings.getByRole('region',{name:'All available models',exact:true});
   const favourites=settings.getByRole('region',{name:'Favourite models',exact:true});
@@ -48,7 +49,7 @@ try{
   await page.getByRole('button',{name:'New chat',exact:true}).first().click();
   const otherId=(await wait(s=>s.chats.length===2)).chats.at(-1).id;
   assert.deepEqual((await call('state')).chats.find((c:any)=>c.id===otherId).pool,['deepseek-flash']);
-  await page.getByRole('button',{name:'Add model',exact:true}).click();
+  await addMenu(page,'Add a model');
   await favourites.getByRole('button',{name:'Add GPT-6 Astra to this chat',exact:true}).waitFor();
   await favourites.getByRole('button',{name:'Unfavourite GPT-6 Astra',exact:true}).click();
   await wait(s=>s.favouriteModels.length===0);
@@ -82,14 +83,14 @@ try{
   const requests=(await fs.readFile(path.join(data,'gpt-requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
   assert.equal(requests[0].model,'gpt-6-astra');assert.match(JSON.stringify(requests[0].input),/copperfinch/);
   console.log('PASS catalog fixture, separate model pool/connections, favourites, chat isolation, unchanged defaults and DeepSeek → GPT context');
-  await page.reload();await page.getByRole('button',{name:'Add model',exact:true}).waitFor();
+  await page.reload();await page.getByLabel('Add',{exact:true}).waitFor();
   assert.deepEqual((await call('state')).favouriteModels,['gpt-6-astra']);
   await page.locator('.chat-link').filter({hasText:'Remember copperfinch.'}).click();
-  await page.getByRole('button',{name:'Remove GPT-6 Astra from chat',exact:true}).click();
+  await removeModel(page,'GPT-6 Astra');
   await wait(s=>!s.chats.find((c:any)=>c.id===chatId).pool.includes('gpt-6-astra'));
   assert.ok((await call('state')).turns.some((t:any)=>t.id===second&&t.status==='completed'));
   await assert.rejects(call('submit',{id:crypto.randomUUID(),chatId,text:'Removed model must not be routed automatically.'}),/Select a connected model/);
-  await page.getByRole('button',{name:'Add model',exact:true}).click();
+  await addMenu(page,'Add a model');
   await favourites.getByRole('button',{name:'Add GPT-6 Astra to this chat',exact:true}).click();
   await wait(s=>s.chats.find((c:any)=>c.id===chatId).pool.includes('gpt-6-astra'));await page.keyboard.press('Escape');
   const third=await submit('WRITE_GPT_FIXTURE','gpt-6-astra');

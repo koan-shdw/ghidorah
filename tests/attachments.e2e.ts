@@ -29,7 +29,7 @@ try{
  const send=async(text:string,model:string,owner=chatId)=>{await call('modelSelection',{chatId:owner,model,selected:true});const id=crypto.randomUUID();await call('submit',{id,chatId:owner,text});return id;};
  const done=async(id:string)=>{const s=await wait(s=>s.turns.some((t:any)=>t.id===id&&['completed','failed','interrupted','needs-model'].includes(t.status)));assert.equal(s.turns.find((t:any)=>t.id===id).status,'completed',s.turns.find((t:any)=>t.id===id).error);return s;};
  await page.emulateMedia({reducedMotion:'reduce'}); // floating thumbnails never settle for a click
- await page.waitForFunction(()=>!(document.querySelector('[aria-label="Attach files"]') as HTMLButtonElement)?.disabled);
+ await page.waitForFunction(()=>!(document.querySelector('.composer-add') as HTMLButtonElement)?.disabled);
  await page.getByLabel('Choose attachments').setInputFiles(imageFile);
  await wait(s=>s.chats.find((c:any)=>c.id===chatId)?.attachments?.length===1);
  await page.getByLabel('Draft attachments').getByTitle('sample.png').waitFor({state:'attached',timeout:10000});

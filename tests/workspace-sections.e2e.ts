@@ -11,6 +11,7 @@ import net from 'node:net';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import {mainWindow,pollState,wakeWindows} from './fixtures/poll-state';
+import {openWorkspace} from './fixtures/chat-bar';
 
 const root=path.resolve('.'),data=await fs.mkdtemp(path.join(root,'work','workspace-sections-')),folder=await fs.mkdtemp(path.join(root,'work','workspace-of-sections-'));
 const git=(...args:string[])=>execFileSync('git',['-C',folder,...args],{windowsHide:true,encoding:'utf8'}).trim();
@@ -31,7 +32,7 @@ try{
  const tool=async(name:string)=>{await bar.locator('strong').filter({hasText:name}).waitFor();assert.equal(await body.count(),0,'a tool takes the sections\' place');};
 
  // The Tasks button opens the panel on its sections; there is no tab strip.
- await click(page.getByLabel('Open tasks',{exact:true}));await body.waitFor();
+ await openWorkspace(page,'tasks');await body.waitFor();
  assert.equal(await panel.locator('.workspace-nav').count(),0,'the tab strip is gone');assert.equal(await bar.count(),0);
  assert.deepEqual(await body.locator('.ws-sec>summary>span:first-child').allInnerTexts(),['Environment','Context','Plan','Changes','Outputs','Agents','Background','Tools']);
  await sec('changes').locator('.ws-row').filter({hasText:'new.txt'}).waitFor();
@@ -51,12 +52,12 @@ try{
  assert.equal(await panel.getByRole('button',{name:'Detach Files',exact:true}).count(),1);assert.equal(await panel.getByRole('button',{name:'Pop out Files',exact:true}).count(),1);
  await shot('tool-files');
  await click(bar.getByRole('button',{name:'‹ Workspace',exact:true}));await body.waitFor();assert.equal(await bar.count(),0);
- // The title bar's tool buttons still open the tool; Plan and Tasks open the sections.
- await click(page.getByLabel('Open changes',{exact:true}));await tool('Changes');await page.getByRole('region',{name:'Changes view',exact:true}).locator('.change-list').getByText('new.txt',{exact:true}).waitFor();
- await click(page.getByLabel('Open plan',{exact:true}));await body.waitFor();
+ // From the title bar's Workspace switch: a tool opens by its row in Tools; Plan and Tasks are sections.
+ await openWorkspace(page,'changes');await tool('Changes');await page.getByRole('region',{name:'Changes view',exact:true}).locator('.change-list').getByText('new.txt',{exact:true}).waitFor();
+ await openWorkspace(page,'plan');await body.waitFor();
  await click(sec('changes').getByRole('button',{name:'Review ›',exact:true}));await tool('Changes');
- await click(page.getByLabel('Open terminal',{exact:true}));await tool('Terminal');for(let n=0;n<150&&!((await call('terminalList',{chatId})) as any[]).length;n++)await page.waitForTimeout(100);
- await click(page.getByLabel('Open tasks',{exact:true}));await body.waitFor();assert.equal(await sec('changes').evaluate((element:HTMLDetailsElement)=>element.open),true,'a link in a heading does not fold its section');
+ await openWorkspace(page,'terminal');await tool('Terminal');for(let n=0;n<150&&!((await call('terminalList',{chatId})) as any[]).length;n++)await page.waitForTimeout(100);
+ await openWorkspace(page,'tasks');await body.waitFor();assert.equal(await sec('changes').evaluate((element:HTMLDetailsElement)=>element.open),true,'a link in a heading does not fold its section');
  await page.waitForFunction(()=>/Terminal\s*1 open/.test(document.querySelector<HTMLElement>('[data-section="tools"]')?.innerText||''));
  for(const terminal of (await call('terminalList',{chatId})) as any[])await call('terminalClose',{chatId,id:terminal.id});
  console.log('PASS a tool opens from its row and from the title bar, with the way back, Detach and Pop out');

@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import assert from 'node:assert/strict';
+import {openWorkspace} from './fixtures/chat-bar';
 const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/window-workspace-')),folder=await fs.mkdtemp(path.join(os.tmpdir(),'tris-window-workspace-'));
 await fs.writeFile(path.join(folder,'note.txt'),'original');await fs.writeFile(path.join(folder,'index.html'),'<h1>Window preview</h1><p id="isolation"></p><script>document.querySelector("#isolation").textContent=typeof window.desktop+" / "+typeof require</script>');
 const git=(...args:string[])=>execFileSync('git',['-C',folder,...args],{windowsHide:true,stdio:'pipe'});git('init','-q');git('add','.');git('-c','user.name=Test','-c','user.email=test@example.invalid','commit','-qm','base');
@@ -15,7 +16,7 @@ try{
  async function wait(check:()=>Promise<boolean>,label:string){for(let n=0;n<900;n++){if(await check())return;await new Promise(r=>setTimeout(r,100));}throw Error('Timed out: '+label);}
  await wait(async()=>(await call('state')).backend==='ready','backend');await main.getByLabel('Close settings',{exact:true}).click();await call('workingFolder',{folder});
  const chatId=await call('newChat'),other=await call('newChat');await main.locator('[data-chat-id="'+chatId+'"] .chat-link').click();
- const opening=app.waitForEvent('window');await call('openChatWindow',{chatId});const side=await opening;side.setDefaultTimeout(15000);await side.getByLabel('Open files',{exact:true}).click();
+ const opening=app.waitForEvent('window');await call('openChatWindow',{chatId});const side=await opening;side.setDefaultTimeout(15000);await openWorkspace(side,'files');
  await side.locator('.workspace-files button').filter({hasText:'note.txt'}).click();const editor=side.getByRole('textbox',{name:'File contents'});await editor.fill('side draft');
  await wait(async()=>{try{await call('workingFolder',{folder});return false;}catch(error){return /Save or discard/.test(String(error));}},'side draft blocks root change');
  // A clean main panel must not erase the side window's dirty flag.
@@ -42,7 +43,7 @@ try{
  await side.getByLabel('Hide workspace',{exact:true}).click();await Promise.all([side.waitForEvent('close'),side.getByLabel('Close chat window',{exact:true}).click({noWaitAfter:true}).catch((error:Error)=>{if(!/closed/i.test(error.message))throw error;})]);await wait(async() =>!(await call('state')).chatWindows.includes(chatId),'closed');
  assert.equal((await call('terminalList',{chatId}))[0].id,terminal.id);assert.equal((await call('previewState',{chatId})).restore,true);assert.ok(!(await views()).some(w=>w.views.some(v=>v.id===preview.id)));
  await call('terminalClose',{chatId,id:terminal.id});
- const reopening=app.waitForEvent('window');await call('openChatWindow',{chatId});const reopened=await reopening;await reopened.getByLabel('Open files',{exact:true}).click();await reopened.locator('.workspace-files button').filter({hasText:'note.txt'}).click();await reopened.getByRole('textbox',{name:'File contents'}).fill('discard at close');
+ const reopening=app.waitForEvent('window');await call('openChatWindow',{chatId});const reopened=await reopening;await openWorkspace(reopened,'files');await reopened.locator('.workspace-files button').filter({hasText:'note.txt'}).click();await reopened.getByRole('textbox',{name:'File contents'}).fill('discard at close');
  await app.evaluate(({dialog})=>{dialog.showMessageBox=async()=>({response:1,checkboxChecked:false});});await Promise.all([reopened.waitForEvent('close'),reopened.getByLabel('Close chat window',{exact:true}).click({noWaitAfter:true}).catch((error:Error)=>{if(!/closed/i.test(error.message))throw error;})]);await wait(async() =>!(await call('state')).chatWindows.includes(chatId),'discard close');assert.equal(await fs.readFile(path.join(folder,'note.txt'),'utf8'),'external edit');
  await call('workingFolder',{folder});await app.evaluate(({dialog})=>{dialog.showMessageBox=(globalThis as any).originalDialog;});
  await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({sideFileSave:true,conflictPreservesDraft:true,dirtyOwnerIsolation:true,closeAndQuitKeepEditing:true,deleteDraftGuard:true,discardClose:true,previewWindowOwnership:true,previewIsolation:true,crossChatRefused:true,terminal:true,gitDiff:true,closeKeepsTerminal:true,previewCloseRetainsRestore:true},null,2));console.log(data);

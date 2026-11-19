@@ -5,7 +5,7 @@ import {FileMentions} from './file-mentions';
 import {DictationControls,DictationProblem,useDictation} from './dictation';
 import {DictationWaves} from './dictation-waves';
 import type {WaveStyle} from './listening';
-import {SidebarIcon} from './kit';
+import {Menu,SidebarIcon,type MenuItem} from './kit';
 import React,{useEffect,useId,useRef,useState} from 'react';
 import type {Attachment,ChatCommand} from './types';
 
@@ -26,7 +26,10 @@ export function AttachmentImage({item,chatId=item.chatId,busy=false,remove}:{ite
  </div>;
 }
 
-export function Composer({voice,draft,commands=[],inputRef,disabled,sendError,busy,working,change,submit,stop,plugins,attachments=[],attaching=false,attach,remove,dictationChat,waves='bars',other}:{
+export function Composer({voice,draft,commands=[],inputRef,disabled,sendError,busy,working,change,submit,stop,plugins,attachments=[],attaching=false,attach,remove,dictationChat,waves='bars',other,left,right,sideChat,addModel}:{
+ /** The chat's own controls, placed inside the box (chatDock in chat-chrome.tsx): `left` after the + button, what
+  * the next message uses; `right` before the microphone, the chat's state. */left?:React.ReactNode;right?:React.ReactNode;
+ /** Rows of the + menu that belong to the chat: start a side chat, add a model. */sideChat?:()=>void;addModel?:()=>void;
  /** While a reply runs and there is something to send: the action Enter does not do, as a button with its key. */other?:{label:string;run:()=>void};voice?:()=>void;dictationChat?:string;waves?:WaveStyle;attaching?:boolean;attachments?:Attachment[];attach:(files:File[])=>void;remove:(id:string)=>void;draft:string;commands?:ChatCommand[];inputRef:React.RefObject<HTMLTextAreaElement|null>;disabled:boolean;sendError?:string|null;busy:boolean;working:boolean;change:(text:string)=>void;submit:()=>void;stop:()=>void;plugins:()=>void}){
  const id=useId(),commandId=id+'-commands',mentionId=id+'-mentions';
  const dictation=useDictation({chatId:dictationChat||'',draft,change,input:inputRef});
@@ -38,6 +41,17 @@ export function Composer({voice,draft,commands=[],inputRef,disabled,sendError,bu
  const sendDictated=(alternative:boolean)=>()=>{const now=latest.current;if(now.sendError)return;if(alternative&&now.other&&now.working)now.other.run();else now.submit();};
  // With nothing typed while a reply runs the arrow is Stop, except while dictating: there it always sends.
  const stops=working&&!draft&&!attachments.length&&!dictating;
+ // The + button (Koan 2026-11-19): what was four icons in the box, plus the chat's Side chat and Add model.
+ // A press on + while its menu is open closes it: the menu shuts on the press, so the click must not open it again.
+ const [adding,setAdding]=useState<{x:number;y:number}|null>(null),wasAdding=useRef(false);
+ const add=(run:()=>void)=>()=>{setAdding(null);run();};
+ const addItems:MenuItem[]=[
+  {label:'Attach files',icon:'attach',disabled:busy,title:'Images, PDFs or text files. Drop or paste works too',action:add(()=>files.current?.click())},
+  {label:'Skills and commands',icon:'slash',key:'/',action:add(()=>{setBrowsing(true);setDismissed(false);inputRef.current?.focus();})},
+  ...(sideChat?[{label:'Side chat',icon:'chats',key:'Ctrl+;',action:add(sideChat)} as MenuItem]:[]),
+  ...(dictationChat&&voice?[{label:'Voice helper',icon:'voice',action:add(voice)} as MenuItem]:[]),
+  ...(addModel?[{label:'Add a model',icon:'models',separator:true,action:add(addModel)} as MenuItem]:[]),
+ ];
  const [mentionIndex,setMentionIndex]=useState<number|null>(null);
  const files=useRef<HTMLInputElement>(null);
  const root=useRef<HTMLDivElement>(null),list=useRef<HTMLDivElement>(null);
@@ -94,12 +108,13 @@ export function Composer({voice,draft,commands=[],inputRef,disabled,sendError,bu
   <div className={'composer-box'+(listening?' is-dictating waves-'+waves:'')}>
    <textarea ref={inputRef} role="combobox" aria-label="Message" aria-autocomplete="list" aria-expanded={open||mentionIndex!==null} aria-controls={mentionIndex!==null?mentionId:open?commandId:undefined} aria-activedescendant={mentionIndex!==null&&mentionIndex>=0?mentionId+'-'+mentionIndex:open&&selected>=0?commandId+'-'+selected:undefined} aria-multiline="true" placeholder={dictation.placeholder||'Message'} value={draft} disabled={disabled} readOnly={dictation.phase!=='idle'} onFocus={()=>{setFocused(true);if(dictationChat)dictation.focus();}} onSelect={event=>setCaret(event.currentTarget.selectionStart)} onChange={event=>{setDismissed(false);setBrowsing(false);setCaret(event.target.selectionStart);change(event.target.value);}} onPaste={paste} onKeyDown={event=>{if(!dictation.key(event,sendDictated(event.ctrlKey)))keydown(event);}}/>
    {listening&&waves==='line'&&<DictationWaves style="line" level={dictation.level}/>}
+   {/* One row inside the box. Left: +, then what the next message uses. Right: the chat's state, the microphone, send.
+       While the bars show your voice they take the state's place; it is back when dictation ends. */}
    <div className="composer-toolbar"><div className="composer-tools">
-    <button type="button" className="attachment-trigger" aria-label="Attach files" title="Attach images, PDFs or text files · drop or paste" disabled={disabled||busy} onClick={()=>files.current?.click()}><SidebarIcon name="attach"/></button>
-    {dictationChat&&voice&&<button type="button" aria-label="Open voice" title="Voice helper" disabled={disabled} onClick={voice}><SidebarIcon name="voice"/></button>}
-    <button type="button" className="command-trigger" aria-label="Browse skills and commands" aria-expanded={open} aria-controls={commandId} disabled={disabled} title="Skills and commands" onClick={()=>{const next=!open;setBrowsing(next);setDismissed(!next);inputRef.current?.focus();}}><SidebarIcon name="slash"/></button>
-    {dictationChat&&<DictationProblem dictation={dictation}/>}
-   </div>{listening&&waves==='bars'&&<DictationWaves style="bars" level={dictation.level}/>}{other&&working&&(!!draft.trim()||attachments.length>0)&&<button type="button" className="send-other" title={other.label+' · Ctrl+Enter'} disabled={disabled||busy||!!sendError} onClick={()=>{if(!dictating||!dictation.finishThen(sendDictated(true)))other.run();}}>{other.label}<kbd aria-hidden="true">Ctrl ↵</kbd></button>}{dictationChat&&<DictationControls dictation={dictation} disabled={disabled||busy}/>}<button type="button" className="send" aria-label={stops?'Stop':working?'Queue message':'Send'} title={stops?'Stop':sendError|| (working?'Queue message · Enter':'Send · Enter')} disabled={disabled||busy||!!sendError&&!stops} onClick={()=>{if(stops)stop();else if(!dictating||!dictation.finishThen(sendDictated(false)))submit();}}><SidebarIcon name={stops?'stop':'send'}/></button></div>
+    <button type="button" className="composer-add" aria-label="Add" aria-haspopup="menu" aria-expanded={!!adding} title="Attach files, skills and commands, side chat, voice helper" disabled={disabled} onPointerDown={()=>{wasAdding.current=!!adding;}} onClick={event=>{const box=event.currentTarget.getBoundingClientRect();setAdding(adding||wasAdding.current?null:{x:box.left,y:box.top-6});wasAdding.current=false;}}><SidebarIcon name="plus"/></button>
+    {adding&&<Menu x={adding.x} y={adding.y} above label="Add" items={addItems} close={()=>setAdding(null)}/>}
+   </div>{left}{listening&&waves==='bars'?<DictationWaves style="bars" level={dictation.level}/>:right}{other&&working&&(!!draft.trim()||attachments.length>0)&&<button type="button" className="send-other" title={other.label+' · Ctrl+Enter'} disabled={disabled||busy||!!sendError} onClick={()=>{if(!dictating||!dictation.finishThen(sendDictated(true)))other.run();}}>{other.label}<kbd aria-hidden="true">Ctrl ↵</kbd></button>}{dictationChat&&<DictationControls dictation={dictation} disabled={disabled||busy}/>}<button type="button" className="send" aria-label={stops?'Stop':working?'Queue message':'Send'} title={stops?'Stop':sendError|| (working?'Queue message · Enter':'Send · Enter')} disabled={disabled||busy||!!sendError&&!stops} onClick={()=>{if(stops)stop();else if(!dictating||!dictation.finishThen(sendDictated(false)))submit();}}><SidebarIcon name={stops?'stop':'send'}/></button></div>
+   {dictationChat&&<DictationProblem dictation={dictation}/>}
   </div>
  </div>;
 }

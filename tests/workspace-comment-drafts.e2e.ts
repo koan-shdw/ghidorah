@@ -6,6 +6,7 @@ import os from 'node:os';
 import assert from 'node:assert/strict';
 import {PYTHON} from '../app/backend';
 import {mainWindow,pollState} from './fixtures/poll-state';
+import {openWorkspace} from './fixtures/chat-bar';
 
 const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/workspace-comment-drafts-')),folder=await fs.mkdtemp(path.join(os.tmpdir(),'tris-comment-drafts-')),namespace='Trismegistus/Test/'+path.basename(data);
 const git=(...args:string[])=>execFileSync('git',['-C',folder,...args],{windowsHide:true,stdio:'pipe'});
@@ -23,7 +24,7 @@ try{
  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(1550,1000));
  await call('workingFolder',{folder});const chatId=await call('newChat'),other=await call('newChat');
  await page.locator('[data-chat-id="'+chatId+'"] .chat-link').click();
- await page.getByLabel('Open changes',{exact:true}).click();
+ await openWorkspace(page,'changes');
  const working=(name:string)=>page.locator('.change-list > div').filter({has:page.getByRole('button',{name,exact:true})}).getByRole('button',{name:'Working',exact:true});
  await working('a.txt').click();
  const comment=page.getByLabel('Line comment',{exact:true});
@@ -33,9 +34,9 @@ try{
  await page.getByLabel('Refresh changes',{exact:true}).click();assert.equal(await comment.inputValue(),'keep my unfinished review');
  await page.locator('[data-chat-id="'+other+'"] .chat-link').click();assert.equal(await comment.inputValue(),'keep my unfinished review');
  await assert.rejects(call('sidebarChat',{action:'delete',chatId}),/Save or discard workspace edits/);
- await page.getByLabel('Open files',{exact:true}).click();await page.locator('.workspace-files button').filter({hasText:'subfolder'}).click();
+ await openWorkspace(page,'files');await page.locator('.workspace-files button').filter({hasText:'subfolder'}).click();
  await page.getByRole('alert').filter({hasText:'Save or cancel the line comment'}).first().waitFor();
- await page.getByLabel('Open changes',{exact:true}).click();assert.equal(await comment.inputValue(),'keep my unfinished review');
+ await openWorkspace(page,'changes');assert.equal(await comment.inputValue(),'keep my unfinished review');
  // A failed durable write must leave the only copy in the editor.
  await page.evaluate(()=>{const original=Storage.prototype.setItem;(window as any).restoreCommentStorage=()=>{Storage.prototype.setItem=original;};Storage.prototype.setItem=function(key,value){if(key.startsWith('diff-comments:'))throw Error('fixture: storage full');return original.call(this,key,value);};});
  await page.getByRole('button',{name:'Save comment',exact:true}).click();await page.getByRole('status').filter({hasText:'Comments could not be saved'}).waitFor();assert.equal(await comment.inputValue(),'keep my unfinished review');

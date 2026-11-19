@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import {Store} from '../app/store';
 import type {Snapshot,Turn} from '../app/types';
 import {pollState} from './fixtures/poll-state';
+import {chatOptions} from './fixtures/chat-bar';
 
 const root=process.cwd(),data=await fs.mkdtemp(path.join(root,'work/voices-')),folder=await fs.mkdtemp(path.join(os.tmpdir(),'tris-voices-')),kokoro=process.env.TRISMEGISTUS_TEST_KOKORO;
 const store=new Store(path.join(data,'chat.sqlite')),project=store.project(folder),chat=store.chat(project.id),turn=store.accept(crypto.randomUUID(),chat.id,'How did the update go?');
@@ -45,7 +46,7 @@ try{
  await assert.rejects(voices.evaluate(()=>window.desktop.invoke('state')),/Request refused/,'the Voices window may ask only for its own actions');
  await assert.rejects(voices.evaluate(()=>window.desktop.invoke('submit',{})),/Request refused/);
  await closeVoices(voices);
- voices=await voicesWindow(()=>page.getByRole('switch',{name:'Speak replies',exact:true}).click());
+ voices=await voicesWindow(async()=>{await (await chatOptions(page)).getByRole('switch',{name:'Speak replies',exact:true}).click();});
  assert.equal((await call('state')).voices.speakReplies,false);
  await assert.rejects(call('speakStart',{id:'early',pieces:['Hello.'],voice:state.voices!.list[0]}),/Install the voice in Voices first/);
 
@@ -107,7 +108,7 @@ try{
   await listen.waitFor({timeout:90000});assert.deepEqual([...new Set(await events(page))].sort(),['audio','end']);assert.equal((await events(page)).filter(type=>type==='audio').length,2,'two pieces: the first sentence, then the rest');
   await listen.click();await page.getByRole('button',{name:'Stop reading',exact:true}).click();await listen.waitFor();
   // Speak replies: a reply that finishes while its chat is on screen is read aloud by itself, once.
-  await page.getByRole('switch',{name:'Speak replies',exact:true}).click();state=await pollState(page,s=>!!s.voices!.speakReplies&&!!s.claude?.models?.length);
+  await (await chatOptions(page)).getByRole('switch',{name:'Speak replies',exact:true}).click();state=await pollState(page,s=>!!s.voices!.speakReplies&&!!s.claude?.models?.length);
   await page.evaluate(()=>{(window as any).heard=[];});const next=crypto.randomUUID();await call('addModel',{chatId:chat.id,model:'claude-code:haiku'});await call('submit',{id:next,chatId:chat.id,text:'Say one short sentence.',models:['claude-code:haiku']});
   await pollState(page,s=>s.turns.some(row=>row.id===next&&row.status==='completed'));
   await page.locator('[data-turn-id="'+next+'"]').getByRole('button',{name:'Stop reading',exact:true}).waitFor({timeout:60000});await page.locator('[data-turn-id="'+next+'"]').getByRole('button',{name:'Listen to this reply',exact:true}).waitFor({timeout:90000});
@@ -118,8 +119,8 @@ try{
  // every chat: what one window sets, the other shows. A reply that finishes there is read there, not in the main
  // window, which still shows the chat but leaves it to its window.
  const opening=instance.waitForEvent('window');await call('openChatWindow',{chatId:chat.id});const chatView=await opening;await chatView.waitForLoadState('domcontentloaded');chatView.setDefaultTimeout(15000);await chatView.addStyleTag({content:NO_TRANSITIONS});chatView.on('pageerror',error=>errors.push('chat window: '+error.message));
- const windowSwitch=chatView.getByRole('switch',{name:'Speak replies',exact:true}),mainSwitch=page.getByRole('switch',{name:'Speak replies',exact:true});
- await windowSwitch.waitFor();assert.equal(await windowSwitch.getAttribute('aria-checked'),String(!!kokoro));await chatView.getByRole('button',{name:'Listen to this reply',exact:true}).first().waitFor();
+ const windowSwitch=chatView.locator('[role=switch][aria-label="Speak replies"]'),mainSwitch=page.locator('[role=switch][aria-label="Speak replies"]');
+ await windowSwitch.waitFor({state:'attached'});assert.equal(await windowSwitch.getAttribute('aria-checked'),String(!!kokoro));await chatView.getByRole('button',{name:'Listen to this reply',exact:true}).first().waitFor();
  await capture('#chat='+chat.id,'chat-window');
  if(kokoro){
   await heard(chatView);await page.evaluate(()=>{(window as any).heard=[];});const inWindow=crypto.randomUUID();
@@ -127,12 +128,12 @@ try{
   await pollState(page,s=>s.turns.some(row=>row.id===inWindow&&row.status==='completed'));
   await chatView.locator('[data-turn-id="'+inWindow+'"]').getByRole('button',{name:'Stop reading',exact:true}).waitFor({timeout:60000});await chatView.locator('[data-turn-id="'+inWindow+'"]').getByRole('button',{name:'Listen to this reply',exact:true}).waitFor({timeout:90000});
   assert.ok((await events(chatView)).includes('end'),'the chat window read its own reply');assert.deepEqual(await events(page),[],'the main window left it to the chat window');
-  await windowSwitch.click();await pollState(page,s=>!s.voices!.speakReplies);
+  await (await chatOptions(chatView)).locator('[role=switch][aria-label="Speak replies"]').click();await pollState(page,s=>!s.voices!.speakReplies);
   for(let n=0;n<50&&await mainSwitch.getAttribute('aria-checked')!=='false';n++)await page.waitForTimeout(100);
   assert.equal(await mainSwitch.getAttribute('aria-checked'),'false','switched off in the chat window, off in the main window');assert.equal(await windowSwitch.getAttribute('aria-checked'),'false');
  }else{
   // Not installed: the switch leads to the Voices window (already open) and stays off.
-  await windowSwitch.click();await chatView.waitForTimeout(300);assert.equal((await call('state')).voices.speakReplies,false);assert.equal(await windowSwitch.getAttribute('aria-checked'),'false');
+  await (await chatOptions(chatView)).locator('[role=switch][aria-label="Speak replies"]').click();await chatView.waitForTimeout(300);assert.equal((await call('state')).voices.speakReplies,false);assert.equal(await windowSwitch.getAttribute('aria-checked'),'false');
  }
  assert.deepEqual(errors,[]);assert.equal(await instance.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().some(w=>w.isVisible())),false);
  await fs.writeFile(path.join(data,'verified.json'),JSON.stringify({starters:true,listenOpensVoicesBeforeInstall:true,switchStaysOff:true,windowOwnActionsOnly:true,editing:true,duplicateDefaultDelete:true,narrow:true,appVoice:true,chatWindowSwitch:true,realVoice:!!kokoro},null,2));
