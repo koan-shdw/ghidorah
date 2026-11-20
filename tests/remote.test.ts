@@ -9,7 +9,7 @@ import {autoTitled,cleanName,fallbackName,planTopics,topicRetry,uniqueName} from
 test('only the owner\'s direct message is read; a code, Deny and the safe commands are told apart',()=>{
  assert.deepEqual(readRemote({enabled:true,owner:'4242',chatId:'c1'}),{enabled:true,owner:'4242',chatId:'c1',paused:false,topics:true,topicsSince:null,topicError:'',username:'',stateIcon:true});
  assert.equal(readRemote({stateIcon:false}).stateIcon,false);
- assert.equal(readRemote({username:'ghidora_bot'}).username,'ghidora_bot');assert.equal(readRemote({username:'not a name'}).username,'');
+ assert.equal(readRemote({username:'demo_bot'}).username,'demo_bot');assert.equal(readRemote({username:'not a name'}).username,'');
  assert.equal(readRemote({owner:'0123'}).owner,'',"an id can't start with 0");
  const message={message_id:'17',chat_id:'4242',user_id:'4242',text:'hello'};
  assert.deepEqual(readInbound(message,'4242'),message);
@@ -83,7 +83,7 @@ function desk(overrides:Partial<DeskDeps>={},topics=true){
  const marks:string[][]=[];
  const deps:DeskDeps={settings:()=>settings,save:patch=>{settings={...settings,...patch};},seen:id=>seen.has(id),done:id=>{seen.add(id);},send:(text,_deny,thread)=>{sent.push(text);threads.push(thread);},mark:(id,emoji)=>{marks.push([id,emoji]);},alert:(title,body)=>{alerts.push(title+': '+body);},
   chats:()=>[{id:'c2',title:'Second'},{id:'c1',title:'First'}],newChat:async()=>'c3',topicChat:thread=>thread==='55'?{id:'c1',title:'First'}:null,linkTopic:async()=>({id:'c9',title:'New chat'}),submit:async(id,chatId,text,thread,attachments)=>{submitted.push([id,chatId,text,...(thread?[thread]:[]),...(attachments?.length?[attachments.map(item=>item.name)]:[])]);},stop:async()=>{},status:()=>'Ready',
-  hear:async file=>file.endsWith('quiet.ogg')?'  ':'Are you using agents like instructed?',attach:async(_chatId,media)=>media.map(item=>({name:item.name||'IMG_2041.jpg'})),
+  hear:async file=>file.endsWith('quiet.ogg')?'  ':'Which files changed today?',attach:async(_chatId,media)=>media.map(item=>({name:item.name||'IMG_2041.jpg'})),
   waiting:()=>null,prompt:()=>false,code:async()=>'Approved.',deny:async()=>'Denied.',answer:async()=>'Answered.',...overrides};
  return {desk:new RemoteDesk(deps),sent,threads,alerts,submitted,marks,settings:()=>settings};
 }
@@ -123,8 +123,8 @@ test('while an approval is shown, only a code or Deny answers it; a code never r
 test('a voice note becomes his message and he is shown what was heard; a photo or a file goes in as an attachment',async()=>{
  const run=desk(),voice=(path:string)=>({path,kind:'voice' as const});
  await run.desk.receive({...from('1',''),thread_id:'55',media:[voice('C:/g/cache/note.ogg')]});
- assert.deepEqual(run.sent,['Heard: “Are you using agents like instructed?”']);assert.deepEqual(run.threads,['55']);
- assert.deepEqual(run.submitted,[['telegram-4242-1','c1','Are you using agents like instructed?','55']]);assert.deepEqual(run.marks,[['1','👀']]);assert.equal(run.alerts.at(-1),'Remote task: Voice note');
+ assert.deepEqual(run.sent,['Heard: “Which files changed today?”']);assert.deepEqual(run.threads,['55']);
+ assert.deepEqual(run.submitted,[['telegram-4242-1','c1','Which files changed today?','55']]);assert.deepEqual(run.marks,[['1','👀']]);assert.equal(run.alerts.at(-1),'Remote task: Voice note');
  await run.desk.receive({...from('2','use this as the cover'),thread_id:'55',media:[{path:'C:/g/cache/1.jpg',kind:'photo'},{path:'C:/g/cache/brief.pdf',kind:'file',name:'brief.pdf'}]});
  assert.equal(run.sent.at(-1),'Added to the chat: IMG_2041.jpg, brief.pdf');
  assert.deepEqual(run.submitted.at(-1),['telegram-4242-2','c1','use this as the cover','55',['IMG_2041.jpg','brief.pdf']]);
@@ -146,12 +146,12 @@ test('a message that cannot be sent on gets the failed mark and the reason',asyn
 
 // Read from his data 2026-11-19: a text Claude read in the middle of another reply was answered "(no text)".
 test('a message read in the middle of a reply is answered by its share of that reply',()=>{
- const text='I am reading the folders.\n\nYes, agents as instructed: three readers.\n\nYou asked for Opus agents and I confirmed it.',owner={id:'t1',text};
- const second=text.indexOf('Yes'),third=text.indexOf('You asked');
+ const text='I am reading the folders.\n\nThree files changed today.\n\nYou asked about the folders and I read them.',owner={id:'t1',text};
+ const second=text.indexOf('Three'),third=text.indexOf('You asked');
  const joined=[{id:'t3',created:3,readAt:{text:third}},{id:'t2',created:2,readAt:{text:second}}];
  assert.equal(replyShare(owner,'t1',joined),'I am reading the folders.');
- assert.equal(replyShare(owner,'t2',joined),'Yes, agents as instructed: three readers.');
- assert.equal(replyShare(owner,'t3',joined),'You asked for Opus agents and I confirmed it.');
+ assert.equal(replyShare(owner,'t2',joined),'Three files changed today.');
+ assert.equal(replyShare(owner,'t3',joined),'You asked about the folders and I read them.');
  assert.equal(replyShare(owner,'t1',[]),text,'a reply nothing was read in is whole');assert.equal(replyShare(owner,'t9',joined),'');
  // Two messages read at the same point: the later one carries the answer, the earlier one's share is empty.
  const same=[{id:'t2',created:2,readAt:{text:second}},{id:'t3',created:3,readAt:{text:second}}];
@@ -182,7 +182,7 @@ test("a message in a topic goes to that topic's chat and is answered there; an u
  await run.desk.receive(from('4','no topic'));assert.deepEqual([run.submitted.at(-1),run.marks.at(-1)],[['telegram-4242-4','c3','no topic'],['4','👀']]);
  await run.desk.receive(from('5','/status'));assert.equal(run.sent.at(-1),'Second: Ready');
  assert.equal(topicName({title:'Plan'}),'Plan');assert.equal(topicName({title:'Plan'},'⏳'),'⏳ Plan');assert.equal(topicName({title:'  '}),'New chat');assert.equal(topicName({title:'x'.repeat(300)}).length,128);
- assert.equal(topicLink('ghidora_bot','55'),'https://t.me/ghidora_bot/55');assert.equal(topicLink('','55'),'');
+ assert.equal(topicLink('demo_bot','55'),'https://t.me/demo_bot/55');assert.equal(topicLink('','55'),'');
 });
 
 // 2026-11-01: two messages typed in an existing topic arrived as replies and were refused as late answers.
@@ -212,28 +212,28 @@ test("a row for a chat's topic waits for the topic, goes into it, and is dropped
 
 // Koan 2026-11-19, version 3 of the Telegram mockup: one thread per chat, made with the chat's name.
 test('a chat gets its thread once it is named, the oldest used first; a gone chat loses its thread',()=>{
- const chats=[{id:'new',title:'KOAN shader 3',used:300,named:true},{id:'old',title:'bodeverse archive',used:100,named:true},{id:'raw',title:'So I have a new idea for a shader for KOAN.live. T',used:200,named:false}];
- assert.deepEqual(planTopics(chats,[],0),[{do:'plan',chatId:'old'},{do:'create',chatId:'old',name:'bodeverse archive'},{do:'plan',chatId:'raw'},{do:'plan',chatId:'new'},{do:'create',chatId:'new',name:'KOAN shader 3'}],'the unnamed chat waits for its name');
- const topics:TopicRecord[]=[{id:'old',threadId:'55',name:'bodeverse archive',status:'ready',created:0},{id:'raw',name:'',status:'pending',created:0},{id:'new',name:'KOAN shader 3',status:'creating',created:0},
+ const chats=[{id:'new',title:'Paint tool 3',used:300,named:true},{id:'old',title:'photo archive',used:100,named:true},{id:'raw',title:'I want a new brush for the paint tool. The idea is',used:200,named:false}];
+ assert.deepEqual(planTopics(chats,[],0),[{do:'plan',chatId:'old'},{do:'create',chatId:'old',name:'photo archive'},{do:'plan',chatId:'raw'},{do:'plan',chatId:'new'},{do:'create',chatId:'new',name:'Paint tool 3'}],'the unnamed chat waits for its name');
+ const topics:TopicRecord[]=[{id:'old',threadId:'55',name:'photo archive',status:'ready',created:0},{id:'raw',name:'',status:'pending',created:0},{id:'new',name:'Paint tool 3',status:'creating',created:0},
   {id:'deleted',threadId:'60',name:'Testing',status:'ready',created:0},{id:'never',name:'',status:'pending',created:0},{id:'making',name:'x',status:'creating',created:0},{id:'going',threadId:'61',name:'y',status:'deleting',created:0}];
  assert.deepEqual(planTopics(chats,topics,0),[{do:'delete',id:'deleted',thread:'60'},{do:'delete',id:'never'}],'nothing is made twice; a thread on its way out or in is left alone');
  // The name follows the app's, with the chat's state in front when it has one.
  assert.deepEqual(planTopics([{...chats[1],title:'Archive'}],topics.slice(0,1),0),[{do:'rename',chatId:'old',thread:'55',name:'Archive'}]);
- assert.deepEqual(planTopics([chats[1]],topics.slice(0,1),0,()=>'⏳'),[{do:'rename',chatId:'old',thread:'55',name:'⏳ bodeverse archive'}]);
+ assert.deepEqual(planTopics([chats[1]],topics.slice(0,1),0,()=>'⏳'),[{do:'rename',chatId:'old',thread:'55',name:'⏳ photo archive'}]);
  // A thread Telegram refused is tried again when its time comes.
- const failed:TopicRecord={id:'old',name:'bodeverse archive',status:'failed',created:0,tries:2,retryAt:5000};
- assert.deepEqual(planTopics([chats[1]],[failed],4999),[]);assert.deepEqual(planTopics([chats[1]],[failed],5000),[{do:'create',chatId:'old',name:'bodeverse archive'}]);
+ const failed:TopicRecord={id:'old',name:'photo archive',status:'failed',created:0,tries:2,retryAt:5000};
+ assert.deepEqual(planTopics([chats[1]],[failed],4999),[]);assert.deepEqual(planTopics([chats[1]],[failed],5000),[{do:'create',chatId:'old',name:'photo archive'}]);
  assert.deepEqual([1,2,3,4,9].map(tries=>topicRetry(tries,0)/60000),[1,3,9,27,30]);
 });
 
 test('a chat he has not named gets a short name; no two chats share one',()=>{
- const first='So I have a new idea for a shader for KOAN.live. The idea is that it takes the depth map';
+ const first='I want a new brush for the paint tool. The idea is that it reads the pen pressure';
  assert.equal(autoTitled({title:first.slice(0,55)},first),true);assert.equal(autoTitled({title:'New chat'},undefined),true);
- assert.equal(autoTitled({title:'bodeverse archive'},first),false,'a name he typed');assert.equal(autoTitled({title:first.slice(0,55),named:'user'},first),false);assert.equal(autoTitled({title:'Fix (fork)'},'Fix'),false);
- assert.equal(cleanName('"KOAN shader."\nIt is about a shader.'),'KOAN shader');assert.equal(cleanName('Name: **Depth map shader**'),'Depth map shader');
+ assert.equal(autoTitled({title:'photo archive'},first),false,'a name he typed');assert.equal(autoTitled({title:first.slice(0,55),named:'user'},first),false);assert.equal(autoTitled({title:'Fix (fork)'},'Fix'),false);
+ assert.equal(cleanName('"Paint tool."\nIt is about a brush.'),'Paint tool');assert.equal(cleanName('Name: **Pen pressure brush**'),'Pen pressure brush');
  assert.equal(cleanName('A very long name that goes on and on past the limit'),'A very long name that goes');assert.equal(cleanName('  \n '),'');
- assert.equal(fallbackName(first),'So I have a new idea for');assert.equal(fallbackName('???'),'New chat');
- assert.equal(uniqueName('KOAN shader',['Testing','gAIt']),'KOAN shader');assert.equal(uniqueName('KOAN shader',['koan shader','KOAN shader 2']),'KOAN shader 3');
+ assert.equal(fallbackName(first),'I want a new brush for');assert.equal(fallbackName('???'),'New chat');
+ assert.equal(uniqueName('Paint tool',['Testing','Walker']),'Paint tool');assert.equal(uniqueName('Paint tool',['paint tool','Paint tool 2']),'Paint tool 3');
 });
 
 test("a row waits while its chat's thread is being made; a reply with no thread to be had goes to the main view",()=>{
@@ -256,9 +256,9 @@ test("a row waits while its chat's thread is being made; a reply with no thread 
 
 // Version 3 of the Telegram mockup: the chat's state on its thread's icon, Home, the plan as a checklist.
 test('Home lists what needs him, what works and what is held, with a link to each thread',()=>{
- const card=homeCard([{state:'working',title:'bodeverse archive',agents:3,thread:'2625'},{state:'needs',title:'KOAN shader 2',agents:0,thread:'2630'},{state:'held',title:'gAIt',agents:0,until:'22:30'}],'Limit 61% used, resets 22:30','ghidora_bot');
- assert.equal(card.text,'Ghidorah now · 1 working, 1 needs you, 1 held\n❗ KOAN shader 2 · needs you\n⏳ bodeverse archive · working, 3 agents\n⏸ gAIt · held until 22:30\n· Limit 61% used, resets 22:30');
- assert.deepEqual(card.keys,[[{text:'KOAN shader 2',url:'https://t.me/ghidora_bot/2630'},{text:'bodeverse archive',url:'https://t.me/ghidora_bot/2625'}],[{text:'New chat',data:'gh:new',style:'primary'}]],'a chat without a thread yet has no link');
+ const card=homeCard([{state:'working',title:'photo archive',agents:3,thread:'2625'},{state:'needs',title:'Paint tool 2',agents:0,thread:'2630'},{state:'held',title:'Walker',agents:0,until:'22:30'}],'Limit 61% used, resets 22:30','demo_bot');
+ assert.equal(card.text,'Ghidorah now · 1 working, 1 needs you, 1 held\n❗ Paint tool 2 · needs you\n⏳ photo archive · working, 3 agents\n⏸ Walker · held until 22:30\n· Limit 61% used, resets 22:30');
+ assert.deepEqual(card.keys,[[{text:'Paint tool 2',url:'https://t.me/demo_bot/2630'},{text:'photo archive',url:'https://t.me/demo_bot/2625'}],[{text:'New chat',data:'gh:new',style:'primary'}]],'a chat without a thread yet has no link');
  const idle=homeCard([],'','');assert.equal(idle.text,'Ghidorah now · nothing running');assert.deepEqual(idle.keys,[[{text:'New chat',data:'gh:new',style:'primary'}]]);
  assert.equal(homeCard([{state:'needs',title:'a',agents:0},{state:'needs',title:'b',agents:1}],'','').text,'Ghidorah now · 2 need you\n❗ a · needs you\n❗ b · needs you, 1 agent');
 });

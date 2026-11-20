@@ -1,6 +1,6 @@
 // Work a usage limit stopped carries on by itself at the reset (Koan 2026-11-19, Ghidorah 4 job 5; app/limit-pause.ts
 // says what counts and why). One record per chat: when it can carry on, with which model, and how much was stopped.
-// At that time the app sends into the chat what he typed by hand before: carry on.
+// At that time the app sends the chat a message to carry on, which he sent by hand before.
 import {health,store} from '../main';
 import {blockedFor} from '../availability';
 import {carryOnAt,carryOnText,limitStop} from '../limit-pause';

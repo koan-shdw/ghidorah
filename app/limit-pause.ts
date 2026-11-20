@@ -24,9 +24,9 @@ export function resumeDue(turn:Pick<Turn,'resume'|'model'>,rows:Availability[],n
   return !turn.resume||turn.resume.at<=now||!blockedFor(rows,turn.model,now);
 }
 // Work Claude runs by itself (its agents, and the turns it starts itself after a job notice or a wake-up) is not a
-// message of his, so the pause above never held it: a limit ended it and the chat sat until he typed "continue"
-// (read from his data 2026-11-19: 179 agent turns and 7 of a chat's own since 10-31). Such a chat now carries on by
-// itself at the reset: the app sends the "carry on" he typed by hand.
+// message of his, so the pause above never held it: a limit ended it and the chat sat until he sent a message by
+// hand (read from his data 2026-11-19: 179 agent turns and 7 of a chat's own since 10-31). Such a chat now carries on
+// by itself at the reset: the app sends that message for him.
 /** Whether a turn's end reads as a usage limit, in the supplier's own words ("You've hit your session limit · resets 2:50pm"). */
 export function limitStop(turn:Pick<Turn,'status'|'error'|'text'>){
   if(turn.status!=='failed'&&turn.status!=='interrupted')return false;
@@ -46,7 +46,7 @@ export function carryOnAt(rows:Availability[],model:string,words:string,now=Date
   const resets=rows.filter(row=>row.blocked&&row.reason==='limit'&&row.resetAt!==null&&row.resetAt>now&&(provider?row.provider===provider:!!blockedFor([row],model,now))).map(row=>row.resetAt!);
   return resets.length?Math.max(...resets):namedReset(words,now);
 }
-/** What the app sends into the chat at the reset, in place of his "continue". */
+/** What the app sends into the chat at the reset, in place of a message he sent by hand. */
 export function carryOnText(agents:number){
   return 'The usage limit that stopped this work has reset. Carry on from where it stopped.'+(agents?' '+(agents===1?'One agent was':agents+' agents were')+' stopped by the limit before finishing: start '+(agents===1?'it':'them')+' again where the work still needs '+(agents===1?'it':'them')+'.':'');
 }

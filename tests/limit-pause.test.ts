@@ -40,8 +40,8 @@ test('the wait ends at the reset time or when the limit lifts earlier; the text 
 });
 
 // Ghidorah 4, job 5 (Koan 2026-11-19): work Claude runs by itself was ended by a limit and the chat sat until he
-// typed "continue". Read from his data: "You've hit your session limit · resets 2:50pm", with a block that has no end
-// time beside the right one.
+// sent a message by hand. Read from his data: "You've hit your session limit · resets 2:50pm", with a block that has
+// no end time beside the right one.
 test('work a limit stopped is known by the supplier\'s words, and carries on once every limit on its model has reset',()=>{
   assert.equal(limitStop(turn({status:'failed',error:"You've hit your session limit · resets 2:50pm"})),true);
   assert.equal(limitStop(turn({status:'failed',error:null,text:'Reading the folders.\n\nYou\'ve hit your usage limit.'})),true,'the words can be the end of the reply');
