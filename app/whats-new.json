@@ -237,5 +237,17 @@
   ]},
   {"version":"0.1.46","date":"2026-11-19","notes":[
     "Subscriptions: the list at the top of the page is gone. A row with no price has a small amber mark and a box to type the price into, in the row itself. A price that is there is clicked to change it, and a limit that is nearly used up has the same mark."
+  ]},
+  {"version":"0.1.47","date":"2026-11-20","notes":[
+    "Telegram: every chat has its own thread in the bot chat, with a short name the sidebar shows too. A text in a thread goes to that chat, and a text in the main view starts a new one. A deleted or archived chat's thread goes with it.",
+    "Telegram: the reply shows in its thread while it is written, with Stop. Your text gets a mark when Ghidorah has it and another when it is answered. Long replies come whole, and texts sent while Ghidorah was closed are handled when it starts.",
+    "Telegram: a thread's icon shows its chat working, needing you or held by the usage limit. Home, pinned in the main view, lists them with a link to each thread. A reply's plan shows as a checklist, with Stop the agents.",
+    "Telegram: a voice note becomes your message, heard by Whisper on this PC, and the thread shows what was heard. A photo or a file goes into the chat as an attachment.",
+    "Telegram: a message sounds only when work ends or needs you, and never while you are at the PC.",
+    "Work a usage limit stopped, agents included, carries on by itself a minute after the reset. In Telegram the chat's thread says when, with Don’t carry on. Stop calls it off.",
+    "Settings › Remote: Make all threads again, for a clean start after you clear the bot's chat in Telegram, and a switch for the state on the thread icon.",
+    "The chat's controls sit in one row inside the message box: +, the mode and the models on the left, the context ring, Options, the microphone and send on the right. + holds Attach files, Skills and commands, Side chat, Voice helper and Add a model. Options holds the chat view, Send now, wake-ups, Speak replies and more.",
+    "One Workspace switch at the right of a chat's title bar opens the panel or closes it. A dot on it means files changed, an output was saved or an agent finished since you last looked.",
+    "Dictation: Enter or the send arrow finishes it, waits for your last words and sends. Esc cancels, and a second press on the microphone stops and leaves the words unsent."
   ]}
 ]
