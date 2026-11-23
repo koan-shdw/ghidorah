@@ -64,7 +64,7 @@ main{display:flex;flex:1;min-width:0;flex-direction:column}
 .turn-error{border-left:2px solid var(--danger);padding:10px 14px;font-size:var(--fs-ui);color:var(--danger);margin-top:15px}
 .working-mark{color:var(--accent);font-size:var(--fs-display)}
 .bottom-area{max-width:850px;width:100%;margin:0 auto;padding:8px 26px 12px}
-.composer-box{display:flex;flex-direction:column;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-xl);padding:12px}
+.composer-box{container-type:inline-size;display:flex;flex-direction:column;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-xl);padding:12px}
 .composer-box textarea{display:block;width:100%;min-width:0;resize:none;min-height:44px;max-height:220px;background:transparent;border:0;outline:none;padding:2px 4px 8px;line-height:1.5}
 .composer-box textarea::placeholder{color:var(--muted)}
 /* One row inside the message box (Koan 2026-11-19): +, the mode and who answers on the left; the chat's state, the
@@ -79,14 +79,18 @@ main{display:flex;flex:1;min-width:0;flex-direction:column}
 .composer-toolbar>.send:hover{background:var(--accent)}
 .composer-toolbar>.send .sidebar-icon{width:20px;height:20px}
 .composer-box>.dictation-error{font-size:var(--fs-meta);line-height:1.4;margin:0 var(--space-2)}
-/* What the next message uses: the permission mode, then Jev and the chat's models. It takes the room that is left;
-   chat-chrome.tsx folds the models into one chip when they do not fit, so nothing here shrinks or scrolls. */
-.dock-setup{display:flex;align-items:center;gap:var(--space-2);flex:1 1 0;min-width:0}
+/* What the next message uses: the permission mode, then Jev and the chat's models, every one in sight. It takes the
+   room that is left and its chips wrap onto more lines when they do not fit; the buttons stay level with the last
+   line. In a narrow box (a side chat, a split pane, a small window; .composer-box is the container) the chips take a
+   line of their own, the box's whole width, above +, the chat's state, the microphone and send. */
+.composer-toolbar:has(.dock-setup){align-items:flex-end}
+.dock-setup{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);flex:1 1 0;min-width:0;padding:calc((var(--h-lg) - var(--h))/2) 0}
 .dock-setup>*{flex:none}
 .dock-setup>.choice-menu>summary{min-height:var(--h);padding:0 var(--space-4);border-radius:var(--r-pill)}
-.model-row{display:flex;flex-wrap:nowrap;align-items:center;gap:var(--space-2);font-size:var(--fs-ui)}
+.model-row,.model-pills{display:contents;font-size:var(--fs-ui)}
+@container(max-width:560px){.composer-toolbar:has(.dock-setup){flex-wrap:wrap}.dock-setup{order:-1;flex-basis:100%}.dock-setup+*{margin-left:auto}}
 /* The chat's state: the context ring and the Options menu. */
-.dock-status{display:flex;align-items:center;gap:var(--space-1);flex:none}
+.dock-status{display:flex;align-items:center;gap:var(--space-1);flex:none;min-height:var(--h-lg)}
 .dock-status>.context-ring{display:inline-flex;align-items:center;gap:var(--space-2);height:var(--h);padding:0 var(--space-3);border-radius:var(--r-pill);color:var(--muted);font-size:var(--fs-meta)}
 .dock-status>.context-ring:hover,.dock-status>.context-ring[aria-expanded=true]{background:var(--raised);color:var(--text)}
 /* The Options menu's rows: a name and what it does on the left, its control on the right. */
@@ -397,7 +401,7 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .waiting-row>.waiting-remove{color:var(--muted)}
 .waiting-row>.waiting-remove:hover{color:var(--text)}
 /* Beside the send arrow while a reply runs: the action Enter does not do, with its key (Composer `other`). */
-.composer-toolbar>.send-other{display:inline-flex;align-items:center;gap:var(--space-4);flex:none;min-height:var(--h);margin:0;padding:0 var(--space-5);border:1px solid color-mix(in srgb,var(--accent) 45%,var(--line));border-radius:var(--r-pill);color:var(--accent);font-size:var(--fs-ui);white-space:nowrap}
+.composer-toolbar>.send-other{display:inline-flex;align-items:center;gap:var(--space-4);flex:none;min-height:var(--h);margin:0 0 calc((var(--h-lg) - var(--h))/2);padding:0 var(--space-5);border:1px solid color-mix(in srgb,var(--accent) 45%,var(--line));border-radius:var(--r-pill);color:var(--accent);font-size:var(--fs-ui);white-space:nowrap}
 .composer-toolbar>.send-other:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 12%,transparent)}
 .composer-toolbar>.send-other:disabled{opacity:.45}
 .composer-toolbar>.send-other>kbd{padding:0 var(--space-2);border:1px solid var(--line);border-radius:var(--r-sm);color:var(--muted);font:inherit;font-size:var(--fs-meta)}
@@ -511,7 +515,7 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
    the box's text colour. */
 .dictation-anchor>.dictation-trigger.recording{border-color:var(--danger);color:var(--danger);background:color-mix(in srgb,var(--danger) 7%,transparent)}
 .dictation-waves{display:block;color:var(--text);pointer-events:none}
-.composer-toolbar>.dictation-waves.bars{flex:0 1 96px;min-width:40px;height:var(--h-lg);align-self:center}
+.composer-toolbar>.dictation-waves.bars{flex:0 1 96px;min-width:40px;height:var(--h-lg)}
 .composer-box>.dictation-waves.line{align-self:stretch;width:auto;height:30px;margin:0 var(--space-2)}
 .app-titlebar .app-mark{width:25px;height:25px;display:block;object-fit:contain;flex:none}
 .app-titlebar strong{font-weight:600;pointer-events:none}
@@ -579,8 +583,7 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .context-ring[data-pressure=warning] .context-ring-mark circle+circle{stroke:var(--warning)}
 .context-ring[data-pressure=high] .context-ring-mark circle+circle{stroke:var(--danger)}
 /* C12: the models as chips inside the message box. A chip is quiet until it is picked; its level is part of it and
-   opens the level menu; tooltips hide while a menu is open. Folded, one chip stands for them all. */
-.model-pills{display:flex;align-items:center;gap:var(--space-2)}
+   opens the level menu; tooltips hide while a menu is open. */
 .model-row.menu-open .model-usage-tooltip{display:none!important}
 .dock-setup .model-pill{border-color:transparent;background:transparent}
 .dock-setup .model-pill:hover{background:var(--raised)}
@@ -590,10 +593,6 @@ progress.usage-meter.exhausted::-webkit-progress-value{background:var(--danger)}
 .dock-setup .model-pill .choice-menu>summary{gap:0;padding:var(--space-1) var(--space-4) var(--space-1) 0;color:var(--muted)}
 .dock-setup .model-pill .choice-menu>summary:hover,.dock-setup .model-pill .choice-menu[open]>summary{background:transparent;color:var(--text)}
 .dock-setup .model-pill .choice-menu>summary>span[aria-hidden]{display:none}
-.model-fold{gap:var(--space-2);padding:0 var(--space-4);cursor:pointer}
-.model-fold .health-dot{margin-right:0}
-.model-fold .sidebar-icon{width:var(--icon-sm);height:var(--icon-sm);flex:0 0 var(--icon-sm)}
-.model-more{color:var(--muted)}
 /* C13 C14: live and failed status colours; reply actions fade until the reply is hovered or focused */
 .model-label>.turn-activity[data-tone=live]{color:var(--green)}
 .model-label>.turn-activity[data-tone=danger]{color:var(--danger)}

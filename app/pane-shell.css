@@ -33,7 +33,7 @@
 .pane-split:has(.arranged){min-width:min-content}
 .pane-group.arranged{min-width:320px}
 .pane-group.arranged{container-type:inline-size}
-@container(max-width:440px){.composer-box{flex-wrap:wrap}.composer-box textarea{order:-1;flex-basis:100%}.composer-box .send{margin-left:auto}.primary-chat-pane .titlebar{padding-right:12px}.backend-status{display:none}}
+@container(max-width:440px){.primary-chat-pane .titlebar{padding-right:12px}.backend-status{display:none}}
 .agent-pane{display:flex;flex:1;min-height:0;min-width:0;flex-direction:column}
 .agent-pane .job-titlebar{-webkit-app-region:no-drag}
 .agent-pane .messages{padding:16px}

@@ -42,15 +42,8 @@ export async function openWorkspace(scope:Scope,view:'plan'|'tasks'|keyof typeof
  await panel.locator('.ws-sec').first().waitFor();
  if(view in tools)await press(panel.locator('[data-section="tools"] [data-open="'+view+'"]'));
 }
-/** Picks a model for the next message: by its chip, or from the one folded chip's menu when the chat has more models
- * than fit in the message box. */
-export async function pickModel(scope:Scope,label:string){
- const chip=scope.locator('.model-tab').filter({hasText:label});
- if(await chip.count()){await press(chip);return;}
- const page='page' in scope?scope.page():scope;
- await press(scope.getByLabel('Models in this chat',{exact:true}));
- await press(page.getByRole('menuitem').filter({hasText:label}));
-}
+/** Picks a model for the next message by its chip. */
+export async function pickModel(scope:Scope,label:string){await press(scope.locator('.model-tab').filter({hasText:label}));}
 /** Opens a model chip's right-click menu, at the chip, and returns its item, such as 'Remove from chat'. */
 export async function modelMenuItem(scope:Scope,model:string,item:string|RegExp){
  const page='page' in scope?scope.page():scope,chip=scope.locator('.model-pill:not(.jev)').filter({hasText:model}).first();
