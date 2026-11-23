@@ -249,5 +249,8 @@
     "The chat's controls sit in one row inside the message box: +, the mode and the models on the left, the context ring, Options, the microphone and send on the right. + holds Attach files, Skills and commands, Side chat, Voice helper and Add a model. Options holds the chat view, Send now, wake-ups, Speak replies and more.",
     "One Workspace switch at the right of a chat's title bar opens the panel or closes it. A dot on it means files changed, an output was saved or an agent finished since you last looked.",
     "Dictation: Enter or the send arrow finishes it, waits for your last words and sends. Esc cancels, and a second press on the microphone stops and leaves the words unsent."
+  ]},
+  {"version":"0.1.48","date":"2026-11-23","notes":[
+    "Every model in a chat stays a chip in the message box. When they don't fit they wrap onto more lines instead of folding into one chip, and in a narrow chat they take a line of their own above the buttons."
   ]}
 ]
