@@ -252,5 +252,9 @@
   ]},
   {"version":"0.1.48","date":"2026-11-23","notes":[
     "Every model in a chat stays a chip in the message box. When they don't fit they wrap onto more lines instead of folding into one chip, and in a narrow chat they take a line of their own above the buttons."
+  ]},
+  {"version":"0.1.49","date":"2026-11-24","notes":[
+    "Anthropic: Switch account works again after a sign-in page was left open, with Cancel sign-in while it waits",
+    "Anthropic: new Sign out button"
   ]}
 ]
