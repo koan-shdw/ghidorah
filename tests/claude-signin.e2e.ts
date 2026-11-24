@@ -38,6 +38,18 @@ try{
  await page.locator('[data-settings-page="claude-code"]').getByRole('button',{name:'Switch account',exact:true}).click();
  await waitFor(2);await pollState(page,s=>s.claude?.status==='Signed in');
  assert.equal((await logins()).length,2,'Claude Code page runs Claude Code sign-in');
+ // Koan 11-24: a sign-in whose browser page never came back left Switch account doing nothing. The panel shows the
+ // wait with Cancel, a later Switch account starts a new sign-in, and Sign out runs Claude Code's own sign-out.
+ await nav.getByRole('button',{name:'Connections',exact:true}).click();if(!await panel.locator('.supplier-settings').isVisible())await panel.locator('summary').click();
+ await fs.writeFile(path.join(data,'login-hangs'),'');
+ await panel.getByRole('button',{name:'Switch account',exact:true}).click();await waitFor(3);
+ await pollState(page,s=>s.claude?.signingIn===true);await call('claudeCheck');
+ await panel.getByRole('button',{name:'Cancel sign-in',exact:true}).click();await pollState(page,s=>!s.claude?.signingIn);
+ await panel.getByRole('button',{name:'Switch account',exact:true}).click();await waitFor(4);
+ assert.equal((await logins()).length,4,'Switch account after an abandoned sign-in starts a new one');
+ await fs.rm(path.join(data,'login-hangs'));await call('claudeCancel');await pollState(page,s=>!s.claude?.signingIn&&s.claude?.status==='Signed in');
+ await panel.getByRole('button',{name:'Sign out',exact:true}).click();await waitFor(5);
+ assert.deepEqual((await logins()).at(-1).args.slice(-2),['auth','logout'],'Sign out runs Claude Code sign-out');
  assert.deepEqual(errors,[]);
- console.log('PASS Claude Code sign-in from the Anthropic panel and the Claude Code page. '+data);
+ console.log('PASS Claude Code sign-in from the Anthropic panel and the Claude Code page; Cancel, a new sign-in after an abandoned one, and Sign out. '+data);
 }finally{await quit();execFileSync(PYTHON,['-c',"import sys;sys.path.insert(0,'backend');import windows_credentials as v;v.delete(sys.argv[1])",namespace+'/encryption'],{windowsHide:true,stdio:'ignore'});}

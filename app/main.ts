@@ -247,7 +247,8 @@ export let codex:CodexConnection={connected:false,status:'Not connected',models:
 let codexCheckVersion=0;
 let codexCheckController:AbortController|null=null,codexCheckTask:Promise<any>|null=null;
 export let claude:ClaudeConnection={connected:false,status:'Not checked'};
-let checkingClaude=false,claudeSignIn:ChildProcess|undefined;
+let checkingClaude=false;
+export let claudeSignIn:ChildProcess|undefined;
 // DeepSeek, ChatGPT and Claude start as they were last time, marked Checking…, until their own checks answer: an
 // update or restart never shows a connection as gone while Ghidorah is still starting (Koan 2026-10-28). Only an
 // answer from a check is remembered.
@@ -762,6 +763,8 @@ function renameRetiredClaude(listed:{id:string;label:string}[]){
       store.update<Turn>('turn',turn.id,{model:swap(turn.model),models:list(turn.models) as string[]|undefined,requestedModels:list(turn.requestedModels) as string[]|undefined,efforts:keys(turn.efforts)});
   });
 }
+// Ends a sign-in still waiting on its browser page. True when one was running.
+function stopClaudeSignIn(){const child=claudeSignIn;if(!child)return false;claudeSignIn=undefined;child.kill();return true;}
 export async function checkClaude(signal?:AbortSignal){
   if(checkingClaude)return;
   checkingClaude=true;const started=Date.now();
@@ -1336,16 +1339,32 @@ export const handlers:Record<string,(args:any)=>any>={
   },
   codexCancel(){backend.cancelCodexLogin('codex');codex={...codex,login:null};emit();},
   // Claude Code's own sign-in (10-22: its saved sign-in expired and Ghidorah had no way back in). It opens Anthropic's
-  // page in the browser; its console window takes a pasted code if the browser cannot return. Closing it re-checks.
+  // page in the browser and waits there for the page to come back; when it ends, the connection is checked again.
+  // Koan 11-24: Switch account did nothing. A sign-in whose browser page was closed never ends, the 5-minute check
+  // turned the button back on, and every later click returned early on that leftover. A new click now replaces it,
+  // and the panel shows the wait with a Cancel button for as long as it runs.
   async claudeLogin(){
-    if(claudeSignIn)return;
     const cli=fixtureClaude()?{executable:process.env.TRISMEGISTUS_TEST_CLAUDE_NODE!}:await findClaude();
     if(!cli){claude={connected:false,status:'Claude Code not installed'};emit();return;}
-    claude={...claude,status:'Waiting for sign-in'};emit();
+    stopClaudeSignIn();
+    claude={...claude,status:'Waiting for sign-in'};
     const child=spawn(cli.executable,[...(fixtureClaudeArgs()||[]),'auth','login','--claudeai'],{env:claudeEnvironment(),detached:true,stdio:'ignore',windowsHide:!!fixtureClaude()});
-    claudeSignIn=child;
+    claudeSignIn=child;emit();
     const done=()=>{if(claudeSignIn!==child)return;claudeSignIn=undefined;void checkClaude();};
     child.once('error',done);child.once('exit',done);
+  },
+  claudeCancel(){if(stopClaudeSignIn())void checkClaude();},
+  // Sign out of Claude Code's own sign-in (Koan 11-24: there was no way to sign out of Anthropic). Claude Code clears
+  // its saved sign-in; chats are kept. Refused while a reply runs, as the ChatGPT sign-out is.
+  async claudeLogout(){
+    if(anyChatBusy()||submittingChats.size)throw Error('Stop or finish current replies before signing out of Claude.');
+    const cli=fixtureClaude()?{executable:process.env.TRISMEGISTUS_TEST_CLAUDE_NODE!}:await findClaude();
+    if(!cli){claude={connected:false,status:'Claude Code not installed'};emit();return;}
+    stopClaudeSignIn();
+    claude={...claude,status:'Signing out…'};emit();
+    try{await promisify(execFile)(cli.executable,[...(fixtureClaudeArgs()||[]),'auth','logout'],{env:claudeEnvironment(),windowsHide:true,timeout:30000});}
+    catch(error){throw Error('Claude Code could not sign out: '+backend.scrubber.text(String((error as any)?.stderr||error)).trim());}
+    finally{await checkClaude();}
   },
   async addProject(args){requireStableFolder();creatingProjects++;try{const folder=process.env.TRISMEGISTUS_TEST_DATA&&args?.folder?path.resolve(args.folder):defaultFolder();const p=store.project(folder);configureSoon(p);const c=store.chat(p.id);store.update<Chat>('chat',c.id,{pool:defaultModels()});if(args?.groupId)sidebar.chat('move',{chatId:c.id,groupId:args.groupId});if(args?.appId&&store.all<SavedApp>('saved-app').some(app=>app.id===args.appId))linkAppChat(store,args.appId,c.id,true);emit();return c.id;}finally{creatingProjects--; }},
   async workingFolder({folder,clear}){

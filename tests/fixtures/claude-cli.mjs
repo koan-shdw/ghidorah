@@ -5,6 +5,10 @@ import path from 'node:path';
 import {spawn,spawnSync} from 'node:child_process';
 import {AsyncLocalStorage} from 'node:async_hooks';
 // Sign-in: records the call and finishes, as Claude Code's own sign-in does once the browser returns.
+// Sign-in left waiting on its browser page (a login-hangs file in the data folder): records the call and never finishes.
+{const record=process.argv.indexOf('--fixture-record');if(process.argv.slice(-3).join(' ')==='auth login --claudeai'&&record>=0&&fs.existsSync(path.join(path.dirname(process.argv[record+1]),'login-hangs'))){fs.appendFileSync(path.join(path.dirname(process.argv[record+1]),'login-requests.jsonl'),JSON.stringify({args:process.argv.slice(2),hangs:true})+'\n');setInterval(()=>{},1000);await new Promise(()=>{});}}
+// Sign-out: records the call and finishes.
+if(process.argv.slice(-2).join(' ')==='auth logout'){const record=process.argv.indexOf('--fixture-record');if(record>=0)fs.appendFileSync(path.join(path.dirname(process.argv[record+1]),'login-requests.jsonl'),JSON.stringify({args:process.argv.slice(2)})+'\n');process.stdout.write('Successfully logged out from your Anthropic account.\n');process.exit(0);}
 if(process.argv.slice(-3).join(' ')==='auth login --claudeai'){const record=process.argv.indexOf('--fixture-record');if(record>=0)fs.appendFileSync(path.join(path.dirname(process.argv[record+1]),'login-requests.jsonl'),JSON.stringify({args:process.argv.slice(2)})+'\n');process.exit(0);}
 if(process.argv.includes('--fixture-oneshot')){
  let prompt='';for await(const bytes of process.stdin)prompt+=bytes;const input=JSON.parse(prompt);

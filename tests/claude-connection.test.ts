@@ -20,3 +20,14 @@ test('a missing usage answer says so; a missing Claude Code offers the install',
  const missing=render({connected:false,status:'Claude Code not installed'});
  assert.match(missing,/Install Claude Code ↗/);assert.match(missing,/Check again/);assert.doesNotMatch(missing,/Sign in to Claude Code|Usage windows/);
 });
+
+// Koan 11-24: Switch account did nothing and there was no sign-out. A signed-in panel offers both; a sign-in still
+// waiting on its browser page says so and offers Cancel instead of a button that does nothing.
+test('a signed-in panel offers Sign out; a waiting sign-in offers Cancel',()=>{
+ const signedIn=render({connected:true,status:'Signed in'});
+ assert.match(signedIn,/Switch account/);assert.match(signedIn,/>Sign out</);assert.doesNotMatch(signedIn,/Cancel sign-in/);
+ const waiting=render({connected:true,status:'Signed in',signingIn:true});
+ assert.match(waiting,/Cancel sign-in/);assert.match(waiting,/Finish signing in on the Anthropic page/);assert.doesNotMatch(waiting,/Switch account|>Sign out</);
+ const signedOut=render({connected:false,status:'Claude Code is signed out'});
+ assert.match(signedOut,/Sign in to Claude Code/);assert.doesNotMatch(signedOut,/>Sign out</);
+});

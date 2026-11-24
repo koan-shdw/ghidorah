@@ -31,21 +31,27 @@ export function StayAwake({state,call}:{state:Snapshot;call:Call}){
   <p className="hint">Computer stays awake, screen still locks.{state.alwaysOn?.awake?' Awake now.':''}</p></>;
 }
 
-// Runs Claude Code's own sign-in.
-function ClaudeSignIn({state,call}:{state:Snapshot;call:Call}){
- if(state.claude?.status==='Claude Code not installed')return null;
- return <button className="primary" disabled={state.claude?.status==='Waiting for sign-in'} onClick={()=>void call('claudeLogin').catch(()=>{})}>{state.claude?.connected?'Switch account':'Sign in to Claude Code'}</button>;
+// Runs Claude Code's own sign-in. While it waits on the browser page, Cancel ends it; a signed-in account can sign out.
+function ClaudeSignIn({state,call,fail}:{state:Snapshot;call:Call;fail:(problem:unknown)=>void}){
+ const claude=state.claude;
+ if(claude?.status==='Claude Code not installed')return null;
+ if(claude?.signingIn)return <button onClick={()=>void call('claudeCancel').catch(fail)}>Cancel sign-in</button>;
+ return <><button className="primary" disabled={claude?.status==='Signing out…'} onClick={()=>void call('claudeLogin').catch(fail)}>{claude?.connected?'Switch account':'Sign in to Claude Code'}</button>
+  {claude?.connected&&<button disabled={claude.status==='Signing out…'} onClick={()=>void call('claudeLogout').catch(fail)}>Sign out</button>}</>;
 }
 
 // Claude Code's one home (Koan, 10-26: "it should only be in the connections page"): the body of Connections >
 // Anthropic, also the wizard's Claude Code step. Plan and usage read like the OpenAI panel.
 export function ClaudeConnection({state,call}:{state:Snapshot;call:Call}){
- const claude=state.claude,missing=claude?.status==='Claude Code not installed';
+ const claude=state.claude,missing=claude?.status==='Claude Code not installed',[error,setError]=React.useState('');
+ const fail=(problem:unknown)=>setError(String(problem).replace(/^Error invoking remote method 'app': (?:Error: )?/,''));
  return <div className="claude-connection"><p>Uses your installed Claude Code and its subscription sign-in.</p>
   {missing&&<p>Install Claude Code, then sign in with your Claude subscription.</p>}
-  <div className="actions">{missing&&<button className="primary" onClick={()=>void call('link',{kind:'claude-install'}).catch(()=>{})}>Install Claude Code ↗</button>}<ClaudeSignIn state={state} call={call}/><button onClick={()=>void call('claudeCheck').catch(()=>{})}>{missing?'Check again':'Check connection'}</button></div>
+  <div className="actions">{missing&&<button className="primary" onClick={()=>void call('link',{kind:'claude-install'}).catch(()=>{})}>Install Claude Code ↗</button>}<ClaudeSignIn state={state} call={(method,args)=>{setError('');return call(method,args);}} fail={fail}/><button onClick={()=>void call('claudeCheck').catch(()=>{})}>{missing?'Check again':'Check connection'}</button></div>
+  {claude?.signingIn&&<p>Finish signing in on the Anthropic page in your browser.</p>}
+  {error&&<p className="error" role="alert">{error}</p>}
   {claude?.connected&&<><p>{claude.plan?claude.plan+' plan':'Claude subscription'} · Usage windows {claude.windows?.length?'':'unavailable'}</p>{claude.windows?.map(window=><p key={window.label}>{window.label}: {window.usedPercent==null?'unavailable':window.usedPercent+'% used'}{window.resetAt?' · Resets '+new Date(window.resetAt).toLocaleString():''}</p>)}</>}
-  <p className="hint">Claude turns use your installed Claude Code and its own sign-in.</p>
+  <p className="hint">Claude turns use your installed Claude Code and its own sign-in. Sign out removes that sign-in and keeps your chats. To switch accounts, choose the other account on the Anthropic page; if it keeps choosing the previous one, sign out of claude.ai in your browser first.</p>
   {!missing&&<><div className="connection-field"><span>Use my claude.ai connectors</span><Switch checked={!!state.claudeConnectors} ariaLabel="Use my claude.ai connectors" label={state.claudeConnectors?'On':'Off'} onChange={()=>void call('claudeConnectors',{enabled:!state.claudeConnectors}).catch(()=>{})}/></div>
    <p className="hint">Claude chats also get the connectors on your claude.ai account (Gmail, Drive, Shopify…). Other models don't. Each use still asks for approval. A connector also added in Settings, MCP is used from there instead. Applies to new Claude sessions.</p></>}
  </div>;
