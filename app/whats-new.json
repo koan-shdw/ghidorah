@@ -256,5 +256,8 @@
   {"version":"0.1.49","date":"2026-11-24","notes":[
     "Anthropic: Switch account works again after a sign-in page was left open, with Cancel sign-in while it waits",
     "Anthropic: new Sign out button"
+  ]},
+  {"version":"0.1.50","date":"2026-11-27","notes":[
+    "Fable usage credits that come back early now lift the limit, and chats stopped by it carry on by themselves"
   ]}
 ]
