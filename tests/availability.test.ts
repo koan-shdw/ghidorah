@@ -66,6 +66,23 @@ test('a full Claude usage window holds nothing; only Claude\'s own refusal holds
  }finally{Date.now=real;store.db.close();fs.rmSync(directory,{recursive:true,force:true});}
 });
 
+// Koan 2026-11-27: Fable credits came back early, but the refusal sat under a limit type the meter never read.
+test('a model\'s own weekly bucket with room lifts Claude\'s refusal on that model alone',()=>{
+ const directory=fs.mkdtempSync(path.join(os.tmpdir(),'tris-claude-model-bucket-')),store=new Store(path.join(directory,'chat.sqlite')),health=new AccountHealth(store);
+ const real=Date.now;let now=real();Date.now=()=>now;const tick=()=>(now+=1000);
+ const fable='claude-code:claude-fable-5-1',opus='claude-code:claude-opus-5-5',reset=now+86400000;
+ const usage=(utilization:number)=>({rate_limits_available:true,rate_limits:{five_hour:{utilization:100},seven_day:{utilization:100},model_scoped:[{display_name:'Fable',utilization}]}});
+ try{
+  health.claude(fable,{type:'rate_limit_event',rate_limit_info:{status:'rejected',rateLimitType:'seven_day_fable',resetsAt:reset/1000}},tick());
+  health.claude(opus,{type:'rate_limit_event',rate_limit_info:{status:'rejected',rateLimitType:'seven_day_other',resetsAt:reset/1000}},tick());
+  assert.ok(blockedFor(health.rows(),fable));assert.ok(blockedFor(health.rows(),opus));
+  health.claudeUsage(usage(100),tick());assert.ok(blockedFor(health.rows(),fable),'a full bucket lifts nothing');
+  health.claudeUsage(usage(4),tick());
+  assert.equal(blockedFor(health.rows(),fable),undefined,'Fable has room again');
+  assert.ok(blockedFor(health.rows(),opus),'another model\'s refusal stays');
+ }finally{Date.now=real;store.db.close();fs.rmSync(directory,{recursive:true,force:true});}
+});
+
 test('Alibaba free-tier quota and entitlement failures affect only the refused model',()=>{
  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'tris-alibaba-health-')),store=new Store(path.join(directory,'chat.sqlite')),health=new AccountHealth(store);
  const model='api:alibaba:qwen-plus',other='api:alibaba:qwen-turbo';

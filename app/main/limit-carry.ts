@@ -3,14 +3,18 @@
 // At that time the app sends the chat a message to carry on, which he sent by hand before.
 import {health,store} from '../main';
 import {blockedFor} from '../availability';
-import {carryOnAt,carryOnText,limitStop} from '../limit-pause';
+import {carryOnAt,carryOnText,carryReady,limitLifted,limitStop} from '../limit-pause';
 import type {Chat,Turn} from '../types';
 import {submitTurn} from './context';
 import {randomUUID} from 'node:crypto';
 
-export interface LimitCarry {id:string;at:number;model:string;agents:number;turns:number;created:number}
+// held: a saved block stopped the work, so it carries on as soon as that block lifts (a usage check, credits bought),
+// not only at the reset. False when only the refusal's words gave a time. Rows from before it count as held: at worst
+// one refused carry-on, which saves itself again as not held.
+export interface LimitCarry {id:string;at:number;model:string;agents:number;turns:number;created:number;held?:boolean}
 // A message sent the instant a limit reset was refused a second time, with no reset left to wait for; a minute on it goes.
 const MARGIN=60000;
+const due=(row:LimitCarry,now:number)=>carryReady({...row,at:row.at+MARGIN},health.rows(),now);
 export const limitCarries=()=>store.all<LimitCarry>('limit-carry');
 export function dropLimitCarry(chatId:string){if(!store.find<LimitCarry>('limit-carry',chatId))return false;store.remove('limit-carry',chatId);return true;}
 /** The times emit() wakes for. */
@@ -28,16 +32,16 @@ export function settleLimitCarry(){
     const reset=carryOnAt(health.rows(),turn.model,String(turn.error||'')+' '+String(turn.text||'').slice(-400),now);if(reset===null)continue;
     const old=store.find<LimitCarry>('limit-carry',root.id),origin=turn.automatic?.originTurnId?store.find<Turn>('turn',turn.automatic.originTurnId):undefined,agent=turn.automatic?.kind==='agent';
     // An agent's own model is not the chat's: the chat carries on with the model of the message the agent worked for.
-    store.put<LimitCarry>('limit-carry',{id:root.id,at:Math.max(old?.at||0,reset),model:old?.model||origin?.model||(agent?root.model:turn.model),agents:(old?.agents||0)+(agent?1:0),turns:(old?.turns||0)+(agent?0:1),created:old?.created||now});
+    store.put<LimitCarry>('limit-carry',{id:root.id,at:Math.max(old?.at||0,reset),model:old?.model||origin?.model||(agent?root.model:turn.model),agents:(old?.agents||0)+(agent?1:0),turns:(old?.turns||0)+(agent?0:1),created:old?.created||now,held:old?.held!==false&&!limitLifted(health.rows(),turn.model,now)});
   }
   if(at!==cursor)store.put('settings',{id:'limit-carry-cursor',at});
-  if(!firing&&limitCarries().some(row=>row.at+MARGIN<=now))void fire(now);
+  if(!firing&&limitCarries().some(row=>due(row,now)))void fire(now);
 }
 async function fire(now:number){
   firing=true;
   try{
     for(const row of limitCarries()){
-      if(row.at+MARGIN>now)continue;
+      if(!due(row,now))continue;
       const chat=store.find<Chat>('chat',row.id),later=chat?store.where<Turn>('turn','chatId',row.id).filter(turn=>!turn.parentTurnId&&turn.created>row.created):[];
       // Nothing to do when the chat is gone, when he turned its wake-ups off, when he has carried on himself (a
       // message of his that has left the queue) or when Claude woke itself after the reset. Messages of his that

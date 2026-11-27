@@ -46,6 +46,17 @@ export function carryOnAt(rows:Availability[],model:string,words:string,now=Date
   const resets=rows.filter(row=>row.blocked&&row.reason==='limit'&&row.resetAt!==null&&row.resetAt>now&&(provider?row.provider===provider:!!blockedFor([row],model,now))).map(row=>row.resetAt!);
   return resets.length?Math.max(...resets):namedReset(words,now);
 }
+/** Whether no block is left on work with this model: for Claude no limit at all (its agents may run another Claude
+ * model than the chat) and nothing else on the model; for other suppliers nothing on the model. */
+export function limitLifted(rows:Availability[],model:string,now=Date.now()){
+  if(!model.startsWith('claude-code:'))return !blockedFor(rows,model,now);
+  return !rows.some(row=>row.provider==='claude-code'&&row.blocked&&!(row.reason==='limit'&&row.resetAt!==null&&row.resetAt<=now)&&(row.reason==='limit'||!!blockedFor([row],model,now)));
+}
+/** Whether carried-on work goes now: its time has come, or the block it waited on lifted early (a usage check saw
+ * room, credits were bought). Work that only had the refusal's own words ("resets 2:50pm") waits for that time. */
+export function carryReady(row:{at:number;model:string;held?:boolean},rows:Availability[],now=Date.now()){
+  return row.at<=now||row.held!==false&&limitLifted(rows,row.model,now);
+}
 /** What the app sends into the chat at the reset, in place of a message he sent by hand. */
 export function carryOnText(agents:number){
   return 'The usage limit that stopped this work has reset. Carry on from where it stopped.'+(agents?' '+(agents===1?'One agent was':agents+' agents were')+' stopped by the limit before finishing: start '+(agents===1?'it':'them')+' again where the work still needs '+(agents===1?'it':'them')+'.':'');

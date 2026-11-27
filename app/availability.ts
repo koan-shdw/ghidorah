@@ -85,6 +85,13 @@ export class AccountHealth {
    if(value.utilization<100){this.observe('claude-code','rate:'+key,'limit',false,started,resetTime(value.resets_at),scope);if(scope==='account')globalAvailable=true;}
    else if(this.rows().some(row=>row.id==='claude-code:rate:'+key+':'+scope&&row.blocked&&!row.refused))this.observe('claude-code','rate:'+key,'limit',false,started,resetTime(value.resets_at),scope);
   }
+  // A model's own weekly limit (Fable) comes as a named bucket; Claude's refusal on it names a limit type this app
+  // does not know, so it was saved under the model and only its old reset lifted it. A bucket with room lifts it.
+  for(const bucket of Array.isArray(limits.model_scoped)?limits.model_scoped:[]){
+   const name=typeof bucket?.display_name==='string'?bucket.display_name.toLowerCase().split(/[^a-z0-9]+/).find((word:string)=>word.length>2&&word!=='claude'&&!/^\d/.test(word)):undefined;
+   if(!name||typeof bucket.utilization!=='number'||!Number.isFinite(bucket.utilization)||bucket.utilization<0||bucket.utilization>=100)continue;
+   for(const row of this.rows())if(row.provider==='claude-code'&&row.reason==='limit'&&row.blocked&&!['account','opus','sonnet'].includes(row.scope)&&row.scope.toLowerCase().includes(name))this.observe('claude-code',row.key,'limit',false,started,row.resetAt,row.scope);
+  }
   this.clear('claude-code',['auth'],started);
   if(globalAvailable)this.clear('claude-code',['billing','limit'],started);
   const spend=limits.spend,credits=spend&&typeof spend==='object'?spend.enabled===true&&spend.spend_limit_reached!==true:limits.extra_usage?.is_enabled===true&&limits.extra_usage.spend_limit_reached!==true;

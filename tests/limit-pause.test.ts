@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {carryOnAt,carryOnText,limitPause,limitReset,limitStop,namedReset,pausePatch,pauseText,resetClock,resumeDue} from '../app/limit-pause';
+import {carryOnAt,carryOnText,carryReady,limitLifted,limitPause,limitReset,limitStop,namedReset,pausePatch,pauseText,resetClock,resumeDue} from '../app/limit-pause';
 import type {Availability} from '../app/availability';
 import type {Turn} from '../app/types';
 
@@ -67,4 +67,20 @@ test('work a limit stopped is known by the supplier\'s words, and carries on onc
   assert.match(carryOnText(0),/^The usage limit that stopped this work has reset\. Carry on from where it stopped\.$/);
   assert.match(carryOnText(1),/One agent was stopped by the limit before finishing: start it again/);assert.match(carryOnText(3),/3 agents were stopped .* start them again/);
   assert.equal(resetClock(later,now),time(later));assert.equal(resetClock(now+20*3600000,now),new Date(now+20*3600000).toLocaleDateString([],{weekday:'short'})+' '+time(now+20*3600000));
+});
+
+// Fable credits came back before the old reset and stalled chats sat until it (Koan 2026-11-27).
+test('carried-on work goes as soon as the block it waited on lifts; work that had only the refusal\'s words waits',()=>{
+  const fable=row({id:'claude-code:rate:seven_day_fable:claude-code:fable',key:'rate:seven_day_fable',scope:'claude-code:fable',refused:true});
+  // An agent on Fable stopped an Opus chat: any Claude limit still holds it, whichever model it carries on with.
+  assert.equal(limitLifted([fable],'claude-code:opus',now),false);
+  assert.equal(limitLifted([fable,row({blocked:false})],'claude-code:opus',now),false);
+  assert.equal(limitLifted([{...fable,blocked:false}],'claude-code:opus',now),true);
+  assert.equal(limitLifted([row({key:'billing',resetAt:null})],'claude-code:opus',now),false,'credits run out: no end time, still a block');
+  assert.equal(limitLifted([row({provider:'openai-codex'})],'claude-code:opus',now),true,'another supplier\'s limit');
+  const carry={at:later,model:'claude-code:opus'};
+  assert.equal(carryReady(carry,[fable],now),false);
+  assert.equal(carryReady(carry,[{...fable,blocked:false}],now),true,'lifted early');
+  assert.equal(carryReady({...carry,held:false},[],now),false,'only a named time: wait for it');
+  assert.equal(carryReady({...carry,held:false},[],later),true);
 });
